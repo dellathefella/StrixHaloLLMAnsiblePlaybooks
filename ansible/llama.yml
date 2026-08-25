@@ -8,10 +8,9 @@
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
     llama_build_deps:
       - cmake
-      - libvulkan-dev
-      - vulkan-headers
+      - libvulkan-dev     # Vulkan headers + ICD loader (vulkan.h)
       - glslang-tools
-      - shaderc            # provides glslc (Vulkan shader compiler) for llama.cpp
+      - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
     gemma_url: "https://huggingface.co/{{ gemma_repo }}/resolve/main/{{ gemma_model }}"
     qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
 
