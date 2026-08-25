@@ -1,2 +1,6 @@
 hf_token.txt
 .pi/*
+*.gguf
+# HF/aria2 partial download artifacts
+*.gguf.aria2
+*.gguf.part
