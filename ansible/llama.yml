@@ -80,10 +80,12 @@
       become: no
 
     - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }})
-      # Direct curl (Xet CDN client hangs on this system, same as DS4 path).
+      # aria2c 16-connection (saturates a fast link; single-stream curl / hf
+      # download's Xet client both hang/underperform on this system).
       ansible.builtin.command:
         cmd: >-
-          curl -L --retry 3 --retry-delay 5 --fail
+          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          --continue=true --allow-overwrite=true
           -o {{ llama_models_dir }}/{{ gemma_model }} {{ gemma_url }}
       become: no
       changed_when: false
@@ -93,7 +95,8 @@
     - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }})
       ansible.builtin.command:
         cmd: >-
-          curl -L --retry 3 --retry-delay 5 --fail
+          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          --continue=true --allow-overwrite=true
           -o {{ llama_models_dir }}/{{ qwen36_model }} {{ qwen36_url }}
       become: no
       changed_when: false

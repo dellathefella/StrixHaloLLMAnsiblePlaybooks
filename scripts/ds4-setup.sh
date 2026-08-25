@@ -47,7 +47,7 @@ echo "Detected package manager: $PKG_MAN   ds4 mode: $DS4_MODE"
 sudo apt update
 sudo apt install -y \
     python3 python3-venv python3-pip libboost-all-dev dkms podman distrobox \
-    pipx gcc git rocm rocm-smi cargo curl
+    pipx gcc git rocm rocm-smi cargo curl aria2
 
 # --- 2. user-level DS4 toolchain ---
 cargo install amdgpu_top --locked || true
@@ -86,7 +86,8 @@ distrobox create --name "$NAME" --image "$IMAGE" --additional-flags \
     "--device /dev/dri --device /dev/kfd --group-add video --group-add render \
      --group-add sudo --security-opt seccomp=unconfined"
 
-# --- 6. model downloads (direct curl — hf download's Xet CDN client hangs here) ---
+# --- 6. model downloads (aria2c 16-connection — much faster than single-stream
+#     curl; hf download's Xet CDN client silently hangs on this system) ---
 mkdir -p "$DS4_MODELS_DIR"
 dl() { # $1=model  $2=label
     if [ -f "$DS4_MODELS_DIR/$1" ]; then
@@ -94,7 +95,8 @@ dl() { # $1=model  $2=label
         return
     fi
     echo "Downloading $2: $1 ..."
-    curl -L --retry 3 --retry-delay 5 --fail \
+    aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false \
+        --continue=true --allow-overwrite=true \
         -o "$DS4_MODELS_DIR/$1" \
         "https://huggingface.co/$REPO/resolve/main/$1"
 }
