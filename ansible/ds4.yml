@@ -45,40 +45,43 @@
       tags: [toolbox]
 
     - name: Download single-node IQ2_XXS imatrix model
-      # NOTE: `hf download` silently hangs on this system (Xet CDN client), so we
-      # fetch the public GGUF directly with curl (proven ~20 MB/s).
+      # aria2c 16-connection (saturates a fast link; single-stream curl / hf
+      # download's Xet client both hang/underperform on this system).
       ansible.builtin.command:
         cmd: >-
-          curl -L --retry 3 --retry-delay 5 --fail
-          -o {{ ds4_models_dir }}/{{ ds4_single_model }}
+          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          --continue=true --allow-overwrite=true
           {{ ds4_single_url }}
+      args:
+        chdir: "{{ ds4_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: ds4_download_single | int == 1
       tags: [model]
 
     - name: Download multi-node Q4KExperts imatrix model
       ansible.builtin.command:
         cmd: >-
-          curl -L --retry 3 --retry-delay 5 --fail
-          -o {{ ds4_models_dir }}/{{ ds4_multi_model }}
+          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          --continue=true --allow-overwrite=true
           {{ ds4_multi_url }}
+      args:
+        chdir: "{{ ds4_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: ds4_download_multi | int == 1
       tags: [model]
 
     - name: Download MTP speculative-decoding weights (optional, off by default)
       ansible.builtin.command:
         cmd: >-
-          curl -L --retry 3 --retry-delay 5 --fail
-          -o {{ ds4_models_dir }}/{{ ds4_mtp_model }}
+          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          --continue=true --allow-overwrite=true
           {{ ds4_mtp_url }}
+      args:
+        chdir: "{{ ds4_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: ds4_download_mtp | int == 1
       tags: [model]
 
@@ -87,6 +90,7 @@
         paths: "{{ ds4_models_dir }}"
         patterns: "*IQ2XXS*imatrix*"
       register: ds4_single_files
+      become: no
       tags: [model]
 
     - name: Check multi-node Q4KExperts model present
@@ -94,6 +98,7 @@
         paths: "{{ ds4_models_dir }}"
         patterns: "*Q4KExperts*imatrix*"
       register: ds4_multi_files
+      become: no
       tags: [model]
 
     - name: Warn if model files are incomplete

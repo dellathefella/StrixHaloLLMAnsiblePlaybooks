@@ -96,10 +96,11 @@
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
           --continue=true --allow-overwrite=true
-          -o {{ llama_models_dir }}/{{ gemma_model }} {{ gemma_url }}
+          {{ gemma_url }}
+      args:
+        chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: not gemma_stat.stat.exists
       tags: [model, gemma]
 
@@ -121,10 +122,11 @@
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
           --continue=true --allow-overwrite=true
-          -o {{ llama_models_dir }}/{{ gemma_e4b_model }} {{ gemma_e4b_url }}
+          {{ gemma_e4b_url }}
+      args:
+        chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: not gemma_e4b_stat.stat.exists
       tags: [model, gemma-e4b]
 
@@ -146,10 +148,11 @@
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
           --continue=true --allow-overwrite=true
-          -o {{ llama_models_dir }}/{{ qwen36_model }} {{ qwen36_url }}
+          {{ qwen36_url }}
+      args:
+        chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      failed_when: false
       when: not qwen36_stat.stat.exists
       tags: [model, qwen36]
 
