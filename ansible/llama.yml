@@ -131,11 +131,18 @@
       when: qwen36_stat.stat.exists
       tags: [model, qwen36]
 
+    - name: Check downloaded model files present
+      ansible.builtin.find:
+        paths: "{{ llama_models_dir }}"
+        patterns: "*UD-Q8_K_XL*"
+      register: model_files
+      tags: [model, gemma, qwen36]
+
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
         msg: "WARNING [model] expected GGUF(s) missing in {{ llama_models_dir }} — re-run download."
-      when: >-
-        not (lookup('ansible.builtin.find', llama_models_dir, pattern='*UD-Q8_K_XL*') | length >= 2)
+      when: not (model_files.matched | int >= 2)
+      tags: [model, gemma, qwen36]
 
     - name: Print llama.cpp track summary
       ansible.builtin.debug:
