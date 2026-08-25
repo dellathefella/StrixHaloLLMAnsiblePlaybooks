@@ -34,7 +34,7 @@ qwen_max_model_len: 65536
 qwen_head_ip: ""
 qwen_worker_ip: ""
 
-# --- llama.cpp track: Gemma 4 26B-A4B + Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) ---
+# --- llama.cpp track: Gemma 4 26B-A4B + Qwen3.6-35B-A3B + Gemma4-E4B (Q4_K_S) ---
 gemma_ctx: 131072   # 8-bit 27.6 GB leaves lots of headroom; 26B-A4B supports 256k native
 gemma_port: 8080
 gemma_host: "127.0.0.1"
@@ -44,8 +44,17 @@ gemma_ubatch: 512         # 2^n ubatch
 gemma_flash_attn: 1
 gemma_mmap: 0             # --no-mmap: load weights fully into the unified shared pool
 qwen36_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
-qwen36_port: 8081
+gemma_e4b_ctx: 131072  # 4.5B eff / 8B total (PLE) — 128K native ctx; Q4_K_S ~4.8 GB
+gemma_e4b_port: 8083
 qwen36_host: "127.0.0.1"
+gemma_e4b_host: "127.0.0.1"
+gemma_e4b_device: "Vulkan0"
+gemma_e4b_batch: 512     # dense model — large batch for max tg throughput
+gemma_e4b_ubatch: 1024   # ubatch >> ctx for best memory bandwidth utilization
+gemma_e4b_flash_attn: 1
+gemma_e4b_mmap: 0
+gemma_e4b_threads: 32    # full 16C/32T Strix Halo utilization
+qwen36_port: 8081
 qwen36_device: "Vulkan0"
 qwen36_batch: 256
 qwen36_ubatch: 512
@@ -62,3 +71,5 @@ gemma_model: "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf"   # unsloth/gemma-4-26B-A4B-it
 gemma_repo: "unsloth/gemma-4-26B-A4B-it-GGUF"
 qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+gemma_e4b_model: "gemma-4-E4B-it-Q4_K_S.gguf"       # unsloth/gemma-4-E4B-it-GGUF (~4.8 GB)
+gemma_e4b_repo: "unsloth/gemma-4-E4B-it-GGUF"

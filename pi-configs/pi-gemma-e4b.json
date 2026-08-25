@@ -1,0 +1,30 @@
+{
+  "providers": {
+    "gemma_e4b": {
+      "name": "Gemma 4 E4B (llama.cpp, Q4_K_S)",
+      "baseUrl": "http://127.0.0.1:8083/v1",
+      "api": "openai-completions",
+      "apiKey": "gemma-e4b-local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens",
+        "supportsStrictMode": false,
+        "thinkingFormat": "gemma"
+      },
+      "models": [
+        {
+          "id": "gemma-4-e4b",
+          "name": "Gemma 4 E4B (llama.cpp, Q4_K_S)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
