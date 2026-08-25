@@ -11,6 +11,7 @@
       - libvulkan-dev     # Vulkan headers + ICD loader (vulkan.h)
       - glslang-tools
       - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
+      - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
     gemma_url: "https://huggingface.co/{{ gemma_repo }}/resolve/main/{{ gemma_model }}"
     qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
 
