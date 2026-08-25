@@ -43,16 +43,18 @@
       changed_when: false
       tags: [build]
 
-    - name: Build llama-server (parallel)
+    - name: Build all targets (parallel)
       ansible.builtin.command:
-        cmd: "cmake --build build --config Release -j{{ ansible_processor_vcpus | default(16) }} --target llama-server"
+        cmd: "cmake --build build --config Release -j{{ ansible_processor_vcpus | default(16) }}"
       args:
         chdir: "{{ llama_repo }}"
       become: no
       changed_when: false
       tags: [build]
 
-    - name: Install llama-server to {{ llama_prefix }}/bin
+    - name: Install to {{ llama_prefix }} (full install)
+      # Full cmake --install needs every target built (it references test
+      # binaries like test-tokenizer-0); build above covers all of them.
       ansible.builtin.command:
         cmd: "cmake --install build --prefix {{ llama_prefix }}"
       args:
