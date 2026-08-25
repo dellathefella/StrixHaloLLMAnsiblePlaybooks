@@ -322,6 +322,37 @@ QWEN_ROLE=worker ./scripts/qwen-rccl-start.sh
 OpenAI endpoint: `http://<HEAD_IP>:7000/v1` (Auth: None). vLLM downloads
 Qwen weights into the models dir on first serve.
 
+## Output the rendered configs
+
+The launch scripts and pi configs are **generated from templates** (not hand-kept
+files). Source: `ansible/templates/*.j2` → rendered by the launch-render play
+(`llama.yml`, play 2, `tags: [launch, llama]`) into:
+- `scripts/gemma-start.sh`  ← `templates/gemma-start.sh.j2`   (`tags: [launch, gemma]`)
+- `scripts/qwen36-start.sh` ← `templates/qwen36-start.sh.j2`  (`tags: [launch, qwen36]`)
+- `pi-configs/pi-gemma.json`  ← `templates/pi-gemma.json.j2`  (`tags: [launch, gemma]`)
+- `pi-configs/pi-qwen36.json` ← `templates/pi-qwen36.json.j2` (`tags: [launch, qwen36]`)
+
+The DS4 + Qwen tracks render their own start scripts / pi configs the same way.
+
+**Render + view the Qwen3.6 config** (download auto-skips since the GGUF is present):
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/llama.yml -K --tags qwen36
+cat scripts/qwen36-start.sh    # launch script (Vulkan0, port 8081)
+cat pi-configs/pi-qwen36.json  # pi agent config
+```
+
+**Render just both models' configs** (no build / no download — `--tags launch`):
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/llama.yml -K --tags launch
+cat scripts/gemma-start.sh scripts/qwen36-start.sh
+cat pi-configs/pi-gemma.json pi-configs/pi-qwen36.json
+```
+
+Per-model tags: `--tags qwen36` runs only the qwen36 download + render; `--tags
+launch` runs the whole launch-render play (both gemma + qwen36 scripts and pi
+configs). Once rendered, `./scripts/install-pi.sh` merges `pi-configs/*` into
+`~/.pi/agent/models.json`.
+
 ## pi agent config
 
 The bootstrap drops pi agent configs into `pi-configs/`:
