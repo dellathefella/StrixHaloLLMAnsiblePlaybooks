@@ -1,0 +1,795 @@
+---
+# =============================================================================
+# bootstrap.yml  —  Unified ROCm/DS4 + Qwen bootstrap (Ubuntu/Debian only)
+#
+# One ansible playbook for the whole Ryzen AI Max "Strix Halo" cluster setup.
+# Tracks are selected by inventory groups — empty groups are skipped:
+#
+#   [base]  (implied 'all')  base ROCm packages + GRUB args + toolchain
+#   [ds4]         DS4 DeepSeek V4 Flash (single IQ2_XXS or multi Q4KExperts)
+#   [qwen]        Qwen3.5-397B RCCL cluster (vLLM + Ray across 2 nodes)
+#   [qwen38]      Qwen3.8-27B llama.cpp (ROCm build + MTP speculative decoding)
+#
+# BOOTSTRAP ONLY: installs/configures packages, GRUB, containers, models. It
+# NEVER launches servers. On completion it drops local copies of the launch
+# scripts into scripts/ and pi agent configs into pi-configs/ — you run/merge
+# them when ready.
+#
+# TTM is NOT set with amd-ttm — it is configured by the GRUB kernel args
+# (ttm.pages_limit=32505856 ttm.page_pool_size=32505856 => ~124GB shared pool).
+# Set BIOS UMA VRAM to Auto/minimum so the pool can grow, then REBOOT.
+#
+# RUN:
+#   ansible-playbook -i inventory/hosts bootstrap.yml
+#   ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base   # re-test a track on an already-provisioned host
+#   ansible-playbook -i inventory/hosts bootstrap.yml --tags ds4          # only the DS4 track
+#
+# SAMPLE INVENTORY (inventory/hosts):
+#   [ds4_coordinators]
+#   halo-coord  ansible_user=jdella  ds4_mode=multi  ds4_download_multi=1
+#   [ds4_workers]
+#   halo-worker ansible_user=jdella  ds4_mode=multi  ds4_download_multi=1
+#   [ds4_single]
+#   halo-1      ansible_user=jdella  ds4_mode=single ds4_download_single=1
+#   [ds4:children]
+#   ds4_coordinators
+#   ds4_workers
+#   ds4_single
+#
+#   [qwen_head]
+#   halo-1  ansible_user=jdella  qwen_head_ip=192.168.100.1
+#   [qwen_worker]
+#   halo-2  ansible_user=jdella  qwen_worker_ip=192.168.100.2
+#   [qwen:children]
+#   qwen_head
+#   qwen_worker
+#
+#   [qwen38]
+#   halo-1  ansible_user=jdella  qwen38_ctx=262144   # q38rocm: prebuilt ROCmFPX engine + ROCmFP4_FAST model
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1 — base bootstrap: preflight warnings + packages + GRUB args
+# -----------------------------------------------------------------------------
+- name: "bootstrap — base preflight, packages, toolchain, GRUB"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tags: [base]
+
+  vars:
+    ubuntu_packages:
+      - python3
+      - python3-venv
+      - python3-pip
+      - libboost-all-dev
+      - dkms
+      - podman
+      - distrobox
+      - pipx
+      - gcc
+      - git
+      - curl
+      - ethtool
+      - cargo
+      - mesa-vulkan-drivers   # Mesa RADV ICD (Vulkan0 Wave64 runtime for ROCmFPX engine)
+    # ROCm 7.2.3 via AMD repo.radeon.com (not the Ubuntu 'rocm' package, which is 7.1.0).
+    # Uses noble packages (resolute/26.04 not yet published; noble debs work on resolute).
+    rocm_version: "7.2.3"
+    rocm_codename: "noble"
+    rocm_amdgpu_install_url: "https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_7.2.3.70203-1_all.deb"
+    rocm_gpg_url: "https://repo.radeon.com/rocm/rocm.gpg.key"
+    rocm_pkgs:
+      - hip-runtime-amd
+      - hipblas
+      - rocblas
+      - hipblaslt
+      - hsa-rocr
+      - rocprofiler-register
+      - rocsolver
+      - roctracer
+      - comgr
+      - rocm-smi
+    grub_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit=32505856 ttm.page_pool_size=32505856"
+    min_kernel: "6.18.5"
+    bad_firmware: "linux-firmware-20251125"
+    good_firmware: "linux-firmware-20260110"
+
+  tasks:
+    # --- 1. kernel warning ---
+    - name: Read running kernel version
+      ansible.builtin.shell:
+        cmd: "uname -r"
+      register: kernel_ver
+      changed_when: false
+
+    - name: Warn if kernel older than {{ min_kernel }}
+      ansible.builtin.debug:
+        msg: |
+          WARNING [kernel] kernel '{{ kernel_ver.stdout }}' < recommended
+          '{{ min_kernel }}'. ROCm 7.x is tested on 6.18.5+. Update kernel.
+      when: kernel_ver.stdout is version(min_kernel, '<')
+
+    # --- 2. linux-firmware warning (known ROCm breaker) ---
+    - name: Detect firmware package version
+      ansible.builtin.shell:
+        cmd: "dpkg-query -W -f='${Version}' linux-firmware 2>/dev/null || true"
+      register: fw_ver
+      changed_when: false
+
+    - name: Warn if firmware is the broken {{ bad_firmware }} build
+      ansible.builtin.debug:
+        msg: "WARNING [firmware] '{{ fw_ver.stdout }}' is the known-bad build; upgrade to {{ good_firmware }}+."
+      when:
+        - fw_ver.stdout | length > 0
+        - "'20251125' in fw_ver.stdout"
+
+    - name: Warn if firmware older than {{ good_firmware }}
+      ansible.builtin.debug:
+        msg: "WARNING [firmware] '{{ fw_ver.stdout }}' predates {{ good_firmware }}; update linux-firmware."
+      when:
+        - fw_ver.stdout | length > 0
+        - "'20251125' not in fw_ver.stdout"
+        - fw_ver.stdout is version('20260110', '<')
+
+    # --- 3. GRUB ROCm args check (TTM is set here via ttm.pages_limit) ---
+    - name: Check ROCm GRUB kernel args present
+      ansible.builtin.shell:
+        cmd: "grep -q '{{ grub_args }}' /etc/default/grub"
+      register: grub_check
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if GRUB ROCm args missing
+      ansible.builtin.debug:
+        msg: |
+          WARNING [grub] ROCm kernel args NOT in /etc/default/grub:
+          '{{ grub_args }}'. Without them the iGPU sees ~64GB not ~124GB.
+          This play appends them (below) — REBOOT needed afterwards.
+      when: grub_check.rc != 0
+
+    # --- 4. memory warning ---
+    - name: Warn if memory below 128 GB
+      ansible.builtin.debug:
+        msg: "WARNING [memory] only {{ ansible_facts.memtotal_mb | int // 1024 }}GB RAM; model tracks need >=128GB unified memory."
+      when: ansible_facts.memtotal_mb | int < 128000
+
+    # --- 5. ROCm device nodes ---
+    - name: Check /dev/kfd and /dev/dri exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: dev_stat
+      loop: ["/dev/kfd", "/dev/dri"]
+      changed_when: false
+
+    - name: Warn if GPU device nodes missing
+      ansible.builtin.debug:
+        msg: "WARNING [device] {{ item.stat.path }} missing — containers need /dev/kfd and /dev/dri."
+      loop: "{{ dev_stat.results }}"
+      when: not item.stat.exists
+
+    # --- 6. BIOS VRAM informational note ---
+    - name: Informational VRAM BIOS guidance
+      ansible.builtin.debug:
+        msg: "NOTE [vram] set BIOS UMA frame buffer to Auto/512MB so the shared pool can grow; 'sudo systemctl reboot --firmware-setup'. Cannot auto-verify."
+      tags: [info]
+
+    # --- 7. install base packages ---
+    - name: Update package cache
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: [packages]
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ ubuntu_packages }}"
+        state: present
+      tags: [packages]
+
+    # --- 7b. ROCm {{ rocm_version }} via AMD repo.radeon.com (replaces Ubuntu 'rocm' 7.1.0) ---
+    - name: Install ca-certs for the ROCm apt repo
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+      tags: [rocm]
+
+    - name: Download ROCm {{ rocm_version }} amdgpu-install deb
+      ansible.builtin.get_url:
+        url: "{{ rocm_amdgpu_install_url }}"
+        dest: /tmp/amdgpu-install_{{ rocm_version }}.deb
+        mode: "0644"
+      tags: [rocm]
+
+    - name: Install amdgpu-install deb (adds the ROCm apt repo)
+      ansible.builtin.apt:
+        deb: /tmp/amdgpu-install_{{ rocm_version }}.deb
+      tags: [rocm]
+
+    - name: Update package cache (picks up ROCm repo)
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: [rocm]
+
+    - name: Install ROCm {{ rocm_version }} runtime + SMI
+      ansible.builtin.apt:
+        name: "{{ rocm_pkgs }}"
+        state: present
+      tags: [rocm]
+
+    - name: Remove amdgpu-install deb from /tmp
+      ansible.builtin.file:
+        path: /tmp/amdgpu-install_{{ rocm_version }}.deb
+        state: absent
+      tags: [rocm]
+
+    # --- 8. user-level toolchain (NOT root) ---
+    - name: Install amdgpu_top via cargo
+      ansible.builtin.command:
+        cmd: cargo install amdgpu_top --locked
+      become: no
+      tags: [cargo]
+
+    - name: Install ds4-cockpit via pipx
+      ansible.builtin.command:
+        cmd: pipx install "git+https://github.com/kyuz0/strix-halo-ds4-toolbox.git#subdirectory=ds4-strix-halo-cockpit"
+      become: no
+      tags: [pipx]
+
+    - name: Install HuggingFace CLI (hf) via pipx
+      ansible.builtin.command:
+        cmd: pipx install "huggingface_hub[cli]"
+      become: no
+      tags: [pipx]
+
+    - name: Ensure pipx binaries on PATH
+      ansible.builtin.command:
+        cmd: pipx ensurepath
+      become: no
+      tags: [pipx]
+
+    # --- 9. GRUB args (TTM sizing lives here) ---
+    - name: Append ROCm kernel args to GRUB_CMDLINE_LINUX if missing
+      ansible.builtin.replace:
+        path: /etc/default/grub
+        regexp: '^(GRUB_CMDLINE_LINUX=")(.*)(")$'
+        replace: 'GRUB_CMDLINE_LINUX="\2 {{ grub_args }}"'
+      when: grub_check.rc != 0
+      tags: [grub]
+
+    - name: Apply GRUB changes (update-grub)
+      ansible.builtin.command:
+        cmd: update-grub
+      when: grub_check.rc != 0
+      tags: [grub]
+
+    - name: Warn GRUB changes need a reboot before serving
+      ansible.builtin.debug:
+        msg: "WARNING [reboot] GRUB args changed — REBOOT this host before serving (TTM/shared-pool sizing takes effect at boot)."
+      when: grub_check.rc != 0
+      tags: [info]
+
+    - name: Print base bootstrap summary
+      ansible.builtin.debug:
+        msg: |
+          ==== base bootstrap complete on {{ inventory_hostname }} ====
+          kernel: {{ kernel_ver.stdout }}   grub: {{ 'ok' if grub_check.rc == 0 else 'appended' }}
+          Fix any [kernel|firmware|grub|memory|device|reboot] warnings above.
+          TTM pool is set by the GRUB args (ttm.pages_limit); no amd-ttm --set.
+          Docs: https://developer.amd.com/playbooks/deepseek-v4-flash-ds4/
+      tags: [info]
+
+
+# -----------------------------------------------------------------------------
+# PLAY 2 — DS4 track: toolbox + model downloads (no TTM; kernel args handle it)
+# -----------------------------------------------------------------------------
+- name: "bootstrap — DS4 track: toolbox + model downloads"
+  hosts: ds4
+  gather_facts: yes
+  become: yes
+  tags: [ds4]
+
+  vars:
+    ds4_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+    ds4_models_dir: "{{ ds4_home }}/ds4"
+    # ds4_mode / ds4_ctx / ds4_coord_port defaults live in inventory/group_vars/all.yml
+    ds4_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf"
+    ds4_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
+    ds4_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
+    # ds4_download_single / ds4_download_multi / ds4_download_mtp defaults live in group_vars/all.yml
+    ds4_toolbox_image_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
+    ds4_toolbox_image_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
+
+  tasks:
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ ds4_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Create ds4 toolbox, multi-node image (distrobox)
+      ansible.builtin.command:
+        cmd: >-
+          distrobox create --name ds4-multi-node-rocm-7.14 --image {{ ds4_toolbox_image_multi }} --additional-flags
+          "--device /dev/dri --device /dev/kfd --group-add video --group-add render
+          --group-add sudo --security-opt seccomp=unconfined"
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_mode == "multi"
+      tags: [toolbox]
+
+    - name: Create ds4 toolbox, single-node image (distrobox)
+      ansible.builtin.command:
+        cmd: >-
+          distrobox create --name ds4-rocm-7.14 --image {{ ds4_toolbox_image_single }} --additional-flags
+          "--device /dev/dri --device /dev/kfd --group-add video --group-add render
+          --group-add sudo --security-opt seccomp=unconfined"
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_mode == "single"
+      tags: [toolbox]
+
+    - name: Download single-node IQ2_XXS imatrix model
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
+          {{ ds4_single_model }} --local-dir {{ ds4_models_dir }}
+      become: no
+      changed_when: false
+      when: ds4_download_single | int == 1
+      tags: [model]
+
+    - name: Download multi-node Q4KExperts imatrix model
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
+          {{ ds4_multi_model }} --local-dir {{ ds4_models_dir }}
+      become: no
+      changed_when: false
+      when: ds4_download_multi | int == 1
+      tags: [model]
+
+    - name: Download MTP speculative-decoding weights (optional, off by default)
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
+          {{ ds4_mtp_model }} --local-dir {{ ds4_models_dir }}
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_download_mtp | int == 1
+      tags: [model]
+
+    - name: Warn if model files are incomplete
+      ansible.builtin.debug:
+        msg: "WARNING [model] expected GGUF not found in {{ ds4_models_dir }} — re-run download."
+      when: >-
+        (ds4_mode == 'single' and not
+         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*IQ2XXS*imatrix*') | length > 0))
+        or (ds4_mode == 'multi' and not
+         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*Q4KExperts*imatrix*') | length > 0))
+
+    - name: Warn on multi-node that all nodes must share ctx and model
+      ansible.builtin.debug:
+        msg: |
+          WARNING [multi] all nodes must use the SAME --ctx ({{ ds4_ctx }}) and the SAME
+          Q4KExperts GGUF. Coordinator listens on its IP; workers point --coordinator
+          at it. Verify firewalls allow the coordinator port ({{ ds4_coord_port }}).
+      when: ds4_mode == "multi"
+      tags: [info]
+
+    - name: Print DS4 track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== DS4 track complete on {{ inventory_hostname }} ====
+          mode: {{ ds4_mode }}  models in {{ ds4_models_dir }}
+          Launch later via scripts/ds4-start.sh (DS4_ROLE=single|coordinator|worker).
+          MTP disabled by default; set DS4_USE_MTP=1 to enable.
+      tags: [info]
+
+
+# -----------------------------------------------------------------------------
+# PLAY 3 — Qwen RCCL track: vLLM cluster container + models dir
+# -----------------------------------------------------------------------------
+- name: "bootstrap — Qwen RCCL track: vLLM container + models dir"
+  hosts: qwen
+  gather_facts: yes
+  become: yes
+  tags: [qwen]
+
+  vars:
+    qwen_models_dir: "~/.local/share/vLLM/models"
+    qwen_container: "oci-registry.ryai.dev/ryai-vllm:latest"
+    qwen_role: "{{ 'head' if inventory_hostname in groups['qwen_head'] | default([]) else 'worker' }}"
+
+  tasks:
+    - name: Detect default network interface (NCCL/GLOO)
+      ansible.builtin.shell:
+        cmd: "ip route get 1.1.1.1 | grep -oP 'dev \\K\\S+'"
+      register: qwen_ifname
+      changed_when: false
+
+    - name: Check link speed of detected interface (2.5Gbe HP Z2 G1a)
+      ansible.builtin.shell:
+        cmd: "sudo ethtool {{ qwen_ifname.stdout }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
+      register: qwen_link
+      changed_when: false
+      failed_when: false
+      when: qwen_ifname.stdout | length > 0
+
+    - name: Warn if link speed below 2.5Gbps
+      ansible.builtin.debug:
+        msg: |
+          WARNING [link] interface {{ qwen_ifname.stdout }} is {{ qwen_link.stdout }}Mb/s.
+          HP Z2 G1a NICs are 2.5Gbe — acceptable; below 2.5Gbps TP KV exchange stalls.
+      when:
+        - qwen_ifname.stdout | length > 0
+        - (qwen_link.stdout | int) < 2500
+
+    - name: Warn context/KV-memory tradeoff (pushed beyond guide)
+      ansible.builtin.debug:
+        msg: |
+          WARNING [context] qwen_max_model_len={{ qwen_max_model_len | default(65536) }}
+          exceeds guide's 32768. Int4 weights ~198GB leave limited KV headroom in
+          ~240GB combined pool; on a 2.5Gbe link each KV token adds cross-node sync
+          cost. If OOM/slow, lower toward 32768 or raise --gpu-memory-utilization.
+      tags: [info]
+
+    - name: Create model download directory
+      ansible.builtin.file:
+        path: "{{ qwen_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Launch vLLM cluster container (detached bash, RCCL env)
+      ansible.builtin.command:
+        cmd: >-
+          sudo podman run -dit --name vllm_cluster --replace --pull missing
+          --network=host --device /dev/kfd --device /dev/dri
+          -v {{ qwen_models_dir }}:/opt/vLLM/models
+          --env HF_HOME=/opt/vLLM/models
+          --shm-size=64g
+          -e NCCL_SOCKET_IFNAME={{ qwen_ifname.stdout }}
+          -e GLOO_SOCKET_IFNAME={{ qwen_ifname.stdout }}
+          --entrypoint=bin/bash {{ qwen_container }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [container]
+
+    - name: Verify vLLM cluster container is running
+      ansible.builtin.command:
+        cmd: "sudo podman ps --filter name=vllm_cluster --format '{{ '{{.Names}}' }}'"
+      register: qwen_pod
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [container]
+
+    - name: Warn if vLLM container not running
+      ansible.builtin.debug:
+        msg: "WARNING [container] vllm_cluster not running — start it before cluster launch."
+      when: qwen_pod.stdout | length == 0
+      tags: [info]
+
+    - name: Print Qwen RCCL track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== Qwen RCCL track complete on {{ inventory_hostname }} ====
+          role: {{ qwen_role }}   link: {{ qwen_link.stdout | default('?') }}Mb/s
+          Launch later via scripts/qwen-start.sh (QWEN_ROLE=head|worker).
+          Docs: https://developer.amd.com/playbooks/clustering-rccl/
+      tags: [info]
+
+
+# -----------------------------------------------------------------------------
+# PLAY 4 — Qwen3.8-27B q38rocm (ROCmFPX) track: prebuilt engine + ROCmFP4_FAST model
+# -----------------------------------------------------------------------------
+# Matches https://github.com/julianmb/q38rocm: pre-compiled ROCmFPX llama.cpp
+# engine (dual ROCm+Vulkan), ROCmFP4_FAST 4-bit quant, MTP speculative decoding,
+# asymmetric TurboQuant KV cache (q8_0 / turbo4). Requires ROCm 7.2.x (PLAY 1)
+# and the Mesa RADV Vulkan ICD (mesa-vulkan-drivers) for the Vulkan0 backend.
+- name: "bootstrap — Qwen3.8-27B q38rocm (ROCmFPX): prebuilt engine + model"
+  hosts: qwen38
+  gather_facts: no   # local/controller runs skip facts
+  become: yes
+  tags: [qwen38]
+
+  vars:
+    qwen38_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+    qwen38_engine_dir: "{{ qwen38_home }}/qwen38-engine"
+    qwen38_bin: "{{ qwen38_engine_dir }}/bin/llama-server"
+    qwen38_models_dir: "{{ qwen38_home }}/.local/share/Qwen3.8-27B"
+    # ctx/port/host/device/slots/batch/ubatch/kv_k/kv_v/draft_n/draft_pmin/
+    # reasoning_budget/temp/penalties defaults live in inventory/group_vars/all.yml
+    # --- engine (prebuilt v1.4.0, dual ROCm+Vulkan) ---
+    qwen38_engine_url: "https://github.com/julianmb/q38rocm/releases/download/v1.4.0/strix-halo-rocmfpx-engine-v1.4.0-linux-x86_64.tar.gz"
+    qwen38_engine_sha256: "7edd6bb87e00faebdf3af7887230f9293887b00633b04829817844429e4a6bcc"
+    # --- model (ROCmFP4_FAST 4-bit, 13.55 GiB) ---
+    qwen38_model_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
+    qwen38_model_file: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+    qwen38_model_sha256: "fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9"
+
+  tasks:
+    - name: Install HuggingFace CLI (hf) for model download
+      ansible.builtin.command:
+        cmd: pipx install "huggingface_hub[cli]"
+      become: no
+      tags: [pipx]
+
+    - name: Ensure engine bin dir exists
+      ansible.builtin.file:
+        path: "{{ qwen38_engine_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+      tags: [engine]
+
+    - name: Check for existing prebuilt engine binary
+      ansible.builtin.stat:
+        path: "{{ qwen38_bin }}"
+      register: qwen38_bin_st
+      become: no
+      tags: [engine]
+
+    - name: Download prebuilt ROCmFPX engine tarball (v1.4.0)
+      ansible.builtin.get_url:
+        url: "{{ qwen38_engine_url }}"
+        dest: /tmp/qwen38-rocmfpx-engine.tar.gz
+        mode: "0644"
+      become: no
+      when: not qwen38_bin_st.stat.exists
+      tags: [engine]
+
+    - name: Verify engine tarball SHA256
+      ansible.builtin.command:
+        cmd: "sha256sum -c <(echo '{{ qwen38_engine_sha256 }}  /tmp/qwen38-rocmfpx-engine.tar.gz')"
+      become: no
+      changed_when: false
+      when: not qwen38_bin_st.stat.exists
+      tags: [engine]
+
+    - name: Extract engine into {{ qwen38_engine_dir }} (bin/ + .so)
+      ansible.builtin.unarchive:
+        src: /tmp/qwen38-rocmfpx-engine.tar.gz
+        dest: "{{ qwen38_engine_dir }}"
+        remote_src: true
+        include: ["strix-halo-rocmfpx-engine"]
+      become: no
+      when: not qwen38_bin_st.stat.exists
+      tags: [engine]
+
+    - name: Remove engine tarball from /tmp
+      ansible.builtin.file:
+        path: /tmp/qwen38-rocmfpx-engine.tar.gz
+        state: absent
+      become: no
+      when: not qwen38_bin_st.stat.exists
+      tags: [engine]
+
+    - name: Re-stat engine binary after extraction
+      ansible.builtin.stat:
+        path: "{{ qwen38_bin }}"
+      register: qwen38_bin_st
+      become: no
+      tags: [engine]
+
+    - name: Warn if prebuilt engine is missing
+      ansible.builtin.debug:
+        msg: "WARNING [engine] llama-server not found at {{ qwen38_bin }} — tarball download/extract failed. Re-run --tags engine."
+      when: not qwen38_bin_st.stat.exists
+      tags: [info]
+
+    - name: Verify llama-server backends (Vulkan0 / ROCm0)
+      ansible.builtin.shell:
+        cmd: "{{ qwen38_bin }} --list-devices 2>&1 || true"
+      register: qwen38_devices
+      changed_when: false
+      become: no
+      when: qwen38_bin_st.stat.exists
+      tags: [info]
+
+    - name: Warn if Vulkan0 not present in engine build
+      ansible.builtin.debug:
+        msg: "WARNING [vulkan] 'Vulkan0' not listed — install mesa-vulkan-drivers (RADV ICD) and re-run; will fall back to ROCm0 (~28 t/s)."
+      when:
+        - qwen38_bin_st.stat.exists
+        - "'Vulkan0' not in qwen38_devices.stdout | default('')"
+      tags: [info]
+
+    - name: Create model directory
+      ansible.builtin.file:
+        path: "{{ qwen38_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+      tags: [model]
+
+    - name: Download Qwen3.8-27B ROCmFP4_FAST GGUF ({{ qwen38_model_file }})
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download
+          {{ qwen38_model_repo }} {{ qwen38_model_file }}
+          --local-dir {{ qwen38_models_dir }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [model]
+
+    - name: Verify model file exists
+      ansible.builtin.stat:
+        path: "{{ qwen38_models_dir }}/{{ qwen38_model_file }}"
+      register: qwen38_model_st
+      become: no
+      tags: [model]
+
+    - name: Verify model SHA256
+      ansible.builtin.command:
+        cmd: "sha256sum -c <(echo '{{ qwen38_model_sha256 }}  {{ qwen38_models_dir }}/{{ qwen38_model_file }}')"
+      become: no
+      changed_when: false
+      when: qwen38_model_st.stat.exists
+      tags: [model]
+
+    - name: Warn if model download failed
+      ansible.builtin.debug:
+        msg: "WARNING [model] {{ qwen38_model_file }} not found in {{ qwen38_models_dir }} — re-run --tags model."
+      when: not qwen38_model_st.stat.exists
+      tags: [info]
+
+    - name: Switch CPU to performance power profile (sudo; does not survive reboot)
+      ansible.builtin.command:
+        cmd: "powerprofilesctl set performance"
+      register: qwen38_pwprof
+      changed_when: false
+      failed_when: false
+      tags: [perf]
+
+    - name: Print Qwen3.8 q38rocm (ROCmFPX) track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== Qwen3.8 q38rocm (ROCmFPX) track complete on {{ inventory_hostname }} ====
+          engine: {{ 'ok (prebuilt v1.4.0)' if qwen38_bin_st.stat.exists else 'FAILED — re-run --tags engine' }}
+          backends: {{ qwen38_devices.stdout | default('n/a') | regex_search('Vulkan\d+|ROCm\d+') | join(', ') if qwen38_bin_st.stat.exists else 'n/a' }}
+          model: {{ 'ok' if qwen38_model_st.stat.exists else 'missing — re-run --tags model' }}  ({{ qwen38_model_file }})
+          MTP: ON (draft-mtp n={{ qwen38_draft_n }} p-min={{ qwen38_draft_pmin }})
+          KV: K={{ qwen38_kv_k }} V={{ qwen38_kv_v }}  ctx={{ qwen38_ctx }}
+          Launch later via scripts/qwen38-start.sh (QWEN38_CTX/PORT/DEVICE env).
+      tags: [info]
+
+
+# -----------------------------------------------------------------------------
+# PLAY 5 — drop local launch scripts + pi agent configs (controller only)
+# -----------------------------------------------------------------------------
+- name: "bootstrap — drop local launch scripts and pi configs"
+  hosts: all
+  gather_facts: no   # local/controller runs skip facts; uses playbook_dir/groups/inventory
+  become: yes
+  run_once: yes
+  tags: [launch]
+
+  vars:
+    # ds4_ctx / ds4_port / ds4_coord_ip / ds4_coord_port defaults live in inventory/group_vars/all.yml
+    ds4_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
+    ds4_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
+    ds4_toolbox_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
+    ds4_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
+    qwen_model: "Qwen/Qwen3.5-397B-A17B-GPTQ-Int4"
+    # qwen_port / qwen_max_model_len / qwen_head_ip / qwen_worker_ip defaults live in group_vars/all.yml
+    # --- Qwen3.8 q38rocm (ROCmFPX) launch vars (ctx/port/device/slots/kv_* in group_vars) ---
+    qwen38_models_dir: "/home/{{ ansible_user }}/.local/share/Qwen3.8-27B"
+    qwen38_engine_dir: "/home/{{ ansible_user }}/qwen38-engine"
+    qwen38_bin: "{{ qwen38_engine_dir }}/bin/llama-server"
+    qwen38_model_file: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+
+  tasks:
+    # --- DS4 (gated on ds4 group being present) ---
+    - name: Render ds4-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/ds4-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/ds4-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      when: "'ds4' in groups and groups['ds4'] | length > 0"
+      tags: [launch]
+
+    - name: Render pi agent config (pi-ds4.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-ds4.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-ds4.json"
+        mode: "0644"
+      delegate_to: localhost
+      when: "'ds4' in groups and groups['ds4'] | length > 0"
+      tags: [launch]
+
+    - name: Warn if coordinator IP not supplied (pi config + workers need it)
+      ansible.builtin.debug:
+        msg: "WARNING [multi] ds4_coord_ip is empty — set it (coordinator LAN IP) so workers connect and pi config points at the right server."
+      delegate_to: localhost
+      when: "'ds4' in groups and ds4_coord_ip | length == 0"
+      tags: [info]
+
+    # --- Qwen RCCL (gated on qwen group) ---
+    - name: Render qwen-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/qwen-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      when: "'qwen' in groups and groups['qwen'] | length > 0"
+      tags: [launch]
+
+    - name: Render pi agent config (pi-qwen.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen.json"
+        mode: "0644"
+      delegate_to: localhost
+      when: "'qwen' in groups and groups['qwen'] | length > 0"
+      tags: [launch]
+
+    - name: Warn if head IP not supplied (pi config + worker join need it)
+      ansible.builtin.debug:
+        msg: "WARNING [ray] qwen_head_ip not set — worker cannot join head at <HEAD_IP>:6379 and pi config is wrong."
+      delegate_to: localhost
+      when: "'qwen' in groups and qwen_head_ip | length == 0"
+      tags: [info]
+
+    # --- Qwen3.8 llama.cpp (gated on qwen38 group) ---
+    - name: Render qwen38-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/qwen38-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen38-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      when: "'qwen38' in groups and groups['qwen38'] | length > 0"
+      tags: [launch]
+
+    - name: Render pi agent config (pi-qwen38.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen38.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen38.json"
+        mode: "0644"
+      delegate_to: localhost
+      when: "'qwen38' in groups and groups['qwen38'] | length > 0"
+      tags: [launch]
+
+    - name: Print dropped artifacts and next steps
+      ansible.builtin.debug:
+        msg: |
+          Dropped local copies:
+            scripts/ds4-start.sh   scripts/qwen-start.sh   scripts/qwen38-start.sh
+            pi-configs/pi-ds4.json pi-configs/pi-qwen.json pi-configs/pi-qwen38.json
+          Launch (copy the script to each node and run with the role env):
+            DS4:   DS4_ROLE=single|coordinator|worker  ./scripts/ds4-start.sh
+            Qwen:  QWEN_ROLE=head|worker               ./scripts/qwen-start.sh
+            Qwen38: ./scripts/qwen38-start.sh  (single node; MTP on by default)
+          pi configs: merge the provider block(s) into ~/.pi/agent/models.json.
+      delegate_to: localhost
+      tags: [info]
+
+
+# -----------------------------------------------------------------------------
+# PLAY 6 — final summary (per host, generic)
+# -----------------------------------------------------------------------------
+- name: "bootstrap — final summary"
+  hosts: all
+  gather_facts: no   # local/controller runs skip facts; uses inventory_hostname/groups
+  become: yes
+  tags: [summary]
+
+  tasks:
+    - name: Print completion summary
+      ansible.builtin.debug:
+        msg: |
+          ==== bootstrap complete on {{ inventory_hostname }} ====
+          tracks: {{ ['ds4' if 'ds4' in groups and inventory_hostname in groups['ds4'] else '',
+                      'qwen' if 'qwen' in groups and inventory_hostname in groups['qwen'] else '',
+                      'qwen38' if 'qwen38' in groups and inventory_hostname in groups['qwen38'] else ''] | select('string') | join(', ') }}
+          Fix any [kernel|firmware|grub|memory|device|reboot|link|build|model|container]
+          warnings above before serving. Launch scripts + pi configs are dropped
+          locally in scripts/ and pi-configs/. REBOOT if GRUB args were appended.
+      tags: [info]

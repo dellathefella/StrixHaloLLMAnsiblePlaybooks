@@ -1,0 +1,80 @@
+# Sample inventory for the unified ROCm/DS4 + Qwen bootstrap (Ubuntu/Debian only).
+# Copy to hosts (cp hosts.example hosts) and edit IPs/usernames/vars.
+#
+# One ansible playbook drives everything: ansible/bootstrap.yml.
+#   ansible-playbook -i inventory/hosts bootstrap.yml                # full bootstrap
+#   ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base   # re-test a track
+# Tracks are selected by group presence — empty groups are skipped.
+
+# ===== DS4 DeepSeek V4 Flash =====
+# Coordinator = Machine 1 (layers 0:21). Worker = Machine 2 (layers 22:output).
+[ds4_coordinators]
+# halo-coord   ansible_user=jdella   ds4_mode=multi   ds4_download_multi=1
+[ds4_workers]
+# halo-worker  ansible_user=jdella   ds4_mode=multi   ds4_download_multi=1
+[ds4_single]
+# halo-1       ansible_user=jdella   ds4_mode=single  ds4_download_single=1
+
+[ds4:children]
+ds4_coordinators
+ds4_workers
+ds4_single
+
+# ===== Qwen3.5-397B RCCL cluster (two nodes, 2.5Gbe NICs OK) =====
+[qwen_head]            # Machine 1 — Ray head + vLLM server
+# halo-1   ansible_user=jdella   qwen_head_ip=192.168.100.1
+[qwen_worker]          # Machine 2 — Ray worker
+# halo-2   ansible_user=jdella   qwen_worker_ip=192.168.100.2
+
+[qwen:children]
+qwen_head
+qwen_worker
+
+# ===== Qwen3.8-27B (q38rocm / ROCmFPX) — prebuilt engine + ROCmFP4_FAST model =====
+# Prebuilt ROCmFPX engine (dual ROCm+Vulkan) + julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF.
+# Needs ROCm 7.2.x (PLAY 1) + mesa-vulkan-drivers (RADV ICD) for the Vulkan0 backend.
+[qwen38]
+# halo-1   ansible_user=jdella            # defaults: ctx 262144, device auto, MTP on, KV q8_0/turbo4
+# halo-1   ansible_user=jdella   qwen38_ctx=131072   # halve the reserved KV (~10 GB)
+#
+# Local/controller run (connection=local + password-fed become, no NOPASSWD):
+#   localhost ansible_connection=local ansible_user=jdella  ansible_become_exe=/usr/bin/sudo.ws
+#   * ansible_become_exe=/usr/bin/sudo.ws  -> classic C sudo (writes -p prompt plain)
+#   * required on Ubuntu 26.04+: default sudo-rs wraps -p as '[sudo: ...] Password:'
+#     which ansible's become prompt-match never detects (times out).
+#   Run with: ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base -K
+
+# ===== common =====
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+
+# --- DS4 vars (multi-node defaults) ---
+# ds4_mode=single|multi            (default multi)
+# ds4_ctx=262144                   (context tokens; both nodes MUST match)
+# ds4_port=8000                    (OpenAI endpoint port)
+# ds4_coord_ip=192.168.100.1       (coordinator LAN IP; workers + pi config need it)
+# ds4_coord_port=8081              (coordinator worker-listen port)
+# ds4_download_single=0            (1 to fetch IQ2_XXS ~80.8GB)
+# ds4_download_multi=1             (1 to fetch Q4KExperts ~153GB)
+# ds4_download_mtp=0               (1 to fetch MTP ~3.6GB; MTP disabled by default)
+
+# --- Qwen RCCL vars ---
+# qwen_head_ip=192.168.100.1       (Machine 1 LAN IP)
+# qwen_worker_ip=192.168.100.2     (Machine 2 LAN IP)
+# qwen_max_model_len=65536         (pushed context; guide default 32768)
+# qwen_tp_size=2                   (1 GPU per node)
+# qwen_port=7000
+# qwen_ifname=eth0                 (NCCL/GLOO interface; auto-detected if unset)
+
+# --- Qwen3.8 q38rocm (ROCmFPX) vars ---
+# qwen38_ctx=262144                (native max; TurboQuant KV ~20 GB at 262k. 131k halves it.)
+# qwen38_port=8082
+# qwen38_host=0.0.0.0
+# qwen38_device=auto               (auto | Vulkan0 | ROCm0 | CPU; auto prefers Vulkan0)
+# qwen38_slots=1                   (parallel slots)
+# qwen38_batch=2048  qwen38_ubatch=1024
+# qwen38_kv_k=q8_0  qwen38_kv_v=turbo4   (asymmetric TurboQuant KV cache)
+# qwen38_draft_n=4                 (MTP draft depth; do NOT go 6+)
+# qwen38_draft_pmin=0.0            (MTP draft acceptance threshold)
+# qwen38_reasoning_budget=4096     (reasoning token budget cap)
+# qwen38_temp=0.0  qwen38_presence_penalty=0.0  qwen38_repeat_penalty=1.05

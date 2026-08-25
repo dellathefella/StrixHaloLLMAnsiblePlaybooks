@@ -1,0 +1,41 @@
+---
+# Defaults for all hosts. These are LOWER precedence than per-host inventory
+# vars (e.g. `qwen38_ctx=131072` on a host line still overrides here).
+# Per-track plays define only structural vars (homes, repos, filenames) locally.
+
+# --- DS4 (PLAY 2) ---
+ds4_mode: "multi"
+ds4_ctx: 262144
+ds4_coord_port: 8081
+ds4_download_single: 0
+ds4_download_multi: 1
+ds4_download_mtp: 0
+
+# --- DS4 launch (PLAY 5 templates) ---
+ds4_port: 8000
+ds4_coord_ip: ""
+
+# --- Qwen RCCL (PLAY 3 / PLAY 5 templates) ---
+qwen_port: 7000
+qwen_max_model_len: 65536
+qwen_head_ip: ""
+qwen_worker_ip: ""
+
+# --- Qwen3.8 llama.cpp (PLAY 4 / PLAY 5 templates) — q38rocm ROCmFPX ---
+qwen38_ctx: 262144   # native max (262k). TurboQuant KV (q8_0/turbo4) = ~20 GB at 262k, fits the ~124 GB pool.
+                   # Set 131072 to halve the reserved KV (~10 GB) if you want more headroom; decode speed is
+                   # the same until you actually fill >~100k context.
+qwen38_port: 8082
+qwen38_host: "0.0.0.0"
+qwen38_draft_n: 4
+qwen38_draft_pmin: 0.0
+qwen38_reasoning_budget: 4096
+qwen38_device: "auto"   # auto | Vulkan0 | ROCm0 | CPU
+qwen38_slots: 1
+qwen38_batch: 2048
+qwen38_ubatch: 1024
+qwen38_kv_k: "q8_0"
+qwen38_kv_v: "turbo4"
+qwen38_temp: 0.0
+qwen38_presence_penalty: 0.0
+qwen38_repeat_penalty: 1.05

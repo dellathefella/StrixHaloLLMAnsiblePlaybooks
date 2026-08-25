@@ -1,0 +1,11 @@
+# Local-machine test inventory for ansible/bootstrap.yml.
+# This HP Z2 G1a runs the Qwen3.8-27B llama.cpp track only.
+# Local connection + password-fed become (native, no NOPASSWD):
+#   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
+#   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:' which
+#   ansible's become prompt-match never detects (times out).
+# Test with:  ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base -K
+# q38rocm defaults: ctx 262144, device auto (Vulkan0), MTP on, KV q8_0/turbo4.
+# Override e.g. qwen38_ctx=131072 on the host line to halve the reserved KV.
+[qwen38]
+localhost ansible_connection=local ansible_user=jdella   ansible_become_exe=/usr/bin/sudo.ws

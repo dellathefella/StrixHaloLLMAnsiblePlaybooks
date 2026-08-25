@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "qwen38": {
+      "name": "Qwen3.8-27B (llama.cpp, local)",
+      "baseUrl": "http://{{ qwen38_host }}:{{ qwen38_port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen38-local",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "thinkingFormat": "qwen"
+      },
+      "models": [
+        {
+          "id": "qwen3.8-27b",
+          "name": "Qwen3.8-27B (llama.cpp, MTP)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": {{ qwen38_ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
