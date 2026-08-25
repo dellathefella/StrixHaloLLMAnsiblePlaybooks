@@ -332,30 +332,37 @@
       tags: [toolbox]
 
     - name: Download single-node IQ2_XXS imatrix model
+      # NOTE: `hf download` silently hangs on this system (Xet CDN client), so we
+      # fetch the public GGUF directly with curl (proven ~20 MB/s).
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
-          {{ ds4_single_model }} --local-dir {{ ds4_models_dir }}
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_single_model }}
+          https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_single_model }}
       become: no
       changed_when: false
+      failed_when: false
       when: ds4_download_single | int == 1
       tags: [model]
 
     - name: Download multi-node Q4KExperts imatrix model
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
-          {{ ds4_multi_model }} --local-dir {{ ds4_models_dir }}
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_multi_model }}
+          https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_multi_model }}
       become: no
       changed_when: false
+      failed_when: false
       when: ds4_download_multi | int == 1
       tags: [model]
 
     - name: Download MTP speculative-decoding weights (optional, off by default)
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download antirez/deepseek-v4-gguf
-          {{ ds4_mtp_model }} --local-dir {{ ds4_models_dir }}
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_mtp_model }}
+          https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_mtp_model }}
       become: no
       changed_when: false
       failed_when: false
@@ -545,8 +552,8 @@
       tags: [engine]
 
     - name: Verify engine tarball SHA256
-      ansible.builtin.command:
-        cmd: "sha256sum -c <(echo '{{ qwen38_engine_sha256 }}  /tmp/qwen38-rocmfpx-engine.tar.gz')"
+      ansible.builtin.shell:
+        cmd: "echo '{{ qwen38_engine_sha256 }}  /tmp/qwen38-rocmfpx-engine.tar.gz' | sha256sum -c -"
       become: no
       changed_when: false
       when: not qwen38_bin_st.stat.exists
@@ -609,11 +616,13 @@
       tags: [model]
 
     - name: Download Qwen3.8-27B ROCmFP4_FAST GGUF ({{ qwen38_model_file }})
+      # NOTE: `hf download` silently hangs on this system (Xet CDN client), so we
+      # fetch the public GGUF directly with curl (proven ~20 MB/s).
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download
-          {{ qwen38_model_repo }} {{ qwen38_model_file }}
-          --local-dir {{ qwen38_models_dir }}
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ qwen38_models_dir }}/{{ qwen38_model_file }}
+          https://huggingface.co/{{ qwen38_model_repo }}/resolve/main/{{ qwen38_model_file }}
       become: no
       changed_when: false
       failed_when: false
@@ -627,8 +636,8 @@
       tags: [model]
 
     - name: Verify model SHA256
-      ansible.builtin.command:
-        cmd: "sha256sum -c <(echo '{{ qwen38_model_sha256 }}  {{ qwen38_models_dir }}/{{ qwen38_model_file }}')"
+      ansible.builtin.shell:
+        cmd: "echo '{{ qwen38_model_sha256 }}  {{ qwen38_models_dir }}/{{ qwen38_model_file }}' | sha256sum -c -"
       become: no
       changed_when: false
       when: qwen38_model_st.stat.exists
