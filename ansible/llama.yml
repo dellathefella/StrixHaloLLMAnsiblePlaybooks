@@ -79,7 +79,13 @@
         mode: "0755"
       become: no
 
-    - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }})
+    - name: Check if Gemma model already present
+      ansible.builtin.stat:
+        path: "{{ llama_models_dir }}/{{ gemma_model }}"
+      register: gemma_stat
+      tags: [model, gemma]
+
+    - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }}) [skip if present]
       # aria2c 16-connection (saturates a fast link; single-stream curl / hf
       # download's Xet client both hang/underperform on this system).
       ansible.builtin.command:
@@ -90,9 +96,22 @@
       become: no
       changed_when: false
       failed_when: false
+      when: not gemma_stat.stat.exists
       tags: [model, gemma]
 
-    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }})
+    - name: Gemma model already present — skipping download
+      ansible.builtin.debug:
+        msg: "SKIP [gemma] {{ gemma_model }} already in {{ llama_models_dir }}"
+      when: gemma_stat.stat.exists
+      tags: [model, gemma]
+
+    - name: Check if Qwen3.6 model already present
+      ansible.builtin.stat:
+        path: "{{ llama_models_dir }}/{{ qwen36_model }}"
+      register: qwen36_stat
+      tags: [model, qwen36]
+
+    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
@@ -101,6 +120,13 @@
       become: no
       changed_when: false
       failed_when: false
+      when: not qwen36_stat.stat.exists
+      tags: [model, qwen36]
+
+    - name: Qwen3.6 model already present — skipping download
+      ansible.builtin.debug:
+        msg: "SKIP [qwen36] {{ qwen36_model }} already in {{ llama_models_dir }}"
+      when: qwen36_stat.stat.exists
       tags: [model, qwen36]
 
     - name: Warn if model downloads are incomplete

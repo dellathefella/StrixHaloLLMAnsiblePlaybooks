@@ -246,8 +246,10 @@ be run standalone (no need to go through the orchestrator).
 The bootstrap downloads GGUF weights via **aria2c** with 16 parallel
 connections (`-x 16 -s 16`), which saturates a fast link far better than
 the single-stream `curl` or `hf download` (HF's Xet client also silently
-hangs on this system). The same commands work manually if you want to
-re-fetch a model outside ansible:
+hangs on this system). The llama track **skips a download when its GGUF is
+already present** (`stat` check + `when:` guard), so re-running the play or
+`--tags model` won't re-fetch an existing model. The same commands work
+manually if you want to re-fetch a model outside ansible:
 
 ```bash
 # Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
