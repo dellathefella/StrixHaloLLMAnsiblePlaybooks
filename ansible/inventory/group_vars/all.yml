@@ -1,48 +1,64 @@
 ---
 # Defaults for all hosts. These are LOWER precedence than per-host inventory
-# vars (e.g. `qwen38_ctx=131072` on a host line still overrides here).
+# vars (e.g. `ds4_ctx_single=131072` on a host line still overrides here).
 # Structural vars (homes, engine dirs, model filenames) are also here — one
-# source of truth shared by the download (PLAY 4) and template-render (PLAY 5) tasks.
+# source of truth shared by the download (PLAY 1) and template-render (PLAY 2)
+# tasks of each track playbook.
 
-# --- DS4 (PLAY 2) ---
-ds4_mode: "multi"
-ds4_ctx: 262144
-ds4_coord_port: 8081
-ds4_download_single: 0
-ds4_download_multi: 1
+# --- DS4 (single-node default + multi-node optional) ---
+ds4_mode: "single"      # single | multi
+ds4_ctx_single: 126000  # AMD guide: IQ2_XXS (~80.8 GB) at 126k context on a 128 GB node
+                        # (shared pool >=110 GB; our GRUB ttm.pages_limit gives ~124 GB)
+ds4_ctx: 262144         # multi-node Q4KExperts context (both nodes MUST match)
+ds4_port: 8000
+ds4_host: "127.0.0.1"   # single-node endpoint; set 0.0.0.0 to expose on LAN,
+                        # or the coordinator LAN IP for multi-node
+ds4_coord_ip: ""        # coordinator LAN IP (multi-node; workers + pi config need it)
+ds4_coord_port: 8081    # coordinator worker-listen port
+ds4_download_single: 1
+ds4_download_multi: 0
 ds4_download_mtp: 0
 
-# --- DS4 launch (PLAY 5 templates) ---
-ds4_port: 8000
-ds4_coord_ip: ""
+# --- DS4 structural paths + model filenames (single source of truth) ---
+ds4_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+ds4_models_dir: "{{ ds4_home }}/ds4"
+ds4_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
+ds4_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
+ds4_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"   # (~3.6 GB, optional)
+ds4_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
+ds4_toolbox_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
 
-# --- Qwen RCCL (PLAY 3 / PLAY 5 templates) ---
+# --- Qwen RCCL (cluster; unchanged) ---
 qwen_port: 7000
 qwen_max_model_len: 65536
 qwen_head_ip: ""
 qwen_worker_ip: ""
 
-# --- Qwen3.8 llama.cpp (PLAY 4 / PLAY 5 templates) — q38rocm ROCmFPX ---
-qwen38_ctx: 131072   # half of native max (262k). TurboQuant KV (q8_0/turbo4) = ~10 GB reserved; decode speed is
-                   # the same until you actually fill >~100k context. Set 262144 for full 262k (~20 GB KV).
-qwen38_port: 8082
-qwen38_host: "0.0.0.0"
-qwen38_draft_n: 4
-qwen38_draft_pmin: 0.0
-qwen38_reasoning_budget: 4096
-qwen38_device: "auto"   # auto | Vulkan0 | ROCm0 | CPU
-qwen38_slots: 1
-qwen38_batch: 2048
-qwen38_ubatch: 1024
-qwen38_kv_k: "q8_0"
-qwen38_kv_v: "turbo4"
-qwen38_temp: 0.0
-qwen38_presence_penalty: 0.0
-qwen38_repeat_penalty: 1.05
+# --- llama.cpp track: Gemma 4 26B-A4B + Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) ---
+gemma_ctx: 131072   # 8-bit 27.6 GB leaves lots of headroom; 26B-A4B supports 256k native
+gemma_port: 8080
+gemma_host: "127.0.0.1"
+gemma_device: "Vulkan0"   # Mesa RADV wins tg + MoE pp on Strix Halo (see Frame.work thread)
+gemma_batch: 256          # 2^n batching for MoE on Vulkan
+gemma_ubatch: 512         # 2^n ubatch
+gemma_flash_attn: 1
+gemma_mmap: 0             # --no-mmap: load weights fully into the unified shared pool
+qwen36_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
+qwen36_port: 8081
+qwen36_host: "127.0.0.1"
+qwen36_device: "Vulkan0"
+qwen36_batch: 256
+qwen36_ubatch: 512
+qwen36_flash_attn: 1
+qwen36_mmap: 0
 
-# --- Qwen3.8 llama.cpp structural paths (single source of truth) ---
-qwen38_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
-qwen38_engine_dir: "{{ qwen38_home }}/qwen38-engine"
-qwen38_bin: "{{ qwen38_engine_dir }}/strix-halo-rocmfpx-engine/bin/llama-server"   # v1.4.0 tarball extracts into a top-level dir
-qwen38_models_dir: "{{ qwen38_home }}/.local/share/Qwen3.8-27B"
-qwen38_model_file: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+# --- llama.cpp structural paths + model filenames (single source of truth) ---
+llama_home: "/home/{{ ansible_user }}"
+llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp -> llama-cpp
+llama_prefix: "{{ llama_home }}/llama-cpp"        # cmake --install prefix
+llama_bin: "{{ llama_home }}/llama-cpp/bin/llama-server"
+llama_models_dir: "{{ llama_home }}/.local/share/llama-models"
+gemma_model: "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf"   # unsloth/gemma-4-26B-A4B-it-GGUF (~27.6 GB)
+gemma_repo: "unsloth/gemma-4-26B-A4B-it-GGUF"
+qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
+qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"

@@ -1,23 +1,48 @@
-# ROCm / DS4 + Qwen cluster install — Ryzen AI Max (HP Z2 G1a)
+# ROCm / DS4 + Qwen + llama.cpp install — Ryzen AI Max (HP Z2 G1a)
 
 Organized workspace for bootstrapping AMD ROCm inference on the Ryzen AI Max
 "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs — no 10Gbps
-requirement). Ubuntu/Debian only. Three tracks, all driven by **one unified
-ansible playbook**:
+requirement). Ubuntu/Debian only. Three tracks, driven by **per-track ansible
+playbooks** under `ansible/` (an orchestrator, `bootstrap.yml`, runs them in
+order; any track file can also run standalone):
 
-1. **DS4** — DeepSeek V4 Flash via the `ds4` engine (single-node IQ2_XXS ~80.8GB,
-   or multi-node Q4KExperts ~153GB via pipeline parallelism).
+1. **DS4** — DeepSeek V4 Flash via the `ds4` engine (`antirez/ds4`, Dwarf Star
+   4, ROCm kernel-optimized for DeepSeek V4 Flash). **Single-node is the
+   default** — IQ2_XXS imatrix quant (~80.8 GB) at **126k context** on one
+   128 GB node, per AMD's playbook
+   (`developer.amd.com/playbooks/deepseek-v4-flash-ds4/`). Multi-node (optional)
+   uses the `ds4-toolbox` distrobox pipeline (Q4KExperts ~153GB, layers
+   0:21 / 22:output across 2 nodes).
 2. **Qwen RCCL cluster** — Qwen3.5-397B-A17B-GPTQ-Int4 across two nodes via
    vLLM + Ray + RCCL, context pushed to 65536 (guide default is 32768).
-3. **Qwen3.8-27B (q38rocm / ROCmFPX)** — single-node Qwen3.8-27B via the
-   **prebuilt ROCmFPX llama.cpp engine** (dual ROCm + Vulkan, v1.4.0,
-   SHA256-verified) from [julianmb/q38rocm](https://github.com/julianmb/q38rocm),
-   the **ROCmFP4_FAST** 4-bit quant (13.55 GiB), **MTP speculative decoding**
-   (built-in draft head, ~36 tok/s on Vulkan0), and the **asymmetric TurboQuant
-   KV cache** (K=`q8_0`, V=`turbo4`) so 262k context costs only ~20 GB. Native
-   **262144 context** (set 131k to halve the reserved KV; decode speed is the
-   same until you actually fill >~100k context). Needs **ROCm 7.2.x** (PLAY 1
-   installs 7.2.3) + the Mesa RADV Vulkan ICD (`mesa-vulkan-drivers`).
+3. **llama.cpp** — **Gemma 4 26B-A4B** and **Qwen3.6-35B-A3B**, both **8-bit
+   UD-Q8_K_XL** (Unsloth Dynamic, XL blocks + imatrix — better quality than
+   plain Q8_0), served by the **latest llama.cpp built from source** with the
+   **Vulkan (Mesa RADV)** backend.
+
+The qwen38 (Qwen3.8-27B) and ds4fa (Lucebox ROCmFPX) tracks were **removed**
+per user request (qwen38 too slow; ds4fa failed with an engine/model mismatch
+— `token_embd.weight q6_k vs expected f16`), and single-node DS4 **reverted to
+the working plain DS4 implementation** (126k ctx, AMD guide).
+
+## Strix Halo optimization rationale (Frame.work LLM bench thread)
+
+The launch profiles are tuned from the Strix Halo benchmarking thread
+(`community.frame.work/t/72521`, user lhl — Linux 6.15.5+, TheRock ROCm
+nightlies, latest llama.cpp from source):
+
+- **Vulkan (Mesa RADV) wins token generation and MoE prompt processing** on
+  gfx1151. Official ROCm 7.x had a serious pp regression (Qwen3-8B BF16:
+  ROCm 7.0.1 = 325 t/s vs 6.4.4 = 1132 t/s); TheRock/nightly ROCm fixes it.
+  We therefore build llama.cpp **Vulkan-only** (RADV), which is proven on this
+  box and avoids the ROCm regression entirely.
+- **MoE models need 2^n batching on Vulkan** → `batch=256, ubatch=512`.
+- **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
+  128 GB shared pool).
+- **Token generation is memory-bandwidth bound** (~215 GB/s). 8-bit UD-Q8_K_XL
+  keeps active params small — Gemma4 ~4B active ≈ 4 GB/token ≈ 40-50 t/s;
+  Qwen3.6 ~3B active ≈ 3 GB/token ≈ 65-70 t/s. That's roughly **2×** the BF16
+  speeds, with near-lossless quality.
 
 **Network note:** host NICs are 2.5Gbe (HP Z2 G1a), below the guide's 10Gbps;
 tensor-parallel KV exchange is the bottleneck. The playbook warns on this but
@@ -30,8 +55,8 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.3** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). The q38rocm prebuilt engine links against the 7.2.x runtime
-(`libhipblas.so.3`, `librocblas.so.5`, `libamdhip64.so.7`).
+package (7.1.0). ROCm is needed for the DS4 track; the llama.cpp track uses
+Vulkan (Mesa RADV) and doesn't need HIP.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
@@ -39,10 +64,10 @@ downloads model weights. It NEVER launches servers. On completion it drops
 **local copies** of the launch scripts into `scripts/` and the pi agent configs
 into `pi-configs/` — you run/merge them when ready.
 
-**Local scripts:** only the **DS4 single-node** bootstrap is kept as a local
-script (`scripts/ds4-setup.sh`, treated as a bootstrap tool); everything else
-(base, Qwen RCCL, Qwen3.8) is done via ansible. `scripts/install-pi-ds4.sh`
-is the local pi + DS4 toolchain installer for this controller machine.
+**Local scripts:** only the **DS4** bootstrap is kept as a local script
+(`scripts/ds4-setup.sh` — DS4 itself only); everything else (base, Qwen RCCL,
+llama.cpp) is done via ansible. `scripts/install-pi.sh` is the **local pi
+install** (pi + the plugins present on this system) for this controller machine.
 
 ## Layout
 
@@ -53,47 +78,63 @@ is the local pi + DS4 toolchain installer for this controller machine.
 │   ├── playbook.txt               AMD ds4 playbook (text extract)
 │   └── notes.md                   pi local-server / DS4 config snippets
 ├── ansible/
-│   ├── bootstrap.yml              THE unified playbook (base + DS4 + qwen + qwen38)
-│   ├── templates/                 Jinja templates (rendered by bootstrap.yml)
-│   │   ├── ds4-start.sh.j2        DS4 launch script template
-│   │   ├── qwen-start.sh.j2       Qwen RCCL launch template
-│   │   ├── qwen38-start.sh.j2     Qwen3.8 q38rocm launch template (ROCmFPX, MTP, TurboQuant KV)
-│   │   ├── pi-ds4.json.j2         pi agent config template (DS4)
-│   │   ├── pi-qwen.json.j2        pi agent config template (Qwen RCCL)
-│   │   └── pi-qwen38.json.j2      pi agent config template (Qwen3.8)
+│   ├── bootstrap.yml              ORCHESTRATOR: imports the per-track playbooks
+│   ├── base.yml                   base preflight, packages, toolchain, GRUB   [base]
+│   ├── ds4.yml                    DS4: single-node IQ2_XXS default + multi-node [ds4]
+│   ├── qwen-rccl.yml                   Qwen RCCL cluster (vLLM + Ray + RCCL)       [qwen-rccl]
+│   ├── llama.yml                  Gemma4 26B-A4B + Qwen3.6-35B-A3B (latest    [llama]
+│   │                              llama.cpp source build, Vulkan/RADV, 8-bit
+│   │                              UD-Q8_K_XL)
+│   ├── summary.yml                final per-host completion summary           [summary]
+│   ├── templates/                 Jinja templates (rendered by each track playbook)
+│   │   ├── ds4-start.sh.j2        DS4 launch template (single + multi, role via env)
+│   │   ├── gemma-start.sh.j2      Gemma4 26B-A4B launch (Vulkan, MoE batching)
+│   │   ├── qwen36-start.sh.j2     Qwen3.6-35B-A3B launch (Vulkan, MoE batching)
+│   │   ├── qwen-rccl-start.sh.j2       Qwen RCCL launch template
+│   │   ├── pi-ds4.json.j2         pi agent config (DS4 single-node default)
+│   │   ├── pi-gemma.json.j2       pi agent config (Gemma4)
+│   │   ├── pi-qwen36.json.j2      pi agent config (Qwen3.6)
+│   │   └── pi-qwen-rccl.json.j2        pi agent config (Qwen RCCL)
 │   └── inventory/
-│       ├── hosts                  your real inventory (local qwen38 test)
+│       ├── hosts                  your real inventory (local ds4_single + llama test)
 │       └── hosts.example          sample inventory + vars for all tracks
-├── scripts/
-│   ├── ds4-setup.sh               DS4 single-node bootstrap (local tool only)
-│   ├── install-pi-ds4.sh          local pi + DS4 toolchain installer
-│   ├── ds4-start.sh               rendered DS4 launch (role via env)
-│   ├── qwen-start.sh              rendered Qwen RCCL launch (role via env)
-│   └── qwen38-start.sh            rendered Qwen3.8 q38rocm launch (MTP, device auto)
+├── scripts/                       rendered launch scripts (dropped locally by bootstrap)
+│   ├── ds4-setup.sh               DS4 host bootstrap (DS4 itself only)
+│   ├── install-pi.sh              local pi install (pi + plugins on this system)
+│   ├── ds4-start.sh               rendered DS4 launch (DS4_ROLE=single|coordinator|worker)
+│   ├── gemma-start.sh             rendered Gemma4 26B-A4B launch
+│   ├── qwen36-start.sh            rendered Qwen3.6-35B-A3B launch
+│   └── qwen-rccl-start.sh              rendered Qwen RCCL launch (role via env)
 └── pi-configs/                    rendered pi agent configs (dropped locally)
     ├── pi-ds4.json                merge into ~/.pi/agent/models.json
-    ├── pi-qwen.json
-    └── pi-qwen38.json
+    ├── pi-gemma.json
+    ├── pi-qwen36.json
+    └── pi-qwen-rccl.json
 ```
 
 ## Quick start
 
 ### Local machine — pi + DS4 toolchain installer
 ```bash
-./scripts/install-pi-ds4.sh
-# installs pi, @capyup/pi-auto-compact, ds4-cockpit, amd-ttm, hf, amdgpu_top
-# and merges the DS4 provider into ~/.pi/agent/models.json
+./scripts/install-pi.sh
+# installs pi + the pi plugins present on this system (pi-web-access, rpiv-ask-user-question,
+# pi-background-tasks, pi-permission-system, pi-ds4, pi-auto-compact)
+# and merges the pi provider configs from pi-configs/ into ~/.pi/agent/models.json
 ```
 
-### Ansible route (Ubuntu nodes) — one playbook, tracks by group
+### Ansible route (Ubuntu nodes) — per-track playbooks + orchestrator
 ```bash
 cp ansible/inventory/hosts.example ansible/inventory/hosts   # edit groups/vars
 # Full bootstrap (base + whichever groups are populated):
 ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 # Re-test a track on an already-provisioned host (skip base):
 ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --skip-tags base
-# Only one track:
-ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --tags ds4
+# Only one track (tags select tracks; imports are static):
+ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --tags llama
+# Any track file can also run standalone:
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml        # DS4 (single + multi)
+ansible-playbook -i ansible/inventory/hosts ansible/llama.yml      # Gemma4 + Qwen3.6
+ansible-playbook -i ansible/inventory/hosts ansible/qwen-rccl.yml       # Qwen RCCL cluster
 ```
 
 ### Local run — `connection=local` + password-fed `become` (native, no NOPASSWD)
@@ -127,6 +168,71 @@ sudoers grant needed. Two gotchas were solved:
 ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --skip-tags base -K
 ```
 
+### Example runs (copy-paste workflows)
+All commands run from the repo root and assume `hosts` is already populated.
+Each prompts once for the sudo password (`-K`); on an already-provisioned host
+add `--skip-tags base` to skip the base play.
+
+**1. DS4 single-node (default) — IQ2_XXS at 126k ctx on this controller**
+```bash
+# 0) syntax check (no sudo needed)
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml --syntax-check
+# 1) dry-run / check mode (applies nothing; prompts sudo once)
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml --check -K
+# 2) full track: toolbox + IQ2_XXS model (~80.8 GB)
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml -K
+# 3) re-test a provisioned host, skip the big model downloads
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml --skip-tags model -K
+# 4) launch (endpoint http://127.0.0.1:8000/v1)
+./scripts/ds4-start.sh
+```
+
+**2. Multi-node DS4 (optional) — two machines**
+```bash
+# machine 1 + 2 (edit hosts.example first: ds4_mode=multi, ds4_coord_ip, ds4_download_multi=1)
+ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml -K
+# machine 1 (coordinator, layers 0:21)
+DS4_ROLE=coordinator ./scripts/ds4-start.sh
+# machine 2 (worker, layers 22:output)
+DS4_ROLE=worker      ./scripts/ds4-start.sh
+```
+
+**3. Qwen RCCL cluster (Qwen3.5-397B) — two machines**
+```bash
+# machine 1 + 2 (edit hosts.example first: qwen_head_ip/qwen_worker_ip)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen-rccl.yml -K
+# machine 1 (Ray head + vLLM)
+QWEN_ROLE=head   ./scripts/qwen-rccl-start.sh
+# machine 2 (Ray worker)
+QWEN_ROLE=worker ./scripts/qwen-rccl-start.sh
+# endpoint http://<head_ip>:7000/v1
+```
+
+**4. llama.cpp track (Gemma4 26B-A4B + Qwen3.6-35B-A3B, 8-bit UD-Q8_K_XL)**
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/llama.yml -K
+./scripts/gemma-start.sh      # Gemma4 26B-A4B  -> http://127.0.0.1:8080/v1
+./scripts/qwen36-start.sh     # Qwen3.6-35B-A3B -> http://127.0.0.1:8081/v1
+# override ctx/device/batch, e.g.:
+GEMMA_CTX=262144 ./scripts/gemma-start.sh
+QWEN36_CTX=262144 ./scripts/qwen36-start.sh   # Qwen3.6 native 256k (keep >=128k)
+```
+
+**5. Everything at once (full bootstrap)**
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml -K
+# then, per track:
+./scripts/ds4-start.sh
+./scripts/gemma-start.sh
+./scripts/qwen36-start.sh
+./scripts/qwen-rccl-start.sh
+```
+
+**Common flags** — `--tags <track>` runs one track (`base`, `ds4`, `qwen`,
+`llama`); `--skip-tags base` skips the base play; `--tags model` re-runs just
+downloads; `--check` dry-runs. A track file can be run standalone (no need to
+go through the orchestrator).
+
 ### DS4 single-node local bootstrap (the one kept local script)
 ```bash
 ./scripts/ds4-setup.sh          # GRUB/TTM(args), ds4 distrobox, model downloads
@@ -137,64 +243,71 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --skip-tags ba
 After the bootstrap + REBOOT (if GRUB changed), copy the rendered launch
 script to each node and run it:
 
+### DS4 single-node (default) — IQ2_XXS at 126k ctx
+```bash
+./scripts/ds4-start.sh                        # DS4_ROLE=single, IQ2_XXS, ctx 126k, port 8000
+DS4_ROLE=single DS4_CTX_SINGLE=131072 ./scripts/ds4-start.sh   # raise ctx if headroom
+DS4_HOST=0.0.0.0 ./scripts/ds4-start.sh       # expose on LAN (via ds4_host)
+```
+The script runs `ds4-server` inside the `ds4-rocm-7.14` distrobox, IQ2_XXS at
+126k context (AMD guide default for a 128 GB node; shared pool ≥110 GB). MTP
+speculative decoding is **disabled by default** (stability); enable with
+`DS4_USE_MTP=1`. OpenAI endpoint: `http://127.0.0.1:8000/v1`.
+
 ### DS4 multi-node (both nodes must use the same ctx + model)
 ```bash
 # Machine 1 (coordinator, layers 0:21):
 DS4_ROLE=coordinator ./scripts/ds4-start.sh
 # Machine 2 (worker, layers 22:output):
 DS4_ROLE=worker      ./scripts/ds4-start.sh
-# Single node (optional):
-DS4_ROLE=single      ./scripts/ds4-start.sh
 ```
-MTP speculative decoding is **disabled by default** (stability). Enable with
-`DS4_USE_MTP=1` if desired.
+MTP is disabled by default (`DS4_USE_MTP=1` to enable).
+
+### llama.cpp — Gemma4 26B-A4B + Qwen3.6-35B-A3B (Vulkan/RADV, 8-bit)
+```bash
+./scripts/gemma-start.sh    # ctx 131072, Vulkan0, MoE batching b=256 ub=512, no-mmap
+./scripts/qwen36-start.sh   # ctx 131072 (keep >=128k for thinking), same tuning
+```
+Both use the latest source-built `llama-server` with the Mesa RADV Vulkan
+backend (fastest tg + MoE pp on Strix Halo), `--flash-attn on`, `--no-mmap`
+(full load into the unified shared pool), `--n-gpu-layers 999`. Endpoints:
+`http://127.0.0.1:8080/v1` (gemma4) and `http://127.0.0.1:8081/v1` (qwen36).
+First request is shader-JIT slow; decode is memory-bandwidth-bound.
 
 ### Qwen cluster (head first, then worker)
 ```bash
 # Machine 1 (head — Ray head + vLLM server):
-QWEN_ROLE=head   ./scripts/qwen-start.sh
+QWEN_ROLE=head   ./scripts/qwen-rccl-start.sh
 # Machine 2 (worker — joins Ray):
-QWEN_ROLE=worker ./scripts/qwen-start.sh
+QWEN_ROLE=worker ./scripts/qwen-rccl-start.sh
 ```
 OpenAI endpoint: `http://<HEAD_IP>:7000/v1` (Auth: None). vLLM downloads
 Qwen weights into the models dir on first serve.
 
-### Qwen3.8-27B (q38rocm / ROCmFPX, single node, MTP on by default)
-```bash
-./scripts/qwen38-start.sh                       # ctx 262144, MTP draft-mtp, device auto
-QWEN38_CTX=131072 QWEN38_PORT=8082 ./scripts/qwen38-start.sh   # halve reserved KV
-QWEN38_DEVICE=Vulkan0 QWEN38_MTP=1 ./scripts/qwen38-start.sh   # pin backend
-```
-The script sets the ROCmFPX/Strix-Halo env (`HSA_OVERRIDE_GFX_VERSION=11.5.1`,
-`GGML_HIP_ENABLE_UNIFIED_MEMORY=1`, RADV ICD, `LD_LIBRARY_PATH` = engine bin +
-ROCm libs), auto-detects **Vulkan0** (fastest, ~36 t/s) and falls back to
-ROCm0 (~28 t/s), then serves with the asymmetric TurboQuant KV cache
-(`-ctk q8_0 -ctv turbo4`) + MTP. OpenAI endpoint: `http://0.0.0.0:8082/v1`.
-First request is ~3× slow (shader JIT); decode is memory-bandwidth-bound on the
-13.55 GiB model, so context length has little effect until you fill >~100k.
-
 ## pi agent config
 
 The bootstrap drops pi agent configs into `pi-configs/`:
-- `pi-ds4.json` — `ds4` provider → `http://<coord_ip>:8000/v1`, model `deepseek-v4-flash`.
-- `pi-qwen.json` — `qwen-cluster` provider → `http://<head_ip>:7000/v1`, model `Qwen/Qwen3.5-397B-A17B-GPTQ-Int4`.
-- `pi-qwen38.json` — `qwen38` provider → `http://<host>:8082/v1`, model `qwen3.8-27b`.
+- `pi-ds4.json` — `ds4` provider → `http://127.0.0.1:8000/v1`, model `deepseek-v4-flash` (single-node IQ2_XXS).
+- `pi-gemma.json` — `gemma4` provider → `http://127.0.0.1:8080/v1`, model `gemma-4-26b-a4b`.
+- `pi-qwen36.json` — `qwen36` provider → `http://127.0.0.1:8081/v1`, model `qwen3.6-35b-a3b`.
+- `pi-qwen-rccl.json` — `qwen-rccl` provider → `http://<head_ip>:7000/v1`, model `Qwen/Qwen3.5-397B-A17B-GPTQ-Int4`.
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
-you open `/model`; no restart needed). `install-pi-ds4.sh` also installs the
-`@capyup/pi-auto-compact` extension for pre-turn auto-compaction.
+you open `/model`; no restart needed). `install-pi.sh` installs pi + the pi
+plugins present on this system (pi-web-access, rpiv-ask-user-question,
+pi-background-tasks, pi-permission-system, pi-ds4, pi-auto-compact) and merges
+the pi provider configs.
 
 ## Config variables (inventory / env)
-- DS4: `ds4_mode` (single|multi), `ds4_ctx`, `ds4_port`, `ds4_coord_ip/port`,
-  `ds4_download_single/multi/mtp` (model downloads per host)
+- DS4 (single + multi): `ds4_mode` (single default), `ds4_ctx_single` (126000),
+  `ds4_ctx` (262144 multi), `ds4_port` (8000), `ds4_host` (127.0.0.1),
+  `ds4_coord_ip/port`, `ds4_download_single/multi/mtp` (model downloads per host)
+- llama.cpp: `gemma_ctx` (131072), `gemma_port` (8080), `gemma_host`,
+  `gemma_device` (Vulkan0), `gemma_batch` (256), `gemma_ubatch` (512),
+  `gemma_flash_attn` (1), `gemma_mmap` (0); `qwen36_ctx` (131072),
+  `qwen36_port` (8081), `qwen36_host/device/batch/ubatch/flash_attn/mmap` (same defaults)
 - Qwen: `qwen_head_ip`, `qwen_worker_ip`, `qwen_max_model_len` (default 65536),
   `qwen_tp_size` (default 2), `qwen_port`, `qwen_ifname`
-- Qwen3.8 (q38rocm): `qwen38_ctx` (262144 default; 131k halves reserved KV),
-  `qwen38_port`, `qwen38_host`, `qwen38_device` (auto|Vulkan0|ROCm0),
-  `qwen38_slots`, `qwen38_batch`, `qwen38_ubatch`, `qwen38_kv_k` (q8_0),
-  `qwen38_kv_v` (turbo4), `qwen38_draft_n` (4), `qwen38_draft_pmin` (0.0),
-  `qwen38_reasoning_budget` (4096), `qwen38_temp`, `qwen38_presence_penalty`,
-  `qwen38_repeat_penalty`
-- Scripts: `DS4_MODE`, `DS4_MODELS_DIR`, `DS4_DOWNLOAD_*`, `HF_TOKEN`;
-  `QWEN38_MODEL/BIN/HOST/PORT/CTX/DEVICE/MTP/DRAFT_N/DRAFT_PMIN/KV_K/KV_V/
-  SLOTS/BATCH/UBATCH/REASONING_BUDGET/TEMP/PRESENCE_PENALTY/REPEAT_PENALTY`
+- Scripts: `DS4_ROLE` (single|coordinator|worker), `DS4_USE_MTP`, `DS4_CTX_SINGLE`,
+  `DS4_CTX`, `DS4_MODELS_DIR`, `DS4_HOST`; `GEMMA_*/QWEN36_*` (BIN/MODEL/CTX/
+  PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS); `QWEN_ROLE`; `HF_TOKEN`

@@ -1,0 +1,169 @@
+- name: "bootstrap — llama.cpp track: latest source build + Gemma4/Qwen3.6 8-bit models"
+  hosts: llama
+  gather_facts: yes
+  become: yes
+  tags: [llama]
+
+  vars:
+    llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
+    llama_build_deps:
+      - cmake
+      - libvulkan-dev
+      - vulkan-headers
+      - glslang-tools
+      - shaderc            # provides glslc (Vulkan shader compiler) for llama.cpp
+    gemma_url: "https://huggingface.co/{{ gemma_repo }}/resolve/main/{{ gemma_model }}"
+    qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
+
+  tasks:
+    - name: Install llama.cpp build dependencies
+      ansible.builtin.apt:
+        name: "{{ llama_build_deps }}"
+        state: present
+        update_cache: yes
+
+    - name: Clone latest llama.cpp (HEAD)
+      ansible.builtin.git:
+        repo: "{{ llama_repo_url }}"
+        dest: "{{ llama_repo }}"
+        depth: 1
+        version: HEAD
+        force: yes
+      become: no
+
+    - name: Configure build — Vulkan backend (Mesa RADV), release
+      ansible.builtin.command:
+        cmd: >-
+          cmake -B build -DGGML_VULKAN=ON -DGGML_HIP=OFF
+          -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
+          -DCMAKE_INSTALL_PREFIX={{ llama_prefix }}
+      args:
+        chdir: "{{ llama_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Build llama-server (parallel)
+      ansible.builtin.command:
+        cmd: "cmake --build build --config Release -j{{ ansible_processor_vcpus | default(16) }} --target llama-server"
+      args:
+        chdir: "{{ llama_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Install llama-server to {{ llama_prefix }}/bin
+      ansible.builtin.command:
+        cmd: "cmake --install build --prefix {{ llama_prefix }}"
+      args:
+        chdir: "{{ llama_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Verify llama-server binary
+      ansible.builtin.stat:
+        path: "{{ llama_bin }}"
+      register: llama_bin_stat
+      tags: [build]
+
+    - name: Warn if llama-server did not build
+      ansible.builtin.debug:
+        msg: "WARNING [llama] llama-server missing at {{ llama_bin }} — build failed. Check the cmake/build logs in {{ llama_repo }}/build."
+      when: not llama_bin_stat.stat.exists
+
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ llama_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }})
+      # Direct curl (Xet CDN client hangs on this system, same as DS4 path).
+      ansible.builtin.command:
+        cmd: >-
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ llama_models_dir }}/{{ gemma_model }} {{ gemma_url }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [model]
+
+    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }})
+      ansible.builtin.command:
+        cmd: >-
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ llama_models_dir }}/{{ qwen36_model }} {{ qwen36_url }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [model]
+
+    - name: Warn if model downloads are incomplete
+      ansible.builtin.debug:
+        msg: "WARNING [model] expected GGUF(s) missing in {{ llama_models_dir }} — re-run download."
+      when: >-
+        not (lookup('ansible.builtin.find', llama_models_dir, pattern='*UD-Q8_K_XL*') | length >= 2)
+
+    - name: Print llama.cpp track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp track complete on {{ inventory_hostname }} ====
+          engine: {{ llama_bin }}
+          models in {{ llama_models_dir }}:
+            gemma4: {{ gemma_model }}  ({{ gemma_ctx }} ctx, port {{ gemma_port }})
+            qwen36: {{ qwen36_model }}  ({{ qwen36_ctx }} ctx, port {{ qwen36_port }})
+          Launch later via scripts/gemma-start.sh / scripts/qwen36-start.sh.
+          Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
+      tags: [info]
+
+# -----------------------------------------------------------------------------
+# Launch render — drop local gemma/qwen36 launch scripts + pi configs
+# -----------------------------------------------------------------------------
+- name: "bootstrap — drop local gemma + qwen36 launch scripts & pi configs"
+  hosts: llama
+  gather_facts: no
+  become: yes
+  run_once: yes
+  tags: [launch, llama]
+
+  tasks:
+    - name: Render gemma-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/gemma-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/gemma-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render qwen36-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/qwen36-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen36-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render pi agent config for Gemma (pi-gemma.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-gemma.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-gemma.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render pi agent config for Qwen3.6 (pi-qwen36.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen36.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Warn if llama-server did not build (scripts will fail)
+      ansible.builtin.debug:
+        msg: "WARNING [launch] llama-server missing — scripts/gemma-start.sh and scripts/qwen36-start.sh will not run until the build succeeds."
+      delegate_to: localhost
+      when: not (lookup('ansible.builtin.stat', llama_bin).stat.exists)
+      tags: [launch]

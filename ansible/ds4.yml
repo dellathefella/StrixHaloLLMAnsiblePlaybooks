@@ -1,0 +1,145 @@
+- name: "bootstrap — DS4 track: toolbox + model downloads"
+  hosts: ds4
+  gather_facts: yes
+  become: yes
+  tags: [ds4]
+
+  vars:
+    # ds4_mode / ds4_ctx(_single) / ds4_coord_port / ds4_download_* defaults live in
+    # inventory/group_vars/all.yml. Structural paths + model filenames + toolbox
+    # images are also group_vars (single source of truth shared with the render play).
+    ds4_single_url: "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_single_model }}"
+    ds4_multi_url: "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_multi_model }}"
+    ds4_mtp_url: "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/{{ ds4_mtp_model }}"
+
+  tasks:
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ ds4_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Create ds4 toolbox, multi-node image (distrobox)
+      ansible.builtin.command:
+        cmd: >-
+          distrobox create --name ds4-multi-node-rocm-7.14 --image {{ ds4_toolbox_multi }} --additional-flags
+          "--device /dev/dri --device /dev/kfd --group-add video --group-add render
+          --group-add sudo --security-opt seccomp=unconfined"
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_mode == "multi"
+      tags: [toolbox]
+
+    - name: Create ds4 toolbox, single-node image (distrobox)
+      ansible.builtin.command:
+        cmd: >-
+          distrobox create --name ds4-rocm-7.14 --image {{ ds4_toolbox_single }} --additional-flags
+          "--device /dev/dri --device /dev/kfd --group-add video --group-add render
+          --group-add sudo --security-opt seccomp=unconfined"
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_mode == "single"
+      tags: [toolbox]
+
+    - name: Download single-node IQ2_XXS imatrix model
+      # NOTE: `hf download` silently hangs on this system (Xet CDN client), so we
+      # fetch the public GGUF directly with curl (proven ~20 MB/s).
+      ansible.builtin.command:
+        cmd: >-
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_single_model }}
+          {{ ds4_single_url }}
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_download_single | int == 1
+      tags: [model]
+
+    - name: Download multi-node Q4KExperts imatrix model
+      ansible.builtin.command:
+        cmd: >-
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_multi_model }}
+          {{ ds4_multi_url }}
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_download_multi | int == 1
+      tags: [model]
+
+    - name: Download MTP speculative-decoding weights (optional, off by default)
+      ansible.builtin.command:
+        cmd: >-
+          curl -L --retry 3 --retry-delay 5 --fail
+          -o {{ ds4_models_dir }}/{{ ds4_mtp_model }}
+          {{ ds4_mtp_url }}
+      become: no
+      changed_when: false
+      failed_when: false
+      when: ds4_download_mtp | int == 1
+      tags: [model]
+
+    - name: Warn if model files are incomplete
+      ansible.builtin.debug:
+        msg: "WARNING [model] expected GGUF not found in {{ ds4_models_dir }} — re-run download."
+      when: >-
+        (ds4_mode == 'single' and not
+         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*IQ2XXS*imatrix*') | length > 0))
+        or (ds4_mode == 'multi' and not
+         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*Q4KExperts*imatrix*') | length > 0))
+
+    - name: Warn on multi-node that all nodes must share ctx and model
+      ansible.builtin.debug:
+        msg: |
+          WARNING [multi] all nodes must use the SAME --ctx ({{ ds4_ctx }}) and the SAME
+          Q4KExperts GGUF. Coordinator listens on its IP; workers point --coordinator
+          at it. Verify firewalls allow the coordinator port ({{ ds4_coord_port }}).
+      when: ds4_mode == "multi"
+      tags: [info]
+
+    - name: Print DS4 track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== DS4 track complete on {{ inventory_hostname }} ====
+          mode: {{ ds4_mode }}  models in {{ ds4_models_dir }}
+          Launch later via scripts/ds4-start.sh (DS4_ROLE=single|coordinator|worker).
+          Single-node: IQ2_XXS at {{ ds4_ctx_single }} ctx (AMD guide default).
+          MTP disabled by default; set DS4_USE_MTP=1 to enable.
+      tags: [info]
+
+# -----------------------------------------------------------------------------
+# Launch render — drop local ds4 launch script + pi config
+# -----------------------------------------------------------------------------
+- name: "bootstrap — drop local ds4 launch script + pi config"
+  hosts: ds4
+  gather_facts: no   # local/controller runs skip facts; uses playbook_dir/groups/inventory
+  become: yes
+  run_once: yes
+  tags: [launch, ds4]
+
+  tasks:
+    - name: Render ds4-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/ds4-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/ds4-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render pi agent config (pi-ds4.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-ds4.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-ds4.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Warn if coordinator IP not supplied (multi-node only)
+      ansible.builtin.debug:
+        msg: "WARNING [multi] ds4_coord_ip is empty — set it (coordinator LAN IP) so workers connect and the pi config points at the right server."
+      delegate_to: localhost
+      when: ds4_mode == "multi" and (ds4_coord_ip | length == 0)
+      tags: [info]

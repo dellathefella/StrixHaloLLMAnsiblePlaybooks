@@ -1,0 +1,29 @@
+{
+  "providers": {
+    "gemma4": {
+      "name": "Gemma 4 26B-A4B (llama.cpp, UD-Q8_K_XL)",
+      "baseUrl": "http://{{ gemma_host }}:{{ gemma_port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "gemma4-local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens",
+        "supportsStrictMode": false
+      },
+      "models": [
+        {
+          "id": "gemma-4-26b-a4b",
+          "name": "Gemma 4 26B-A4B (llama.cpp, UD-Q8_K_XL)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": {{ gemma_ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
