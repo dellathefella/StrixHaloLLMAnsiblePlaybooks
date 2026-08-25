@@ -92,10 +92,13 @@
     - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }}) [skip if present]
       # aria2c 16-connection (saturates a fast link; single-stream curl / hf
       # download's Xet client both hang/underperform on this system).
+      # chdir puts aria2c in the models dir; -o names the file (aria2c would
+      # otherwise use the hash ID from the HF URL path as the filename).
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
+          -o {{ gemma_model }}
           {{ gemma_url }}
       args:
         chdir: "{{ llama_models_dir }}"
@@ -120,8 +123,9 @@
     - name: Download Gemma 4 E4B Q4_K_S ({{ gemma_e4b_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
+          -o {{ gemma_e4b_model }}
           {{ gemma_e4b_url }}
       args:
         chdir: "{{ llama_models_dir }}"
@@ -146,8 +150,9 @@
     - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false
+          aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
+          -o {{ qwen36_model }}
           {{ qwen36_url }}
       args:
         chdir: "{{ llama_models_dir }}"
