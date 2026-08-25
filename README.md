@@ -267,8 +267,8 @@ cd ~/.local/share/llama-models && \
 # DS4 single-node IQ2_XXS (~80.8 GB) into ~/ds4
 cd ~/ds4 && \
   aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false --continue=true \
-    -o DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf \
-    "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf"
+    -o DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
+    "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 ```
 
 Verify integrity after download (HF publishes sha256, not md5):

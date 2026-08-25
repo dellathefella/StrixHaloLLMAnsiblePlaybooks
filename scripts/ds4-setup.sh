@@ -30,7 +30,7 @@ DS4_DOWNLOAD_MULTI="${DS4_DOWNLOAD_MULTI:-0}"
 DS4_DOWNLOAD_MTP="${DS4_DOWNLOAD_MTP:-0}"
 DS4_HF_TOKEN="${HF_TOKEN:-$(cat "$(dirname "$0")/../hf_token.txt" 2>/dev/null || true)}"
 
-SINGLE_MODEL="DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf"
+SINGLE_MODEL="DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 MULTI_MODEL="DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
 MTP_MODEL="DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
 REPO="antirez/deepseek-v4-gguf"

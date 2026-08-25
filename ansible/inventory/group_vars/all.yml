@@ -22,7 +22,7 @@ ds4_download_mtp: 0
 # --- DS4 structural paths + model filenames (single source of truth) ---
 ds4_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
 ds4_models_dir: "{{ ds4_home }}/ds4"
-ds4_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
+ds4_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
 ds4_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
 ds4_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"   # (~3.6 GB, optional)
 ds4_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
