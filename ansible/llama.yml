@@ -199,9 +199,16 @@
       delegate_to: localhost
       tags: [launch, qwen36]
 
+    - name: Check llama-server binary present
+      ansible.builtin.stat:
+        path: "{{ llama_bin }}"
+      register: llama_server_stat
+      delegate_to: localhost
+      tags: [launch]
+
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
         msg: "WARNING [launch] llama-server missing — scripts/gemma-start.sh and scripts/qwen36-start.sh will not run until the build succeeds."
       delegate_to: localhost
-      when: not (lookup('ansible.builtin.stat', llama_bin).stat.exists)
+      when: not llama_server_stat.stat.exists
       tags: [launch]

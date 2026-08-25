@@ -82,14 +82,27 @@
       when: ds4_download_mtp | int == 1
       tags: [model]
 
+    - name: Check single-node IQ2_XXS model present
+      ansible.builtin.find:
+        paths: "{{ ds4_models_dir }}"
+        patterns: "*IQ2XXS*imatrix*"
+      register: ds4_single_files
+      tags: [model]
+
+    - name: Check multi-node Q4KExperts model present
+      ansible.builtin.find:
+        paths: "{{ ds4_models_dir }}"
+        patterns: "*Q4KExperts*imatrix*"
+      register: ds4_multi_files
+      tags: [model]
+
     - name: Warn if model files are incomplete
       ansible.builtin.debug:
         msg: "WARNING [model] expected GGUF not found in {{ ds4_models_dir }} — re-run download."
       when: >-
-        (ds4_mode == 'single' and not
-         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*IQ2XXS*imatrix*') | length > 0))
-        or (ds4_mode == 'multi' and not
-         (lookup('ansible.builtin.find', ds4_models_dir, pattern='*Q4KExperts*imatrix*') | length > 0))
+        (ds4_mode == 'single' and ds4_single_files.matched | int == 0) or
+        (ds4_mode == 'multi' and ds4_multi_files.matched | int == 0)
+      tags: [model]
 
     - name: Warn on multi-node that all nodes must share ctx and model
       ansible.builtin.debug:
