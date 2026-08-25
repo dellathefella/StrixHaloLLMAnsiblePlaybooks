@@ -230,8 +230,11 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml -K
 
 **Common flags** — `--tags <track>` runs one track (`base`, `ds4`, `qwen`,
 `llama`); `--skip-tags base` skips the base play; `--tags model` re-runs just
-downloads; `--check` dry-runs. A track file can be run standalone (no need to
-go through the orchestrator).
+downloads; `--check` dry-runs. Within the llama track, per-model tags
+`gemma` / `qwen36` run only that model's download + launch-script/pi-config
+render, and `--skip-tags gemma` / `--skip-tags qwen36` skip just that model
+(so you can fetch one GGUF without re-downloading the other). A track file can
+be run standalone (no need to go through the orchestrator).
 
 ### DS4 single-node local bootstrap (the one kept local script)
 ```bash

@@ -90,7 +90,7 @@
       become: no
       changed_when: false
       failed_when: false
-      tags: [model]
+      tags: [model, gemma]
 
     - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }})
       ansible.builtin.command:
@@ -101,7 +101,7 @@
       become: no
       changed_when: false
       failed_when: false
-      tags: [model]
+      tags: [model, qwen36]
 
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
@@ -138,7 +138,7 @@
         dest: "{{ playbook_dir }}/../scripts/gemma-start.sh"
         mode: "0755"
       delegate_to: localhost
-      tags: [launch]
+      tags: [launch, gemma]
 
     - name: Render qwen36-start.sh launch script into scripts/
       ansible.builtin.template:
@@ -146,7 +146,7 @@
         dest: "{{ playbook_dir }}/../scripts/qwen36-start.sh"
         mode: "0755"
       delegate_to: localhost
-      tags: [launch]
+      tags: [launch, qwen36]
 
     - name: Render pi agent config for Gemma (pi-gemma.json) into pi-configs/
       ansible.builtin.template:
@@ -154,7 +154,7 @@
         dest: "{{ playbook_dir }}/../pi-configs/pi-gemma.json"
         mode: "0644"
       delegate_to: localhost
-      tags: [launch]
+      tags: [launch, gemma]
 
     - name: Render pi agent config for Qwen3.6 (pi-qwen36.json) into pi-configs/
       ansible.builtin.template:
@@ -162,7 +162,7 @@
         dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36.json"
         mode: "0644"
       delegate_to: localhost
-      tags: [launch]
+      tags: [launch, qwen36]
 
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
