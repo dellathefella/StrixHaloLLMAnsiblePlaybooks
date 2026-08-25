@@ -68,7 +68,7 @@ for icd in \
 done
 
 # --- LD_LIBRARY_PATH: engine bin (shared .so) + ROCm runtime ---
-QWEN38_ENGINE_LIB="/home/jdella/qwen38-engine/bin"
+QWEN38_ENGINE_LIB="/home/jdella/qwen38-engine/strix-halo-rocmfpx-engine/bin"
 ROCM_LIB=""
 for d in /opt/rocm /opt/rocm-* /usr; do
   if [ -e "${d}/lib/libamdhip64.so.7" ] || [ -e "${d}/lib/libamdhip64.so" ]; then
@@ -137,5 +137,5 @@ exec "$QWEN38_BIN" \
   --host "$QWEN38_HOST" --port "$QWEN38_PORT" \
   "${MTP_ARGS[@]}" \
   --reasoning-budget "$QWEN38_REASONING_BUDGET" \
-  --timeout 7200
+  --timeout 7200 \
   "$@"

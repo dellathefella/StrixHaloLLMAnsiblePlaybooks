@@ -1,7 +1,8 @@
 ---
 # Defaults for all hosts. These are LOWER precedence than per-host inventory
 # vars (e.g. `qwen38_ctx=131072` on a host line still overrides here).
-# Per-track plays define only structural vars (homes, repos, filenames) locally.
+# Structural vars (homes, engine dirs, model filenames) are also here — one
+# source of truth shared by the download (PLAY 4) and template-render (PLAY 5) tasks.
 
 # --- DS4 (PLAY 2) ---
 ds4_mode: "multi"
@@ -22,9 +23,8 @@ qwen_head_ip: ""
 qwen_worker_ip: ""
 
 # --- Qwen3.8 llama.cpp (PLAY 4 / PLAY 5 templates) — q38rocm ROCmFPX ---
-qwen38_ctx: 262144   # native max (262k). TurboQuant KV (q8_0/turbo4) = ~20 GB at 262k, fits the ~124 GB pool.
-                   # Set 131072 to halve the reserved KV (~10 GB) if you want more headroom; decode speed is
-                   # the same until you actually fill >~100k context.
+qwen38_ctx: 131072   # half of native max (262k). TurboQuant KV (q8_0/turbo4) = ~10 GB reserved; decode speed is
+                   # the same until you actually fill >~100k context. Set 262144 for full 262k (~20 GB KV).
 qwen38_port: 8082
 qwen38_host: "0.0.0.0"
 qwen38_draft_n: 4
@@ -39,3 +39,10 @@ qwen38_kv_v: "turbo4"
 qwen38_temp: 0.0
 qwen38_presence_penalty: 0.0
 qwen38_repeat_penalty: 1.05
+
+# --- Qwen3.8 llama.cpp structural paths (single source of truth) ---
+qwen38_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+qwen38_engine_dir: "{{ qwen38_home }}/qwen38-engine"
+qwen38_bin: "{{ qwen38_engine_dir }}/strix-halo-rocmfpx-engine/bin/llama-server"   # v1.4.0 tarball extracts into a top-level dir
+qwen38_models_dir: "{{ qwen38_home }}/.local/share/Qwen3.8-27B"
+qwen38_model_file: "Qwen3.8-27B-ROCmFP4-FAST.gguf"

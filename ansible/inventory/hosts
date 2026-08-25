@@ -5,7 +5,7 @@
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:' which
 #   ansible's become prompt-match never detects (times out).
 # Test with:  ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base -K
-# q38rocm defaults: ctx 262144, device auto (Vulkan0), MTP on, KV q8_0/turbo4.
-# Override e.g. qwen38_ctx=131072 on the host line to halve the reserved KV.
+# q38rocm defaults: ctx 131072, device auto (Vulkan0), MTP on, KV q8_0/turbo4.
+# Override e.g. qwen38_ctx=262144 on the host line for full native context.
 [qwen38]
-localhost ansible_connection=local ansible_user=jdella   ansible_become_exe=/usr/bin/sudo.ws
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
