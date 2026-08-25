@@ -94,8 +94,8 @@
 # -----------------------------------------------------------------------------
 - name: "bootstrap — drop local qwen-rccl launch script + pi config (RCCL)"
   hosts: qwen_rccl
-  gather_facts: no   # local/controller runs skip facts; uses playbook_dir/groups/inventory
-  become: yes
+  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
+  become: no
   run_once: yes
   tags: [launch, qwen-rccl]
 

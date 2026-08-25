@@ -128,8 +128,8 @@
 # -----------------------------------------------------------------------------
 - name: "bootstrap — drop local ds4 launch script + pi config"
   hosts: ds4
-  gather_facts: no   # local/controller runs skip facts; uses playbook_dir/groups/inventory
-  become: yes
+  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
+  become: no
   run_once: yes
   tags: [launch, ds4]
 

@@ -12,7 +12,7 @@
 #   • Qwen3.6 needs >= 128k ctx to preserve long-thinking behavior
 #     (keep GEMMA-style ctx override at or above {{ qwen36_ctx }}).
 #
-# Env overrides: QWEN36_BIN/MODEL/CTX/PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS
+# Env overrides: QWEN36_BIN/LIB/MODEL/CTX/PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS
 # =============================================================================
 set -euo pipefail
 
@@ -27,6 +27,11 @@ QWEN36_UBATCH="${QWEN36_UBATCH:-{{ qwen36_ubatch }}}"
 QWEN36_FA="${QWEN36_FA:-{{ qwen36_flash_attn }}}"
 QWEN36_MMAP="${QWEN36_MMAP:-{{ qwen36_mmap }}}"
 QWEN36_THREADS="${QWEN36_THREADS:-16}"
+
+# --- llama.cpp shared libs (libllama-server-impl.so, libllama.so, libggml-vulkan.so)
+#     install into $QWEN36_BIN/../lib; the binary has no rpath, so add it to the loader path ---
+QWEN36_LIB="${QWEN36_LIB:-$(dirname "$QWEN36_BIN")/../lib}"
+[ -d "$QWEN36_LIB" ] && export LD_LIBRARY_PATH="${QWEN36_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # --- Vulkan (Mesa RADV) runtime env for Strix Halo ---
 export AMD_VULKAN_ICD=RADV

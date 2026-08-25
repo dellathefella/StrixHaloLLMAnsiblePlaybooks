@@ -161,8 +161,8 @@
 # -----------------------------------------------------------------------------
 - name: "bootstrap — drop local gemma + qwen36 launch scripts & pi configs"
   hosts: llama
-  gather_facts: no
-  become: yes
+  gather_facts: yes
+  become: no
   run_once: yes
   tags: [launch, llama]
 

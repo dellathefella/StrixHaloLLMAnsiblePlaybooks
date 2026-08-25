@@ -1,8 +1,8 @@
 {
   "providers": {
     "ds4": {
-      "name": "ds4.c local (multi-node)",
-      "baseUrl": "http://192.168.100.1:8000/v1",
+      "name": "DeepSeek V4 Flash (ds4.c, single-node IQ2_XXS)",
+      "baseUrl": "http://127.0.0.1:8000/v1",
       "api": "openai-completions",
       "apiKey": "dsv4-local",
       "compat": {
@@ -18,7 +18,7 @@
       "models": [
         {
           "id": "deepseek-v4-flash",
-          "name": "DeepSeek V4 Flash (ds4.c multi-node)",
+          "name": "DeepSeek V4 Flash (ds4.c single-node IQ2_XXS)",
           "reasoning": true,
           "thinkingLevelMap": {
             "off": null,
@@ -29,7 +29,7 @@
             "xhigh": "xhigh"
           },
           "input": ["text"],
-          "contextWindow": 262144,
+          "contextWindow": 126000,
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }

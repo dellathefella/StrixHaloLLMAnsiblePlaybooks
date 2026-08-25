@@ -15,8 +15,10 @@
 # MTP speculative decoding is DISABLED by default (stability). Enable with
 # DS4_USE_MTP=1 if you want it (negatively affects stability, small speed gain).
 #
-# Run inside the ds4 distrobox:  distrobox enter <toolbox> -- bash /path/to/ds4-start.sh
-# (the toolbox name is baked below; override with DS4_TOOLBOX if needed)
+# Run inside the ds4 distrobox (container names, not image names — the toolbox
+# create tasks in ds4.yml name them ds4-rocm-7.14 / ds4-multi-node-rocm-7.14):
+#   distrobox enter <toolbox> -- bash /path/to/ds4-start.sh
+# (container name is baked below; override with DS4_TOOLBOX_SINGLE/MULTI if needed)
 # =============================================================================
 set -euo pipefail
 
@@ -34,8 +36,8 @@ DS4_PORT="${DS4_PORT:-{{ ds4_port }}}"
 DS4_COORD_IP="${DS4_COORD_IP:-{{ ds4_coord_ip }}}"
 DS4_COORD_PORT="${DS4_COORD_PORT:-{{ ds4_coord_port }}}"
 DS4_MODELS_DIR="${DS4_MODELS_DIR:-{{ ds4_models_dir }}}"
-DS4_TOOLBOX_SINGLE="${DS4_TOOLBOX_SINGLE:-{{ ds4_toolbox_single }}}"
-DS4_TOOLBOX_MULTI="${DS4_TOOLBOX_MULTI:-{{ ds4_toolbox_multi }}}"
+DS4_TOOLBOX_SINGLE="${DS4_TOOLBOX_SINGLE:-ds4-rocm-7.14}"
+DS4_TOOLBOX_MULTI="${DS4_TOOLBOX_MULTI:-ds4-multi-node-rocm-7.14}"
 
 # --- optional MTP (speculative decoding) args ---
 MTP_ARGS=""
