@@ -12,7 +12,14 @@
       - glslang-tools
       - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
       - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
-    step35flash_url: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/{{ step35flash_model }}"
+    step35flash_shard_count: 3
+    step35flash_shards:
+      - "Step-3.5-Flash-IQ4_XS-00001-of-00003.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00002-of-00003.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00003-of-00003.gguf"
+    # llama.cpp uses the first shard to detect a sharded model
+    step35flash_model: "{{ step35flash_shards[0] }}"
+    step35flash_url_base: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/IQ4_XS"
 
   tasks:
     - name: Install llama.cpp build dependencies
@@ -80,45 +87,51 @@
         mode: "0755"
       become: no
 
-    - name: Check if Step 3.5 Flash model already present
+    - name: Check if all Step 3.5 Flash IQ4_XS shards already present
       ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ step35flash_model }}"
-      register: step35flash_stat
+        path: "{{ llama_models_dir }}/{{ item }}"
+      register: step35flash_shard_stat
+      loop: "{{ step35flash_shards }}"
       become: no
       tags: [model, step35flash]
 
-    - name: Download Step 3.5 Flash IQ4_XS ({{ step35flash_model }}) [skip if present]
+    - name: Download all Step 3.5 Flash IQ4_XS shards ({{ step35flash_shard_count }} files) [skip if present]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
-          -o {{ step35flash_model }}
-          {{ step35flash_url }}
+          -o {{ item }}
+          {{ step35flash_url_base }}/{{ item }}
       args:
         chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      when: not step35flash_stat.stat.exists
+      loop: "{{ step35flash_shards }}"
+      # Only download shards that are missing
+      when: >
+        (step35flash_shard_stat.results | map(attribute='stat.exists') | list).count(true) < step35flash_shard_count
       tags: [model, step35flash]
 
     - name: Step 3.5 Flash model already present — skipping download
       ansible.builtin.debug:
-        msg: "SKIP [step35flash] {{ step35flash_model }} already in {{ llama_models_dir }}"
-      when: step35flash_stat.stat.exists
+        msg: "SKIP [step35flash] all {{ step35flash_shard_count }} shards already in {{ llama_models_dir }}"
+      when: >
+        (step35flash_shard_stat.results | map(attribute='stat.exists') | list).count(true) >= step35flash_shard_count
       tags: [model, step35flash]
 
-    - name: Check downloaded model files present
-      ansible.builtin.find:
-        paths: "{{ llama_models_dir }}"
-        patterns: "*.gguf"
-      register: model_files
+    - name: Check all Step 3.5 Flash shards downloaded
+      ansible.builtin.stat:
+        path: "{{ llama_models_dir }}/{{ item }}"
+      register: step35flash_check
+      loop: "{{ step35flash_shards }}"
       become: no
       tags: [model, step35flash]
 
-    - name: Warn if model downloads are incomplete
+    - name: Warn if model downloads are incomplete (shards)
       ansible.builtin.debug:
-        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
-      when: not (model_files.matched | int >= 1)
+        msg: >-
+          "WARNING [model] {{ step35flash_shard_count - (step35flash_check.results | map(attribute='stat.exists') | list).count(true) }} of {{ step35flash_shard_count }} shard(s) missing in {{ llama_models_dir }} — re-run download."
+      when: (step35flash_check.results | map(attribute='stat.exists') | list).count(true) < step35flash_shard_count
       tags: [model, step35flash]
 
     - name: Print step35flash track summary
@@ -126,7 +139,7 @@
         msg: |
           ==== step35flash track complete on {{ inventory_hostname }} ====
           engine: {{ llama_bin }}
-          model: {{ step35flash_model }}  ({{ step35flash_ctx }} ctx, port {{ step35flash_port }})
+          model: {{ step35flash_model }}  ({{ step35flash_shard_count }} shards, {{ step35flash_ctx }} ctx, port {{ step35flash_port }})
           Launch later via scripts/step35flash-start.sh.
           Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
       tags: [info]
