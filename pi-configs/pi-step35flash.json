@@ -29,7 +29,7 @@
             "xhigh": "xhigh"
           },
           "input": ["text"],
-          "contextWindow": 131072,
+          "contextWindow": 65536,
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }

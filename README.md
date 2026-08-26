@@ -16,8 +16,8 @@ order; any track file can also run standalone):
 2. **Qwen RCCL cluster** — Qwen3.5-397B-A17B-GPTQ-Int4 across two nodes via
    vLLM + Ray + RCCL, context pushed to 65536 (guide default is 32768).
 3. **llama.cpp** — **Qwen3.6-35B-A3B** (8-bit UD-Q8_K_XL, 38.5 GB) served by
-   the **latest llama.cpp built from source** with the **Vulkan (Mesa RADV)**
-   backend. Also includes: **Step 3.5 Flash** (IQ4_XS, ~100.5 GB, 26B total /
+   the **latest llama.cpp built from source** with the **ROCm/HIP** backend.
+   Also includes: **Step 3.5 Flash** (ubergarm IQ4_XS, ~108 GB, 26B total /
    11B active MoE, 256K native context).
 
 The qwen38 (Qwen3.8-27B) and ds4fa (Lucebox ROCmFPX) tracks were **removed**
@@ -31,12 +31,13 @@ The launch profiles are tuned from the Strix Halo benchmarking thread
 (`community.frame.work/t/72521`, user lhl — Linux 6.15.5+, TheRock ROCm
 nightlies, latest llama.cpp from source):
 
-- **Vulkan (Mesa RADV) wins token generation and MoE prompt processing** on
-  gfx1151. Official ROCm 7.x had a serious pp regression (Qwen3-8B BF16:
-  ROCm 7.0.1 = 325 t/s vs 6.4.4 = 1132 t/s); TheRock/nightly ROCm fixes it.
-  We therefore build llama.cpp **Vulkan-only** (RADV), which is proven on this
-  box and avoids the ROCm regression entirely.
-- **MoE models need 2^n batching on Vulkan** → `batch=256, ubatch=512`.
+- **ROCm/HIP dominates prompt processing** on gfx1151 — 4.7× faster and 65%
+  less energy than Vulkan for Step 3.5 Flash (same MoE architecture). We build
+  llama.cpp **ROCm-only** (HIP graphs enabled), which avoids the old ROCm
+  regression (fixed by TheRock/nightly ROCm) and gives the best overall
+  throughput.
+- **MoE models need 2^n batching** → `batch=256` for qwen36,
+  `batch=2048` for step35flash.
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
 - **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
@@ -355,8 +356,8 @@ The DS4 + Qwen tracks render their own start scripts / pi configs the same way.
 
 **Render + view the Qwen3.6 config** (download auto-skips since the GGUF is present):
 ```bash
-ansible-playbook -i ansible/inventory/hosts ansible/llama.yml -K --tags qwen36
-cat scripts/qwen36-start.sh    # launch script (Vulkan0, port 8081)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen36.yml -K --tags qwen36
+cat scripts/qwen36-start.sh    # launch script (ROCm0, port 8081)
 cat pi-configs/pi-qwen36.json  # pi agent config
 ```
 

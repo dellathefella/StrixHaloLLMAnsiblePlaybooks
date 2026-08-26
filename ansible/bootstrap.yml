@@ -6,10 +6,10 @@
 #   base.yml     base preflight, packages, toolchain (ROCm 7.2.3), GRUB   [base]
 #   ds4.yml      DeepSeek V4 Flash (ds4.c: single-node IQ2_XXS default +   [ds4]
 #                multi-node Q4KExperts via ds4-toolbox distrobox)
-#   qwen36.yml    Qwen3.6-35B-A3B via latest llama.cpp source build       [llama]
-#                (Vulkan/RADV, 8-bit UD-Q8_K_XL)
-#   step35flash.yml  Step 3.5 Flash IQ4_XS (~100.5 GB) via latest llama.cpp  [llama]
-#                    (Vulkan/RADV, IQ4_XS)
+#   qwen36.yml    Qwen3.6-35B-A3B via ROCm-built llama.cpp source build   [llama]
+#                 (ROCm/HIP, 8-bit UD-Q8_K_XL)
+#   step35flash.yml  Step 3.5 Flash IQ4_XS (~108 GB) via ROCm-built        [llama]
+#                    llama.cpp, ubergarm imatrix quant
 #   qwen-rccl.yml  Qwen3.5-397B RCCL cluster (vLLM + Ray + RCCL)            [qwen-rccl]
 #   summary.yml  final per-host completion summary                        [summary]
 #

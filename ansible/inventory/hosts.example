@@ -28,7 +28,7 @@ ds4_coordinators
 ds4_workers
 
 # ===== llama.cpp tracks: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) + Step 3.5 Flash (IQ4_XS) =====
-# Latest llama.cpp built from source (Vulkan/Mesa RADV backend — fastest tg + MoE pp
+# Latest llama.cpp built from source (ROCm/HIP backend — 4.7× faster PP than Vulkan
 # on Strix Halo), models downloaded. Launch scripts + pi configs
 # are dropped into scripts/ and pi-configs/.
 # Note: qwen36 and step35flash share the same llama.cpp build (both target [llama]).
@@ -71,11 +71,11 @@ ansible_python_interpreter=/usr/bin/python3
 # ds4_download_mtp=0             (1 to fetch MTP ~3.6GB; MTP disabled by default)
 
 # --- Qwen3.6 (llama.cpp) vars ---
-# qwen36_ctx=131072  qwen36_port=8081  qwen36_host=127.0.0.1  qwen36_device=Vulkan0
+# qwen36_ctx=131072  qwen36_port=8081  qwen36_host=127.0.0.1  qwen36_device=ROCm0
 # qwen36_batch=256  qwen36_ubatch=512  qwen36_flash_attn=1  qwen36_mmap=0
 
 # --- Step 3.5 Flash (llama.cpp) vars ---
-# step35flash_ctx=131072  step35flash_port=8084  step35flash_host=127.0.0.1  step35flash_device=Vulkan0
+# step35flash_ctx=65536  step35flash_port=8084  step35flash_host=127.0.0.1  step35flash_device=ROCm0
 # step35flash_batch=2048  step35flash_ubatch=2048  step35flash_flash_attn=1  step35flash_mmap=0
 # For 256K context: step35flash_ubatch=1024 (official docs recommendation)
 
