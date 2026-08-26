@@ -50,19 +50,7 @@ CTX_CHECKPOINTS="${CTX_CHECKPOINTS:-0}"
 [ -x "$LAGUNA_BIN" ] || { echo "ROCmFPX llama-server not found: $LAGUNA_BIN (run bootstrap)" >&2; exit 1; }
 [ -f "$LAGUNA_MODEL" ] || { echo "model not found: $LAGUNA_MODEL" >&2; exit 1; }
 
-# --- Sampler JSON (V3 validated profile) ---
-SAMPLER_FILE=$(mktemp /tmp/laguna-sampler-XXXXXX.json)
-cat > "$SAMPLER_FILE" << 'SAMPLER'
-{
-  "temperature": {{ laguna_sampler_temperature }},
-  "top_p": {{ laguna_sampler_top_p }},
-  "top_k": {{ laguna_sampler_top_k }},
-  "min_p": {{ laguna_sampler_min_p }},
-  "repeat_penalty": {{ laguna_sampler_repeat_penalty }},
-  "seed": {{ laguna_sampler_seed }}
-}
-SAMPLER
-trap "rm -f '$SAMPLER_FILE'" EXIT
+# --- Sampler (V3 validated profile, CLI flags — ROCmFPX fork has no --strategy-file) ---
 
 # --- 256K experimental lane ---
 STABILITY_MODE="${STABILITY_MODE:-}"
@@ -87,8 +75,10 @@ exec "$LAGUNA_BIN" \
   --flash-attn on \
   --cont-batching \
   --ctx-checkpoints "$CTX_CHECKPOINTS" \
-  --no-context-visual \
   --host "$LAGUNA_HOST" --port "$LAGUNA_PORT" \
-  --sampling-strategy file \
-  --strategy-file "$SAMPLER_FILE" \
+  --temperature {{ laguna_sampler_temperature }} \
+  --top-p {{ laguna_sampler_top_p }} \
+  --top-k {{ laguna_sampler_top_k }} \
+  --repeat-penalty {{ laguna_sampler_repeat_penalty }} \
+  --seed {{ laguna_sampler_seed }} \
   "$@"
