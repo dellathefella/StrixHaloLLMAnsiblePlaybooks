@@ -6,25 +6,13 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-    # ROCm build deps (HIP toolkit — no Vulkan needed)
-    llama_build_deps:
-      - cmake
-      - rocminfo              # rocminfo binary for probe
-      - rocblas               # rocBLAS (matrix multiply)
-      - hipblas               # hipBLAS (vector ops)
-      - hipfft                # hipFFT (attention)
-      - hipsolver             # hipSOLVER (eigen, svd)
-      - hipsparse             # hipSPARSE (sparse ops)
-      - hipcub                # HIPCUB
-      - miopen-hip            # MIOpen (conv)
     qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
 
   tasks:
-    - name: Install ROCm build dependencies (no Vulkan needed)
-      ansible.builtin.apt:
-        name: "{{ llama_build_deps }}"
-        state: present
-        update_cache: yes
+    - name: Include ROCm build dependencies
+      ansible.builtin.include_tasks:
+        file: tasks/rocm-build-deps.yml
+      tags: [packages, rocm]
 
     - name: Clone latest llama.cpp (HEAD)
       ansible.builtin.git:

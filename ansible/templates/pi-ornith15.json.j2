@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "ornith15": {
+      "name": "Ornith-1.5-35B-A3B (llama.cpp, Q8_0)",
+      "baseUrl": "http://{{ ornith15_host }}:{{ ornith15_port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "ornith15-local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens",
+        "supportsStrictMode": false,
+        "thinkingFormat": "qwen",
+        "requiresReasoningContentOnAssistantMessages": true
+      },
+      "models": [
+        {
+          "id": "ornith-1.5-35b-a3b",
+          "name": "Ornith-1.5-35B-A3B (llama.cpp, Q8_0)",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "input": ["text", "image", "video"],
+          "contextWindow": {{ ornith15_ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

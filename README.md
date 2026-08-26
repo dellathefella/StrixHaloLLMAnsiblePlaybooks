@@ -18,7 +18,8 @@ order; any track file can also run standalone):
 3. **llama.cpp** — **Qwen3.6-35B-A3B** (8-bit UD-Q8_K_XL, 38.5 GB) served by
    the **latest llama.cpp built from source** with the **ROCm/HIP** backend.
    Also includes: **Step 3.5 Flash** (ubergarm IQ4_XS, ~108 GB, 26B total /
-   11B active MoE, 256K native context).
+   11B active MoE, 256K native context), and **Ornith-1.5-35B-A3B** (Q8_0,
+   ~37.8 GB, 35B total / ~3B active MoE — agentic coding, vision-language).
 
 The qwen38 (Qwen3.8-27B) and ds4fa (Lucebox ROCmFPX) tracks were **removed**
 per user request (qwen38 too slow; ds4fa failed with an engine/model mismatch
@@ -86,16 +87,22 @@ Both qwen36 and step35flash share the same llama.cpp build.
 │   │                              UD-Q8_K_XL, ~38.5 GB)
 │   ├── step35flash.yml            Step 3.5 Flash IQ4_XS (~108 GB, 4 shards)    [llama]
 │   │                              ROCm-built llama.cpp, ubergarm quant
+│   ├── ornith15.yml               Ornith-1.5-35B-A3B Q8_0 (~37.8 GB) via      [llama]
+│   │                              ROCm-built llama.cpp, vision-language MoE
+│   ├── tasks/                       shared task files (all llama tracks call)
+│   │   └── rocm-build-deps.yml    ROCm runtime + dev packages                 [packages,rocm]
 │   ├── qwen-rccl.yml                   Qwen RCCL cluster (vLLM + Ray + RCCL)       [qwen-rccl]
 │   ├── summary.yml                final per-host completion summary           [summary]
 │   ├── templates/                 Jinja templates (rendered by each track playbook)
 │   │   ├── ds4-start.sh.j2        DS4 launch template (single + multi, role via env)
 │   │   ├── qwen36-start.sh.j2     Qwen3.6-35B-A3B launch (ROCm, MoE batching)
 │   │   ├── step35flash-start.sh.j2  Step 3.5 Flash launch (ROCm, MoE batching)
+│   │   ├── ornith15-start.sh.j2     Ornith-1.5-35B-A3B launch (ROCm, MoE + vision)
 │   │   ├── qwen-rccl-start.sh.j2       Qwen RCCL launch template
 │   │   ├── pi-ds4.json.j2         pi agent config (DS4 single-node default)
 │   │   ├── pi-qwen36.json.j2      pi agent config (Qwen3.6)
 │   │   ├── pi-step35flash.json.j2   pi agent config (Step 3.5 Flash)
+│   │   ├── pi-ornith15.json.j2      pi agent config (Ornith-1.5)
 │   │   └── pi-qwen-rccl.json.j2        pi agent config (Qwen RCCL)
 │   └── inventory/
 │       ├── hosts                  your real inventory (local ds4_single + llama test)
@@ -106,11 +113,13 @@ Both qwen36 and step35flash share the same llama.cpp build.
 │   ├── ds4-start.sh               rendered DS4 launch (DS4_ROLE=single|coordinator|worker)
 │   ├── qwen36-start.sh            rendered Qwen3.6-35B-A3B launch
 │   ├── step35flash-start.sh       rendered Step 3.5 Flash launch
+│   ├── ornith15-start.sh          rendered Ornith-1.5-35B-A3B launch
 │   └── qwen-rccl-start.sh              rendered Qwen RCCL launch (role via env)
 └── pi-configs/                    rendered pi agent configs (dropped locally)
     ├── pi-ds4.json                merge into ~/.pi/agent/models.json
     ├── pi-qwen36.json
     ├── pi-step35flash.json
+    ├── pi-ornith15.json
     └── pi-qwen-rccl.json
 ```
 
@@ -308,10 +317,11 @@ DS4_ROLE=worker      ./scripts/ds4-start.sh
 ```
 MTP is disabled by default (`DS4_USE_MTP=1` to enable).
 
-### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash (ROCm/HIP)
+### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash + Ornith-1.5 (ROCm/HIP)
 ```bash
 ./scripts/qwen36-start.sh        # ctx 131072 (keep >=128k for thinking)
 ./scripts/step35flash-start.sh   # ctx 65536 default, 108 GB, MoE (batch=2048)
+./scripts/ornith15-start.sh      # ctx 131072, 37.8 GB, MoE (batch=256)
 ```
 Both use the same ROCm-built `llama-server` (HIP graphs, 4.7× faster PP than
 Vulkan), `--flash-attn on`, `--no-mmap` (full load into the unified shared
@@ -346,11 +356,14 @@ Qwen weights into the models dir on first serve.
 
 The launch scripts and pi configs are **generated from templates** (not hand-kept
 files). Source: `ansible/templates/*.j2` → rendered by the launch-render plays
-(`qwen36.yml` play 2 + `step35flash.yml` play 2, `tags: [launch, llama]`) into:
+(`qwen36.yml` play 2 + `step35flash.yml` play 2 + `ornith15.yml` play 2,
+`tags: [launch, llama]`) into:
 - `scripts/qwen36-start.sh` ← `templates/qwen36-start.sh.j2`  (`tags: [launch, qwen36]`)
 - `scripts/step35flash-start.sh` ← `templates/step35flash-start.sh.j2`  (`tags: [launch, step35flash]`)
+- `scripts/ornith15-start.sh` ← `templates/ornith15-start.sh.j2`  (`tags: [launch, ornith15]`)
 - `pi-configs/pi-qwen36.json` ← `templates/pi-qwen36.json.j2` (`tags: [launch, qwen36]`)
 - `pi-configs/pi-step35flash.json` ← `templates/pi-step35flash.json.j2` (`tags: [launch, step35flash]`)
+- `pi-configs/pi-ornith15.json` ← `templates/pi-ornith15.json.j2` (`tags: [launch, ornith15]`)
 
 The DS4 + Qwen tracks render their own start scripts / pi configs the same way.
 
@@ -370,11 +383,20 @@ cat pi-configs/pi-step35flash.json
 ansible-playbook -i ansible/inventory/hosts ansible/step35flash.yml -K --tags launch
 ```
 
+**Render just the ornith15 config:**
+```bash
+ansible-playbook -i ansible/inventory/hosts ansible/ornith15.yml -K
+cat scripts/ornith15-start.sh
+cat pi-configs/pi-ornith15.json
+# skip build and download, only render:
+ansible-playbook -i ansible/inventory/hosts ansible/ornith15.yml -K --tags launch
+```
+
 Per-model tags: `--tags qwen36` runs only the qwen36 download + render; `--tags
-step35flash` runs only the step35flash download + render; `--tags
-launch` runs the whole launch-render play (both qwen36 + step35flash scripts + pi
-configs). Each track file is fully standalone — no need to go through the
-orchestrator. Once
+step35flash` runs only the step35flash download + render; `--tags ornith15`
+runs only the ornith15 download + render; `--tags launch` runs the whole
+launch-render play (all llama scripts + pi configs). Each track file is fully
+standalone — no need to go through the orchestrator. Once
 rendered, `./scripts/install-pi.sh` merges `pi-configs/*` into
 `~/.pi/agent/models.json`.
 

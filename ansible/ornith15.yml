@@ -1,4 +1,4 @@
-- name: "bootstrap — step35flash: llama.cpp source build + Step 3.5 Flash IQ4_XS"
+- name: "bootstrap — ornith15: llama.cpp source build + Ornith-1.5-35B-A3B Q8_0"
   hosts: llama
   gather_facts: yes
   become: yes
@@ -6,17 +6,7 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-    # ubergarm's IQ4_XS: 4 shards, ~108 GB total (4.38 bpw)
-    # https://huggingface.co/ubergarm/Step-3.5-Flash-GGUF/tree/main/IQ4_XS
-    step35flash_shard_count: 4
-    step35flash_shards:
-      - "Step-3.5-Flash-IQ4_XS-00001-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00002-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00003-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00004-of-00004.gguf"
-    # llama.cpp uses the first shard to detect a sharded model
-    step35flash_model: "{{ step35flash_shards[0] }}"
-    step35flash_url_base: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/IQ4_XS"
+    ornith15_url: "https://huggingface.co/{{ ornith15_repo }}/resolve/main/{{ ornith15_model }}"
 
   tasks:
     - name: Include ROCm build dependencies
@@ -84,67 +74,61 @@
         mode: "0755"
       become: no
 
-    - name: Check if all Step 3.5 Flash IQ4_XS shards already present
+    - name: Check if Ornith-1.5 model already present
       ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ item }}"
-      register: step35flash_shard_stat
-      loop: "{{ step35flash_shards }}"
+        path: "{{ llama_models_dir }}/{{ ornith15_model }}"
+      register: ornith15_stat
       become: no
-      tags: [model, step35flash]
+      tags: [model, ornith15]
 
-    - name: Download all Step 3.5 Flash IQ4_XS shards ({{ step35flash_shard_count }} files) [skip if present]
+    - name: Download Ornith-1.5-35B-A3B Q8_0 ({{ ornith15_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
-          -o {{ item }}
-          {{ step35flash_url_base }}/{{ item }}
+          -o {{ ornith15_model }}
+          {{ ornith15_url }}
       args:
         chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      loop: "{{ step35flash_shards }}"
-      # Only download shards that are missing
-      when: >
-        (step35flash_shard_stat.results | map(attribute='stat.exists') | list).count(true) < step35flash_shard_count
-      tags: [model, step35flash]
+      when: not ornith15_stat.stat.exists
+      tags: [model, ornith15]
 
-    - name: Step 3.5 Flash model already present — skipping download
+    - name: Ornith-1.5 model already present — skipping download
       ansible.builtin.debug:
-        msg: "SKIP [step35flash] all {{ step35flash_shard_count }} shards already in {{ llama_models_dir }}"
-      when: >
-        (step35flash_shard_stat.results | map(attribute='stat.exists') | list).count(true) >= step35flash_shard_count
-      tags: [model, step35flash]
+        msg: "SKIP [ornith15] {{ ornith15_model }} already in {{ llama_models_dir }}"
+      when: ornith15_stat.stat.exists
+      tags: [model, ornith15]
 
-    - name: Check all Step 3.5 Flash shards downloaded
-      ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ item }}"
-      register: step35flash_check
-      loop: "{{ step35flash_shards }}"
+    - name: Check downloaded model files present
+      ansible.builtin.find:
+        paths: "{{ llama_models_dir }}"
+        patterns: "*.gguf"
+      register: model_files
       become: no
-      tags: [model, step35flash]
+      tags: [model, ornith15]
 
-    - name: Warn if model downloads are incomplete (shards)
+    - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
-        msg: >-
-          "WARNING [model] {{ step35flash_shard_count - (step35flash_check.results | map(attribute='stat.exists') | list).count(true) }} of {{ step35flash_shard_count }} shard(s) missing in {{ llama_models_dir }} — re-run download."
-      when: (step35flash_check.results | map(attribute='stat.exists') | list).count(true) < step35flash_shard_count
-      tags: [model, step35flash]
+        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
+      when: not (model_files.matched | int >= 1)
+      tags: [model, ornith15]
 
-    - name: Print step35flash track summary
+    - name: Print ornith15 track summary
       ansible.builtin.debug:
         msg: |
-          ==== step35flash track complete on {{ inventory_hostname }} ====
+          ==== ornith15 track complete on {{ inventory_hostname }} ====
           engine: {{ llama_bin }}
-          model: {{ step35flash_model }}  ({{ step35flash_shard_count }} shards, {{ step35flash_ctx }} ctx, port {{ step35flash_port }})
-          Launch later via scripts/step35flash-start.sh.
+          model: {{ ornith15_model }}  ({{ ornith15_ctx }} ctx, port {{ ornith15_port }})
+          Launch later via scripts/ornith15-start.sh.
           ROCm backend — 4.7x faster PP, 65% less energy than Vulkan.
       tags: [info]
 
 # -----------------------------------------------------------------------------
-# Launch render — drop local step35flash launch script + pi config
+# Launch render — drop local ornith15 launch script + pi config
 # -----------------------------------------------------------------------------
-- name: "bootstrap — drop local step35flash launch script & pi config"
+- name: "bootstrap — drop local ornith15 launch script & pi config"
   hosts: llama
   gather_facts: yes
   become: no
@@ -152,21 +136,21 @@
   tags: [launch, llama]
 
   tasks:
-    - name: Render step35flash-start.sh launch script into scripts/
+    - name: Render ornith15-start.sh launch script into scripts/
       ansible.builtin.template:
-        src: templates/step35flash-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/step35flash-start.sh"
+        src: templates/ornith15-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/ornith15-start.sh"
         mode: "0755"
       delegate_to: localhost
-      tags: [launch, step35flash]
+      tags: [launch, ornith15]
 
-    - name: Render pi agent config for Step 3.5 Flash (pi-step35flash.json) into pi-configs/
+    - name: Render pi agent config for Ornith-1.5 (pi-ornith15.json) into pi-configs/
       ansible.builtin.template:
-        src: templates/pi-step35flash.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-step35flash.json"
+        src: templates/pi-ornith15.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-ornith15.json"
         mode: "0644"
       delegate_to: localhost
-      tags: [launch, step35flash]
+      tags: [launch, ornith15]
 
     - name: Check llama-server binary present
       ansible.builtin.stat:
@@ -177,7 +161,7 @@
 
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
-        msg: "WARNING [launch] llama-server missing — scripts/step35flash-start.sh will not run until the build succeeds."
+        msg: "WARNING [launch] llama-server missing — scripts/ornith15-start.sh will not run until the build succeeds."
       delegate_to: localhost
       when: not llama_server_stat.stat.exists
       tags: [launch]

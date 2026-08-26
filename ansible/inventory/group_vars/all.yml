@@ -62,6 +62,22 @@ step35flash_threads: 32
 step35flash_model: "Step-3.5-Flash-IQ4_XS-00001-of-00004.gguf"   # first shard; llama.cpp auto-detects remaining 3
 step35flash_repo: "ubergarm/Step-3.5-Flash-GGUF"
 
+# --- llama.cpp track: Ornith-1.5-35B-A3B (Q8_0, ~37.8 GB) ---
+# Vision-language MoE: 35B total / ~3B active params.
+# Qwen-family reasoning (<think>...</think>), tool calls (XML <tool_call>), vision input.
+# Q8_0 quant — ~37.8 GB; 128K ctx safe with --cache-ram 0 on 128GB UMA.
+ornith15_ctx: 131072
+ornith15_port: 8085
+ornith15_host: "127.0.0.1"
+ornith15_device: "ROCm0"
+ornith15_batch: 256
+ornith15_ubatch: 512
+ornith15_flash_attn: 1
+ornith15_mmap: 0
+ornith15_threads: 16
+ornith15_model: "Ornith-1.5-35B-Q8_0.gguf"
+ornith15_repo: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+
 # --- llama.cpp structural paths + model filenames (single source of truth) ---
 llama_home: "/home/{{ ansible_user }}"
 llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp -> llama-cpp

@@ -24,6 +24,11 @@ localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/b
 # Step 3.5 Flash IQ4_XS via latest llama.cpp (ROCm/HIP)
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
+[ornith15]
+# Ornith-1.5-35B-A3B Q8_0 via latest llama.cpp (ROCm/HIP)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
 [llama:children]
 qwen36
 step35flash
+ornith15

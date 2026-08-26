@@ -40,9 +40,14 @@ ds4_workers
 # halo-1   ansible_user=jdella                       # step-3.5-flash (8084)
 # localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
+[ornith15]
+# halo-1   ansible_user=jdella                       # ornith-1.5-35b (8085)
+# localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
 [llama:children]
 qwen36
 step35flash
+ornith15
 
 # ===== Qwen3.5-397B RCCL cluster (two nodes, 2.5Gbe NICs OK) =====
 [qwen_rccl_head]            # Machine 1 — Ray head + vLLM server

@@ -3,15 +3,17 @@
 # bootstrap.yml — ORCHESTRATOR: imports the per-track playbooks in order.
 #
 # The tracks live in separate files (see Layout in the README):
-#   base.yml     base preflight, packages, toolchain (ROCm 7.2.3), GRUB   [base]
+#   base.yml     base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
 #   ds4.yml      DeepSeek V4 Flash (ds4.c: single-node IQ2_XXS default +   [ds4]
 #                multi-node Q4KExperts via ds4-toolbox distrobox)
-#   qwen36.yml    Qwen3.6-35B-A3B via ROCm-built llama.cpp source build   [llama]
-#                 (ROCm/HIP, 8-bit UD-Q8_K_XL)
+#   qwen36.yml      Qwen3.6-35B-A3B via ROCm-built llama.cpp source build   [llama]
+#                   (ROCm/HIP, 8-bit UD-Q8_K_XL)
 #   step35flash.yml  Step 3.5 Flash IQ4_XS (~108 GB) via ROCm-built        [llama]
 #                    llama.cpp, ubergarm imatrix quant
-#   qwen-rccl.yml  Qwen3.5-397B RCCL cluster (vLLM + Ray + RCCL)            [qwen-rccl]
-#   summary.yml  final per-host completion summary                        [summary]
+#   ornith15.yml     Ornith-1.5-35B-A3B Q8_0 (~37.8 GB) via ROCm-built     [llama]
+#                    llama.cpp, vision-language MoE
+#   qwen-rccl.yml    Qwen3.5-397B RCCL cluster (vLLM + Ray + RCCL)           [qwen-rccl]
+#   summary.yml      final per-host completion summary                       [summary]
 #
 # Any track file can also be run standalone, e.g.:
 #   ansible-playbook -i inventory/hosts ansible/qwen36.yml
@@ -25,5 +27,6 @@
 - import_playbook: ds4.yml
 - import_playbook: qwen36.yml
 - import_playbook: step35flash.yml
+- import_playbook: ornith15.yml
 - import_playbook: qwen-rccl.yml
 - import_playbook: summary.yml
