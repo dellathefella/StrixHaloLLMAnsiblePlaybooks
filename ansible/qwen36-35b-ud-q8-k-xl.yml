@@ -6,7 +6,7 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-    qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
+    qwen36_35b_ud_q8_k_xl_url: "https://huggingface.co/{{ qwen36_35b_ud_q8_k_xl_repo }}/resolve/main/{{ qwen36_35b_ud_q8_k_xl_model }}"
 
   tasks:
     - name: Include ROCm build dependencies
@@ -76,30 +76,30 @@
 
     - name: Check if Qwen3.6 model already present
       ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ qwen36_model }}"
-      register: qwen36_stat
+        path: "{{ llama_models_dir }}/{{ qwen36_35b_ud_q8_k_xl_model }}"
+      register: qwen36_35b_ud_q8_k_xl_stat
       become: no
-      tags: [model, qwen36]
+      tags: [model, qwen36-35b-ud-q8-k-xl]
 
-    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }}) [skip if present]
+    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_35b_ud_q8_k_xl_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
-          -o {{ qwen36_model }}
-          {{ qwen36_url }}
+          -o {{ qwen36_35b_ud_q8_k_xl_model }}
+          {{ qwen36_35b_ud_q8_k_xl_url }}
       args:
         chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      when: not qwen36_stat.stat.exists
-      tags: [model, qwen36]
+      when: not qwen36_35b_ud_q8_k_xl_stat.stat.exists
+      tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Qwen3.6 model already present — skipping download
       ansible.builtin.debug:
-        msg: "SKIP [qwen36] {{ qwen36_model }} already in {{ llama_models_dir }}"
-      when: qwen36_stat.stat.exists
-      tags: [model, qwen36]
+        msg: "SKIP [qwen36] {{ qwen36_35b_ud_q8_k_xl_model }} already in {{ llama_models_dir }}"
+      when: qwen36_35b_ud_q8_k_xl_stat.stat.exists
+      tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Check downloaded model files present
       ansible.builtin.find:
@@ -107,21 +107,21 @@
         patterns: "*.gguf"
       register: model_files
       become: no
-      tags: [model, qwen36]
+      tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
         msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
       when: not (model_files.matched | int >= 1)
-      tags: [model, qwen36]
+      tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Print qwen36 track summary
       ansible.builtin.debug:
         msg: |
           ==== qwen36 track complete on {{ inventory_hostname }} ====
           engine: {{ llama_bin }}
-          model: {{ qwen36_model }}  ({{ qwen36_ctx }} ctx, port {{ qwen36_port }})
-          Launch later via scripts/qwen36-start.sh.
+          model: {{ qwen36_35b_ud_q8_k_xl_model }}  ({{ qwen36_35b_ud_q8_k_xl_ctx }} ctx, port {{ qwen36_35b_ud_q8_k_xl_port }})
+          Launch later via scripts/qwen36-35b-ud-q8-k-xl-start.sh.
           ROCm backend — 4.7x faster PP, 65% less energy than Vulkan.
       tags: [info]
 
@@ -136,21 +136,21 @@
   tags: [launch, llama]
 
   tasks:
-    - name: Render qwen36-start.sh launch script into scripts/
+    - name: Render qwen36-35b-ud-q8-k-xl-start.sh launch script into scripts/
       ansible.builtin.template:
-        src: templates/qwen36-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/qwen36-start.sh"
+        src: templates/qwen36-35b-ud-q8-k-xl-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen36-35b-ud-q8-k-xl-start.sh"
         mode: "0755"
       delegate_to: localhost
-      tags: [launch, qwen36]
+      tags: [launch, qwen36-35b-ud-q8-k-xl]
 
-    - name: Render pi agent config for Qwen3.6 (pi-qwen36.json) into pi-configs/
+    - name: Render pi agent config for Qwen3.6 (pi-qwen36-35b-ud-q8-k-xl.json) into pi-configs/
       ansible.builtin.template:
-        src: templates/pi-qwen36.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36.json"
+        src: templates/pi-qwen36-35b-ud-q8-k-xl.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36-35b-ud-q8-k-xl.json"
         mode: "0644"
       delegate_to: localhost
-      tags: [launch, qwen36]
+      tags: [launch, qwen36-35b-ud-q8-k-xl]
 
     - name: Check llama-server binary present
       ansible.builtin.stat:
@@ -161,7 +161,7 @@
 
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
-        msg: "WARNING [launch] llama-server missing — scripts/qwen36-start.sh will not run until the build succeeds."
+        msg: "WARNING [launch] llama-server missing — scripts/qwen36-35b-ud-q8-k-xl-start.sh will not run until the build succeeds."
       delegate_to: localhost
       when: not llama_server_stat.stat.exists
       tags: [launch]

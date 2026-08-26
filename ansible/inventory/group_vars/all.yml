@@ -1,50 +1,55 @@
 ---
 # Defaults for all hosts. These are LOWER precedence than per-host inventory
-# vars (e.g. `ds4_ctx_single=131072` on a host line still overrides here).
+# vars (e.g. `ds4_c_iq2xxs_ctx_single=131072` on a host line still overrides here).
 # Structural vars (homes, engine dirs, model filenames) are also here — one
 # source of truth shared by the download (PLAY 1) and template-render (PLAY 2)
 # tasks of each track playbook.
 
 # --- DS4 (single-node default + multi-node optional) ---
-ds4_mode: "single"      # single | multi
-ds4_ctx_single: 126000  # AMD guide: IQ2_XXS (~80.8 GB) at 126k context on a 128 GB node
+ds4_c_iq2xxs_mode: "single"      # single | multi
+ds4_c_iq2xxs_ctx_single: 126000  # AMD guide: IQ2_XXS (~80.8 GB) at 126k context on a 128 GB node
                         # (shared pool >=110 GB; our GRUB ttm.pages_limit gives ~124 GB)
-ds4_ctx: 262144         # multi-node Q4KExperts context (both nodes MUST match)
-ds4_port: 8000
-ds4_host: "127.0.0.1"   # single-node endpoint; set 0.0.0.0 to expose on LAN,
+ds4_c_iq2xxs_ctx: 262144         # multi-node Q4KExperts context (both nodes MUST match)
+ds4_c_iq2xxs_port: 8000
+ds4_c_iq2xxs_host: "127.0.0.1"   # single-node endpoint; set 0.0.0.0 to expose on LAN,
                         # or the coordinator LAN IP for multi-node
-ds4_coord_ip: ""        # coordinator LAN IP (multi-node; workers + pi config need it)
-ds4_coord_port: 8081    # coordinator worker-listen port
-ds4_download_single: 1
-ds4_download_multi: 0
-ds4_download_mtp: 0
+ds4_c_iq2xxs_coord_ip: ""        # coordinator LAN IP (multi-node; workers + pi config need it)
+ds4_c_iq2xxs_coord_port: 8081    # coordinator worker-listen port
+ds4_c_iq2xxs_download_single: 1
+ds4_c_iq2xxs_download_multi: 0
+ds4_c_iq2xxs_download_mtp: 0
 
 # --- DS4 structural paths + model filenames (single source of truth) ---
-ds4_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
-ds4_models_dir: "{{ ds4_home }}/ds4"
-ds4_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
-ds4_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
-ds4_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"   # (~3.6 GB, optional)
-ds4_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
-ds4_toolbox_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
+ds4_c_iq2xxs_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+ds4_c_iq2xxs_models_dir: "{{ ds4_c_iq2xxs_home }}/ds4-c-iq2xxs"
+ds4_c_iq2xxs_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
+ds4_c_iq2xxs_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
+ds4_c_iq2xxs_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"   # (~3.6 GB, optional)
+ds4_c_iq2xxs_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
+ds4_c_iq2xxs_toolbox_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
 
-# --- Qwen RCCL (cluster; unchanged) ---
-qwen_port: 7000
-qwen_max_model_len: 65536
-qwen_head_ip: ""
-qwen_worker_ip: ""
+# --- Qwen35-397B GPTQ RCCL (cluster; unchanged) ---
+qwen35_397b_gptq_rccl_port: 7000
+qwen35_397b_gptq_rccl_max_model_len: 65536
+qwen35_397b_gptq_rccl_head_ip: ""
+qwen35_397b_gptq_rccl_worker_ip: ""
+qwen35_397b_gptq_rccl_model: "Qwen3.5-397B-A10B-GPTQ-Int4"
+qwen35_397b_gptq_rccl_tp_size: 2
+qwen35_397b_gptq_rccl_gpu_util: 0.9
 
-# --- llama.cpp track: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) ---
-qwen36_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
-qwen36_port: 8081
-qwen36_host: "127.0.0.1"
-qwen36_device: "ROCm0"
-qwen36_batch: 256
-qwen36_ubatch: 512
-qwen36_flash_attn: 1
-qwen36_mmap: 0
-qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
-qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+# --- llama.cpp track: Qwen3.6-35B-A3B (UD-Q8_K_XL) ---
+qwen36_35b_ud_q8_k_xl_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
+qwen36_35b_ud_q8_k_xl_port: 8081
+qwen36_35b_ud_q8_k_xl_host: "127.0.0.1"
+qwen36_35b_ud_q8_k_xl_device: "ROCm0"
+qwen36_35b_ud_q8_k_xl_batch: 256
+qwen36_35b_ud_q8_k_xl_ubatch: 512
+qwen36_35b_ud_q8_k_xl_flash_attn: 1
+qwen36_35b_ud_q8_k_xl_mmap: 0
+qwen36_35b_ud_q8_k_xl_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
+qwen36_35b_ud_q8_k_xl_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+qwen36_35b_ud_q8_k_xl_n_gpu: 999
+qwen36_35b_ud_q8_k_xl_threads: 16
 
 # --- llama.cpp structural paths + model filenames (single source of truth) ---
 llama_home: "/home/{{ ansible_user }}"

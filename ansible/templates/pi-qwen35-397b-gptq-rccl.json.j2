@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "qwen35-397b-gptq-rccl": {
+      "name": "Qwen3.5-397B (vLLM + RCCL cluster, GPTQ-Int4)",
+      "baseUrl": "http://{{ qwen35_397b_gptq_rccl_head_ip }}:{{ qwen35_397b_gptq_rccl_port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen35-397b-gptq-rccl-local",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "thinkingFormat": "qwen"
+      },
+      "models": [
+        {
+          "id": "{{ qwen35_397b_gptq_rccl_model }}",
+          "name": "Qwen3.5-397B-A10B-GPTQ-Int4 (cluster)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": {{ qwen35_397b_gptq_rccl_max_model_len }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

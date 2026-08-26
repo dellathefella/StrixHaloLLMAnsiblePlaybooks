@@ -1,42 +1,42 @@
-- name: "bootstrap — Qwen RCCL track: vLLM container + models dir"
-  hosts: qwen_rccl
+- name: "bootstrap — Qwen3.5-397B GPTQ RCCL track: vLLM container + models dir"
+  hosts: qwen35-397b-gptq-rccl
   gather_facts: yes
   become: yes
-  tags: [qwen-rccl]
+  tags: [qwen35-397b-gptq-rccl]
 
   vars:
-    qwen_models_dir: "~/.local/share/vLLM/models"
-    qwen_container: "oci-registry.ryai.dev/ryai-vllm:latest"
-    qwen_role: "{{ 'head' if inventory_hostname in groups['qwen_rccl_head'] | default([]) else 'worker' }}"
+    qwen35_397b_gptq_rccl_models_dir: "~/.local/share/vLLM/models"
+    qwen35_397b_gptq_rccl_container: "oci-registry.ryai.dev/ryai-vllm:latest"
+    qwen35_397b_gptq_rccl_role: "{{ 'head' if inventory_hostname in groups['qwen35-397b-gptq-rccl_head'] | default([]) else 'worker' }}"
 
   tasks:
     - name: Detect default network interface (NCCL/GLOO)
       ansible.builtin.shell:
         cmd: "ip route get 1.1.1.1 | grep -oP 'dev \\K\\S+'"
-      register: qwen_ifname
+      register: qwen35_397b_gptq_rccl_ifname
       changed_when: false
 
     - name: Check link speed of detected interface (2.5Gbe HP Z2 G1a)
       ansible.builtin.shell:
-        cmd: "sudo ethtool {{ qwen_ifname.stdout }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
-      register: qwen_link
+        cmd: "sudo ethtool {{ qwen35_397b_gptq_rccl_ifname.stdout }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
+      register: qwen35_397b_gptq_rccl_link
       changed_when: false
       failed_when: false
-      when: qwen_ifname.stdout | length > 0
+      when: qwen35_397b_gptq_rccl_ifname.stdout | length > 0
 
     - name: Warn if link speed below 2.5Gbps
       ansible.builtin.debug:
         msg: |
-          WARNING [link] interface {{ qwen_ifname.stdout }} is {{ qwen_link.stdout }}Mb/s.
+          WARNING [link] interface {{ qwen35_397b_gptq_rccl_ifname.stdout }} is {{ qwen35_397b_gptq_rccl_link.stdout }}Mb/s.
           HP Z2 G1a NICs are 2.5Gbe — acceptable; below 2.5Gbps TP KV exchange stalls.
       when:
-        - qwen_ifname.stdout | length > 0
-        - (qwen_link.stdout | int) < 2500
+        - qwen35_397b_gptq_rccl_ifname.stdout | length > 0
+        - (qwen35_397b_gptq_rccl_link.stdout | int) < 2500
 
     - name: Warn context/KV-memory tradeoff (pushed beyond guide)
       ansible.builtin.debug:
         msg: |
-          WARNING [context] qwen_max_model_len={{ qwen_max_model_len | default(65536) }}
+          WARNING [context] qwen35_397b_gptq_rccl_max_model_len={{ qwen35_397b_gptq_rccl_max_model_len | default(65536) }}
           exceeds guide's 32768. Int4 weights ~198GB leave limited KV headroom in
           ~240GB combined pool; on a 2.5Gbe link each KV token adds cross-node sync
           cost. If OOM/slow, lower toward 32768 or raise --gpu-memory-utilization.
@@ -44,7 +44,7 @@
 
     - name: Create model download directory
       ansible.builtin.file:
-        path: "{{ qwen_models_dir }}"
+        path: "{{ qwen35_397b_gptq_rccl_models_dir }}"
         state: directory
         mode: "0755"
       become: no
@@ -54,12 +54,12 @@
         cmd: >-
           sudo podman run -dit --name vllm_cluster --replace --pull missing
           --network=host --device /dev/kfd --device /dev/dri
-          -v {{ qwen_models_dir }}:/opt/vLLM/models
+          -v {{ qwen35_397b_gptq_rccl_models_dir }}:/opt/vLLM/models
           --env HF_HOME=/opt/vLLM/models
           --shm-size=64g
-          -e NCCL_SOCKET_IFNAME={{ qwen_ifname.stdout }}
-          -e GLOO_SOCKET_IFNAME={{ qwen_ifname.stdout }}
-          --entrypoint=bin/bash {{ qwen_container }}
+          -e NCCL_SOCKET_IFNAME={{ qwen35_397b_gptq_rccl_ifname.stdout }}
+          -e GLOO_SOCKET_IFNAME={{ qwen35_397b_gptq_rccl_ifname.stdout }}
+          --entrypoint=bin/bash {{ qwen35_397b_gptq_rccl_container }}
       become: no
       changed_when: false
       failed_when: false
@@ -68,7 +68,7 @@
     - name: Verify vLLM cluster container is running
       ansible.builtin.command:
         cmd: "sudo podman ps --filter name=vllm_cluster --format '{{ '{{.Names}}' }}'"
-      register: qwen_pod
+      register: qwen35_397b_gptq_rccl_pod
       become: no
       changed_when: false
       failed_when: false
@@ -77,48 +77,48 @@
     - name: Warn if vLLM container not running
       ansible.builtin.debug:
         msg: "WARNING [container] vllm_cluster not running — start it before cluster launch."
-      when: qwen_pod.stdout | length == 0
+      when: qwen35_397b_gptq_rccl_pod.stdout | length == 0
       tags: [info]
 
     - name: Print Qwen RCCL track summary
       ansible.builtin.debug:
         msg: |
-          ==== Qwen RCCL track complete on {{ inventory_hostname }} ====
-          role: {{ qwen_role }}   link: {{ qwen_link.stdout | default('?') }}Mb/s
-          Launch later via scripts/qwen-rccl-start.sh (QWEN_ROLE=head|worker).
+          ==== Qwen3.5-397B GPTQ RCCL track complete on {{ inventory_hostname }} ====
+          role: {{ qwen35_397b_gptq_rccl_role }}   link: {{ qwen35_397b_gptq_rccl_link.stdout | default('?') }}Mb/s
+          Launch later via scripts/qwen35-397b-gptq-rccl-start.sh (QWEN35_397B_GPTQ_RCCL_ROLE=head|worker).
           Docs: https://developer.amd.com/playbooks/clustering-rccl/
       tags: [info]
 
 # -----------------------------------------------------------------------------
-# Launch render — drop local qwen launch script + pi config (RCCL track)
+# Launch render — drop local qwen35-397b-gptq-rccl launch script + pi config
 # -----------------------------------------------------------------------------
-- name: "bootstrap — drop local qwen-rccl launch script + pi config (RCCL)"
-  hosts: qwen_rccl
+- name: "bootstrap — drop local qwen35-397b-gptq-rccl launch script + pi config"
+  hosts: qwen35-397b-gptq-rccl
   gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
   become: no
   run_once: yes
-  tags: [launch, qwen-rccl]
+  tags: [launch, qwen35-397b-gptq-rccl]
 
   tasks:
-    - name: Render qwen-rccl-start.sh launch script into scripts/
+    - name: Render qwen35-397b-gptq-rccl-start.sh launch script into scripts/
       ansible.builtin.template:
-        src: templates/qwen-rccl-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/qwen-rccl-start.sh"
+        src: templates/qwen35-397b-gptq-rccl-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen35-397b-gptq-rccl-start.sh"
         mode: "0755"
       delegate_to: localhost
       tags: [launch]
 
-    - name: Render pi agent config (pi-qwen-rccl.json) into pi-configs/
+    - name: Render pi agent config (pi-qwen35-397b-gptq-rccl.json) into pi-configs/
       ansible.builtin.template:
-        src: templates/pi-qwen-rccl.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen-rccl.json"
+        src: templates/pi-qwen35-397b-gptq-rccl.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen35-397b-gptq-rccl.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch]
 
     - name: Warn if head IP not supplied (pi config + worker join need it)
       ansible.builtin.debug:
-        msg: "WARNING [ray] qwen_head_ip not set — worker cannot join head at <HEAD_IP>:6379 and pi config is wrong."
+        msg: "WARNING [ray] qwen35_397b_gptq_rccl_head_ip not set — worker cannot join head at <HEAD_IP>:6379 and pi config is wrong."
       delegate_to: localhost
-      when: "qwen_head_ip | length == 0"
+      when: "qwen35_397b_gptq_rccl_head_ip | length == 0"
       tags: [info]

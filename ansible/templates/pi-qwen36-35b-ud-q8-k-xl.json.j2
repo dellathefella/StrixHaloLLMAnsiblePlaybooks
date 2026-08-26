@@ -1,10 +1,10 @@
 {
   "providers": {
-    "qwen36": {
-      "name": "Qwen3.6-35B-A3B (llama.cpp, UD-Q8_K_XL)",
-      "baseUrl": "http://{{ qwen36_host }}:{{ qwen36_port }}/v1",
+    "qwen36-35b-ud-q8-k-xl": {
+      "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
+      "baseUrl": "http://{{ qwen36_35b_ud_q8_k_xl_host }}:{{ qwen36_35b_ud_q8_k_xl_port }}/v1",
       "api": "openai-completions",
-      "apiKey": "qwen36-local",
+      "apiKey": "qwen36-35b-ud-q8-k-xl-local",
       "compat": {
         "supportsStore": false,
         "supportsDeveloperRole": false,
@@ -17,8 +17,8 @@
       },
       "models": [
         {
-          "id": "qwen3.6-35b-a3b",
-          "name": "Qwen3.6-35B-A3B (llama.cpp, UD-Q8_K_XL)",
+          "id": "qwen3.6-35b-ud-q8-k-xl",
+          "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
           "reasoning": true,
           "thinkingLevelMap": {
             "off": null,
@@ -29,7 +29,7 @@
             "xhigh": "xhigh"
           },
           "input": ["text"],
-          "contextWindow": {{ qwen36_ctx }},
+          "contextWindow": {{ qwen36_35b_ud_q8_k_xl_ctx }},
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }

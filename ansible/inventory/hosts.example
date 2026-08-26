@@ -1,78 +1,35 @@
-# Sample inventory for the unified ROCm/DS4 + Qwen + llama.cpp bootstrap (Ubuntu/Debian only).
-# Tracks: DS4 (single+multi), Qwen3.6 (llama.cpp), Qwen RCCL cluster.
-# Copy to hosts (cp hosts.example hosts) and edit IPs/usernames/vars.
+# Multi-machine inventory example for ansible/bootstrap.yml.
 #
-# One ansible playbook drives everything: ansible/bootstrap.yml.
-#   ansible-playbook -i inventory/hosts bootstrap.yml                # full bootstrap
-#   ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base   # re-test a track
-# Tracks are selected by group presence — empty groups are skipped.
+# Tracks:
+#   ds4-c-iq2xxs            DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)
+#   qwen36-35b-ud-q8-k-xl   Qwen3.6-35B-A3B (llama.cpp ROCm/HIP + UD-Q8_K_XL quant)
+#   qwen35-397b-gptq-rccl   Qwen3.5-397B (vLLM + RCCL + GPTQ-Int4 quant)
 
-# ===== DS4 DeepSeek V4 Flash (ds4.c) =====
-# SINGLE-NODE (DEFAULT): IQ2_XXS imatrix at 126k context on one 128 GB node
-# (AMD playbook default). Shared pool must be >=110 GB (GRUB ttm.pages_limit).
-#   ansible-playbook -i inventory/hosts ansible/ds4.yml
-[ds4_single]
-# halo-1   ansible_user=jdella                       # single-node IQ2_XXS at 126k ctx
-# localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+# --- DS4-C-IQ2XXS (single-node + multi-node) ---
+[ds4-c-iq2xxs_single]
+node1 ansible_host=192.168.1.10 ansible_user=jdella
 
-# MULTI-NODE (optional): ds4-toolbox pipeline — Coordinator = Machine 1 (layers 0:21),
-# Worker = Machine 2 (layers 22:output), Q4KExperts. All nodes must share ds4_ctx.
-[ds4_coordinators]
-# halo-coord   ansible_user=jdella   ds4_mode=multi  ds4_download_multi=1  ds4_coord_ip=192.168.100.1
-[ds4_workers]
-# halo-worker  ansible_user=jdella   ds4_mode=multi  ds4_download_multi=1  ds4_coord_ip=192.168.100.1
+[ds4-c-iq2xxs_multi]
+node2 ansible_host=192.168.1.11 ansible_user=jdella
 
-[ds4:children]
-ds4_single
-ds4_coordinators
-ds4_workers
+[ds4-c-iq2xxs:children]
+ds4-c-iq2xxs_single
+ds4-c-iq2xxs_multi
 
-# ===== llama.cpp track: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) =====
-# Latest llama.cpp built from source (ROCm/HIP backend — 4.7× faster PP than Vulkan
-# on Strix Halo), models downloaded. Launch scripts + pi configs
-# are dropped into scripts/ and pi-configs/.
-# Note: qwen36 and step35flash share the same llama.cpp build (both target [llama]).
-[qwen36]
-# halo-1   ansible_user=jdella                       # qwen36 (8081)
-# localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+# --- QWEN36-35B-UD-Q8-K-XL (llama.cpp ROCm/HIP) ---
+[qwen36-35b-ud-q8-k-xl]
+node1 ansible_host=192.168.1.10 ansible_user=jdella
 
 [llama:children]
-qwen36
+qwen36-35b-ud-q8-k-xl
 
-# ===== Qwen3.5-397B RCCL cluster (two nodes, 2.5Gbe NICs OK) =====
-[qwen_rccl_head]            # Machine 1 — Ray head + vLLM server
-# halo-1   ansible_user=jdella   qwen_head_ip=192.168.100.1
-[qwen_rccl_worker]          # Machine 2 — Ray worker
-# halo-2   ansible_user=jdella   qwen_worker_ip=192.168.100.2
+# --- QWEN35-397B-GPTQ-RCCL (vLLM + RCCL cluster) ---
+[qwen35-397b-gptq-rccl_head]
+node1 ansible_host=192.168.1.10 ansible_user=jdella
 
-[qwen_rccl:children]
-qwen_rccl_head
-qwen_rccl_worker
+[qwen35-397b-gptq-rccl_worker]
+node2 ansible_host=192.168.1.11 ansible_user=jdella
 
-# ===== common =====
-[all:vars]
-ansible_python_interpreter=/usr/bin/python3
-
-# --- DS4 vars (single-node default) ---
-# ds4_mode=single                (single | multi)
-# ds4_ctx_single=126000          (single-node ctx; AMD guide IQ2_XXS on 128 GB)
-# ds4_ctx=262144                 (multi-node ctx; both nodes MUST match)
-# ds4_port=8000                  (OpenAI endpoint port)
-# ds4_host=127.0.0.1             (single endpoint; set 0.0.0.0 to expose on LAN)
-# ds4_coord_ip=192.168.100.1     (multi: coordinator LAN IP; workers + pi config need it)
-# ds4_coord_port=8081            (multi: coordinator worker-listen port)
-# ds4_download_single=1          (fetch IQ2_XXS ~80.8GB)
-# ds4_download_multi=0           (1 to fetch Q4KExperts ~153GB)
-# ds4_download_mtp=0             (1 to fetch MTP ~3.6GB; MTP disabled by default)
-
-# --- Qwen3.6 (llama.cpp) vars ---
-# qwen36_ctx=131072  qwen36_port=8081  qwen36_host=127.0.0.1  qwen36_device=ROCm0
-# qwen36_batch=256  qwen36_ubatch=512  qwen36_flash_attn=1  qwen36_mmap=0
-
-# --- Qwen RCCL vars ---
-# qwen_head_ip=192.168.100.1       (Machine 1 LAN IP)
-# qwen_worker_ip=192.168.100.2     (Machine 2 LAN IP)
-# qwen_max_model_len=65536         (pushed context; guide default 32768)
-# qwen_tp_size=2                   (1 GPU per node)
-# qwen_port=7000
-# qwen_ifname=eth0                 (NCCL/GLOO interface; auto-detected if unset)
+[qwen35-397b-gptq-rccl:children]
+qwen35-397b-gptq-rccl_head
+qwen35-397b-gptq-rccl_worker
