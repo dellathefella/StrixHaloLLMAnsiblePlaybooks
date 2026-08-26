@@ -46,37 +46,6 @@ qwen36_mmap: 0
 qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 
-# --- llama.cpp track: Step 3.5 Flash smol-IQ3_KS (~81.5 GB, 11B active/26B total MoE) ---
-# ubergarm smol-IQ3_KS — 3 shards, ~3.05 bpw, smart small quant for best quality/size.
-# ROCm/HIP backend: 4.7× faster PP, 65% less energy than Vulkan.
-step35flash_ctx: 131072   # 131K safe with 81.5 GB model on 128GB (even with --cache-ram 0)
-step35flash_port: 8084
-step35flash_host: "127.0.0.1"
-step35flash_device: "ROCm0"
-step35flash_batch: 512
-step35flash_ubatch: 512
-step35flash_flash_attn: 1
-step35flash_mmap: 0
-step35flash_threads: 32
-step35flash_model: "Step-3.5-Flash-smol-IQ3_KS-00001-of-00003.gguf"   # first shard; llama.cpp auto-detects remaining 2
-step35flash_repo: "ubergarm/Step-3.5-Flash-GGUF"
-
-# --- llama.cpp track: Ornith-1.5-35B-A3B (Q8_0, ~37.8 GB) ---
-# Vision-language MoE: 35B total / ~3B active params.
-# Qwen-family reasoning (<think>...</think>), tool calls (XML <tool_call>), vision input.
-# Q8_0 quant — ~37.8 GB; 128K ctx safe with --cache-ram 0 on 128GB UMA.
-ornith15_ctx: 131072
-ornith15_port: 8085
-ornith15_host: "127.0.0.1"
-ornith15_device: "ROCm0"
-ornith15_batch: 64
-ornith15_ubatch: 128
-ornith15_flash_attn: 1
-ornith15_mmap: 0
-ornith15_threads: 16
-ornith15_model: "Ornith-1.5-35B-Q8_0.gguf"
-ornith15_repo: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
-
 # --- llama.cpp structural paths + model filenames (single source of truth) ---
 llama_home: "/home/{{ ansible_user }}"
 llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp -> llama-cpp

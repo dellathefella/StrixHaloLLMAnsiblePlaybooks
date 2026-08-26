@@ -27,7 +27,7 @@ ds4_single
 ds4_coordinators
 ds4_workers
 
-# ===== llama.cpp tracks: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) + Step 3.5 Flash (IQ4_XS) =====
+# ===== llama.cpp track: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) =====
 # Latest llama.cpp built from source (ROCm/HIP backend — 4.7× faster PP than Vulkan
 # on Strix Halo), models downloaded. Launch scripts + pi configs
 # are dropped into scripts/ and pi-configs/.
@@ -36,18 +36,8 @@ ds4_workers
 # halo-1   ansible_user=jdella                       # qwen36 (8081)
 # localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
-[step35flash]
-# halo-1   ansible_user=jdella                       # step-3.5-flash (8084)
-# localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-
-[ornith15]
-# halo-1   ansible_user=jdella                       # ornith-1.5-35b (8085)
-# localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-
 [llama:children]
 qwen36
-step35flash
-ornith15
 
 # ===== Qwen3.5-397B RCCL cluster (two nodes, 2.5Gbe NICs OK) =====
 [qwen_rccl_head]            # Machine 1 — Ray head + vLLM server
@@ -78,11 +68,6 @@ ansible_python_interpreter=/usr/bin/python3
 # --- Qwen3.6 (llama.cpp) vars ---
 # qwen36_ctx=131072  qwen36_port=8081  qwen36_host=127.0.0.1  qwen36_device=ROCm0
 # qwen36_batch=256  qwen36_ubatch=512  qwen36_flash_attn=1  qwen36_mmap=0
-
-# --- Step 3.5 Flash (llama.cpp) vars ---
-# step35flash_ctx=65536  step35flash_port=8084  step35flash_host=127.0.0.1  step35flash_device=ROCm0
-# step35flash_batch=2048  step35flash_ubatch=2048  step35flash_flash_attn=1  step35flash_mmap=0
-# For 256K context: step35flash_ubatch=1024 (official docs recommendation)
 
 # --- Qwen RCCL vars ---
 # qwen_head_ip=192.168.100.1       (Machine 1 LAN IP)
