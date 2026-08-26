@@ -34,19 +34,11 @@ qwen_max_model_len: 65536
 qwen_head_ip: ""
 qwen_worker_ip: ""
 
-# --- llama.cpp track: Gemma 4 26B-A4B + Qwen3.6-35B-A3B + Gemma4-E4B (Q4_K_S) ---
-gemma_ctx: 131072   # 8-bit 27.6 GB leaves lots of headroom; 26B-A4B supports 256k native
-gemma_port: 8080
-gemma_host: "127.0.0.1"
-gemma_device: "Vulkan0"   # Mesa RADV wins tg + MoE pp on Strix Halo (see Frame.work thread)
-gemma_batch: 256          # 2^n batching for MoE on Vulkan
-gemma_ubatch: 512         # 2^n ubatch
-gemma_flash_attn: 1
-gemma_mmap: 0             # --no-mmap: load weights fully into the unified shared pool
+# --- llama.cpp track: Qwen3.6-35B-A3B + Gemma4-E4B (Q4_K_S) ---
 qwen36_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
 gemma_e4b_ctx: 131072  # 4.5B eff / 8B total (PLE) — 128K native ctx; Q4_K_S ~4.8 GB
 gemma_e4b_port: 8083
-qwen36_host: "127.0.0.1"
+
 gemma_e4b_host: "127.0.0.1"
 gemma_e4b_device: "Vulkan0"
 gemma_e4b_batch: 512     # dense model — large batch for max tg throughput
@@ -67,8 +59,6 @@ llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp
 llama_prefix: "{{ llama_home }}/llama-cpp"        # cmake --install prefix
 llama_bin: "{{ llama_home }}/llama-cpp/bin/llama-server"
 llama_models_dir: "{{ llama_home }}/.local/share/llama-models"
-gemma_model: "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf"   # unsloth/gemma-4-26B-A4B-it-GGUF (~27.6 GB)
-gemma_repo: "unsloth/gemma-4-26B-A4B-it-GGUF"
 qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 gemma_e4b_model: "gemma-4-E4B-it-Q4_K_S.gguf"       # unsloth/gemma-4-E4B-it-GGUF (~4.8 GB)

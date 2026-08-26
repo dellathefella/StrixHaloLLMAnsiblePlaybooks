@@ -26,12 +26,12 @@ ds4_single
 ds4_coordinators
 ds4_workers
 
-# ===== llama.cpp track: Gemma4 26B-A4B + Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) =====
+# ===== llama.cpp track: Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL) + Gemma4-E4B (Q4_K_S) =====
 # Latest llama.cpp built from source (Vulkan/Mesa RADV backend — fastest tg + MoE pp
-# on Strix Halo), plus both 8-bit models downloaded. Launch scripts + pi configs
+# on Strix Halo), models downloaded. Launch scripts + pi configs
 # are dropped into scripts/ and pi-configs/.
 [llama]
-# halo-1   ansible_user=jdella                       # gemma4 (8080) + qwen36 (8081)
+# halo-1   ansible_user=jdella                       # qwen36 (8081) + gemma-e4b (8083)
 # localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
 # ===== Qwen3.5-397B RCCL cluster (two nodes, 2.5Gbe NICs OK) =====
@@ -60,10 +60,9 @@ ansible_python_interpreter=/usr/bin/python3
 # ds4_download_multi=0           (1 to fetch Q4KExperts ~153GB)
 # ds4_download_mtp=0             (1 to fetch MTP ~3.6GB; MTP disabled by default)
 
-# --- llama.cpp vars (Gemma4 + Qwen3.6) ---
-# gemma_ctx=131072  gemma_port=8080  gemma_host=127.0.0.1  gemma_device=Vulkan0
-# gemma_batch=256  gemma_ubatch=512  gemma_flash_attn=1  gemma_mmap=0
+# --- llama.cpp vars (Qwen3.6 + Gemma4-E4B) ---
 # qwen36_ctx=131072  qwen36_port=8081  qwen36_host=127.0.0.1  qwen36_device=Vulkan0
+# qwen36_batch=256  qwen36_ubatch=512  qwen36_flash_attn=1  qwen36_mmap=0
 # qwen36_batch=256  qwen36_ubatch=512  qwen36_flash_attn=1  qwen36_mmap=0
 
 # --- Qwen RCCL vars ---

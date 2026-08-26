@@ -1,4 +1,4 @@
-- name: "bootstrap — llama.cpp track: latest source build + Gemma4/Qwen3.6/E4B 8-bit models"
+- name: "bootstrap — llama.cpp track: latest source build + Qwen3.6/Gemma4-E4B 8-bit models"
   hosts: llama
   gather_facts: yes
   become: yes
@@ -12,7 +12,6 @@
       - glslang-tools
       - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
       - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
-    gemma_url: "https://huggingface.co/{{ gemma_repo }}/resolve/main/{{ gemma_model }}"
     qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
     gemma_e4b_url: "https://huggingface.co/{{ gemma_e4b_repo }}/resolve/main/{{ gemma_e4b_model }}"
 
@@ -82,37 +81,6 @@
         mode: "0755"
       become: no
 
-    - name: Check if Gemma model already present
-      ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ gemma_model }}"
-      register: gemma_stat
-      become: no
-      tags: [model, gemma]
-
-    - name: Download Gemma 4 26B-A4B UD-Q8_K_XL ({{ gemma_model }}) [skip if present]
-      # aria2c 16-connection (saturates a fast link; single-stream curl / hf
-      # download's Xet client both hang/underperform on this system).
-      # chdir puts aria2c in the models dir; -o names the file (aria2c would
-      # otherwise use the hash ID from the HF URL path as the filename).
-      ansible.builtin.command:
-        cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ gemma_model }}
-          {{ gemma_url }}
-      args:
-        chdir: "{{ llama_models_dir }}"
-      become: no
-      changed_when: false
-      when: not gemma_stat.stat.exists
-      tags: [model, gemma]
-
-    - name: Gemma model already present — skipping download
-      ansible.builtin.debug:
-        msg: "SKIP [gemma] {{ gemma_model }} already in {{ llama_models_dir }}"
-      when: gemma_stat.stat.exists
-      tags: [model, gemma]
-
     - name: Check if Gemma 4 E4B model already present
       ansible.builtin.stat:
         path: "{{ llama_models_dir }}/{{ gemma_e4b_model }}"
@@ -173,13 +141,13 @@
         patterns: "*.gguf"
       register: model_files
       become: no
-      tags: [model, gemma, qwen36, gemma-e4b]
+      tags: [model, qwen36, gemma-e4b]
 
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
-        msg: "WARNING [model] expected 3 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
-      when: not (model_files.matched | int >= 3)
-      tags: [model, gemma, qwen36, gemma-e4b]
+        msg: "WARNING [model] expected 2 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
+      when: not (model_files.matched | int >= 2)
+      tags: [model, qwen36, gemma-e4b]
 
     - name: Print llama.cpp track summary
       ansible.builtin.debug:
@@ -187,17 +155,16 @@
           ==== llama.cpp track complete on {{ inventory_hostname }} ====
           engine: {{ llama_bin }}
           models in {{ llama_models_dir }}:
-            gemma4:  {{ gemma_model }}  ({{ gemma_ctx }} ctx, port {{ gemma_port }})
             gemma_e4b: {{ gemma_e4b_model }}  ({{ gemma_e4b_ctx }} ctx, Q4_K_S ~4.8 GB, port {{ gemma_e4b_port }})
             qwen36: {{ qwen36_model }}  ({{ qwen36_ctx }} ctx, port {{ qwen36_port }})
-          Launch later via scripts/gemma-start.sh / scripts/gemma-e4b-start.sh / scripts/qwen36-start.sh.
+          Launch later via scripts/gemma-e4b-start.sh / scripts/qwen36-start.sh.
           Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
       tags: [info]
 
 # -----------------------------------------------------------------------------
-# Launch render — drop local gemma/qwen36 launch scripts + pi configs
+# Launch render — drop local qwen36/gemma-e4b launch scripts + pi configs
 # -----------------------------------------------------------------------------
-- name: "bootstrap — drop local gemma + qwen36 launch scripts & pi configs"
+- name: "bootstrap — drop local qwen36 + gemma-e4b launch scripts & pi configs"
   hosts: llama
   gather_facts: yes
   become: no
@@ -205,14 +172,6 @@
   tags: [launch, llama]
 
   tasks:
-    - name: Render gemma-start.sh launch script into scripts/
-      ansible.builtin.template:
-        src: templates/gemma-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/gemma-start.sh"
-        mode: "0755"
-      delegate_to: localhost
-      tags: [launch, gemma]
-
     - name: Render qwen36-start.sh launch script into scripts/
       ansible.builtin.template:
         src: templates/qwen36-start.sh.j2
@@ -220,14 +179,6 @@
         mode: "0755"
       delegate_to: localhost
       tags: [launch, qwen36]
-
-    - name: Render pi agent config for Gemma (pi-gemma.json) into pi-configs/
-      ansible.builtin.template:
-        src: templates/pi-gemma.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-gemma.json"
-        mode: "0644"
-      delegate_to: localhost
-      tags: [launch, gemma]
 
     - name: Render gemma-e4b-start.sh launch script into scripts/
       ansible.builtin.template:
@@ -262,7 +213,7 @@
 
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
-        msg: "WARNING [launch] llama-server missing — scripts/gemma-start.sh, scripts/gemma-e4b-start.sh, and scripts/qwen36-start.sh will not run until the build succeeds."
+        msg: "WARNING [launch] llama-server missing — scripts/gemma-e4b-start.sh and scripts/qwen36-start.sh will not run until the build succeeds."
       delegate_to: localhost
       when: not llama_server_stat.stat.exists
       tags: [launch]

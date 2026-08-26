@@ -7,7 +7,7 @@
 #   ds4.yml      DeepSeek V4 Flash (ds4.c: single-node IQ2_XXS default +   [ds4]
 #                multi-node Q4KExperts via ds4-toolbox distrobox)
 #   qwen-rccl.yml  Qwen3.5-397B RCCL cluster (vLLM + Ray + RCCL)            [qwen-rccl]
-#   llama.yml    Gemma4 26B-A4B + Qwen3.6-35B-A3B via latest llama.cpp    [llama]
+#   llama.yml    Qwen3.6-35B-A3B + Gemma4-E4B via latest llama.cpp          [llama]
 #                (source build, Vulkan/RADV, 8-bit UD-Q8_K_XL)
 #   summary.yml  final per-host completion summary                        [summary]
 #

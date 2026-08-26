@@ -7,7 +7,7 @@
 #   - the pi plugins/extensions that exist on this system (permission-system,
 #     web-access, background-tasks, ask-user-question, pi-ds4)
 #   - merges the pi provider configs from pi-configs/ into ~/.pi/agent/models.json
-#     (pi-ds4, pi-gemma, pi-qwen36, pi-qwen-rccl — whichever are present)
+#     (pi-ds4, pi-qwen36, pi-qwen-rccl — whichever are present)
 #
 # This is NOT the DS4 host setup. It installs no ROCm/distrobox/model weights —
 # those live in scripts/ds4-setup.sh (DS4 itself). Run this on the controller.
