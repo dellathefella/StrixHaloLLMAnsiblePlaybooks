@@ -1,0 +1,159 @@
+---
+# =============================================================================
+# laguna.yml — Laguna S 2.1 ROCmFP4 StrixKVSpine V4
+#
+# Runs the Ciru ROCmFPX Runtime V3 (CIRR-ai/ROCmFPX fork) and downloads
+# the Laguna S 2.1 QCk4 quant (~60.95 GB).
+#
+# This is NOT stock upstream llama.cpp. The GGUF uses ROCmFP4 tensor types
+# and only loads in the Ciru ROCmFPX fork.
+#
+# Tags:
+#   [laguna]     — full track (build deps, ROCmFPX build, download, render)
+#   [build]      — ROCmFPX build only (skips download/render)
+#   [model]      — download only
+#   [launch]     — render launch script + pi config
+# =============================================================================
+
+- name: "Laguna S 2.1 — ROCmFPX Runtime V3 build + download + launch"
+  hosts: llama
+  gather_facts: yes
+  become: yes
+  tags: [laguna]
+
+  vars:
+    rocmlfpx_build_deps:
+      - git
+      - cmake
+      - ninja-build
+      - build-essential
+      - gcc
+      - g++
+      - glslc             # Vulkan shader compiler
+      - libvulkan-dev     # Vulkan headers + ICD loader
+      - vulkan-tools      # vulkaninfo
+      - spirv-headers     # SPIRV-HeadersConfig.cmake
+      - mesa-vulkan-drivers # Mesa RADV runtime
+
+    laguna_url: "https://huggingface.co/{{ laguna_repo }}/resolve/main/{{ laguna_model }}"
+
+  tasks:
+    - name: Install ROCmFPX build dependencies
+      ansible.builtin.apt:
+        name: "{{ rocmlfpx_build_deps }}"
+        state: present
+        update_cache: yes
+
+    - name: Clone Ciru ROCmFPX (laguna-s21-runtime-v3 branch)
+      ansible.builtin.git:
+        repo: "{{ laguna_repo_url }}"
+        dest: "{{ laguna_home }}"
+        version: "{{ laguna_branch }}"
+        force: yes
+      become: no
+
+    - name: Pin to Runtime V3 commit
+      ansible.builtin.command:
+        cmd: "git checkout --detach {{ laguna_commit }}"
+      args:
+        chdir: "{{ laguna_home }}"
+      become: no
+      changed_when: false
+
+    - name: Build ROCmFPX Vulkan for Strix Halo
+      ansible.builtin.shell:
+        cmd: "JOBS={{ ansible_processor_vcpus | default(16) }} BUILD_TYPE=Release scripts/build-laguna-strix-vulkan.sh"
+      args:
+        chdir: "{{ laguna_home }}"
+      become: no
+      tags: [build]
+
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ llama_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+      tags: [model]
+
+    - name: Check if Laguna S 2.1 model already present
+      ansible.builtin.stat:
+        path: "{{ llama_models_dir }}/{{ laguna_model }}"
+      register: laguna_stat
+      become: no
+      tags: [model]
+
+    - name: Download Laguna S 2.1 ROCmFP4 StrixKVSpine V4 ({{ laguna_model }}) [skip if present]
+      # 60.945 GiB, 4.453 BPW — Ciru ROCmFPX Runtime V3 only
+      ansible.builtin.command:
+        cmd: >-
+          aria2c -x 16 -s 16 --file-allocation=none
+          --continue=true --allow-overwrite=true
+          -o {{ laguna_model }}
+          {{ laguna_url }}
+      args:
+        chdir: "{{ llama_models_dir }}"
+      become: no
+      changed_when: false
+      when: not laguna_stat.stat.exists
+      tags: [model]
+
+    - name: Laguna S 2.1 model already present — skipping download
+      ansible.builtin.debug:
+        msg: "SKIP [laguna] {{ laguna_model }} already in {{ llama_models_dir }}"
+      when: laguna_stat.stat.exists
+      tags: [model]
+
+    - name: Print Laguna track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== Laguna S 2.1 track complete on {{ inventory_hostname }} ====
+          ROCmFPX runtime: {{ laguna_home }}
+          Runtime V3 commit: {{ laguna_commit }}
+          Binary: {{ laguna_bin }}
+          Model: {{ llama_models_dir }}/{{ laguna_model }} ({{ laguna_sha256[:16] }}...)
+          Endpoint: http://{{ laguna_host }}:{{ laguna_port }}/v1
+          Context: {{ laguna_ctx }} | batch={{ laguna_batch }} | ubatch={{ laguna_ubatch }}
+          Vulkan node cap={{ laguna_vulkan_nodes }} | FA wg={{ laguna_vulkan_fa_wg }}
+      tags: [info]
+
+# -----------------------------------------------------------------------------
+# Launch render — drop local laguna launch script + pi config
+# -----------------------------------------------------------------------------
+- name: "Laguna S 2.1 — drop launch script & pi config"
+  hosts: llama
+  gather_facts: yes
+  become: no
+  run_once: yes
+  tags: [launch, laguna]
+
+  tasks:
+    - name: Render laguna-start.sh into scripts/
+      ansible.builtin.template:
+        src: templates/laguna-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/laguna-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [laguna]
+
+    - name: Render pi agent config (pi-laguna.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-laguna.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-laguna.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [laguna]
+
+    - name: Check ROCmFPX llama-server binary present
+      ansible.builtin.stat:
+        path: "{{ laguna_bin }}"
+      register: rocmlfpx_bin_stat
+      delegate_to: localhost
+      tags: [laguna]
+
+    - name: Warn if ROCmFPX build failed (laguna script will fail)
+      ansible.builtin.debug:
+        msg: "WARNING [laguna] ROCmFPX llama-server missing — scripts/laguna-start.sh will not run until ROCmFPX Runtime V3 builds."
+      delegate_to: localhost
+      when: not rocmlfpx_bin_stat.stat.exists
+      tags: [laguna]

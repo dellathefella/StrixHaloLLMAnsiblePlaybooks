@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "laguna-s21": {
+      "name": "Laguna S 2.1 ROCmFP4 (Chadrock, StrixKVSpine V4)",
+      "baseUrl": "http://127.0.0.1:8082/v1",
+      "api": "openai-completions",
+      "apiKey": "laguna-s21-local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens",
+        "supportsStrictMode": false,
+        "thinkingFormat": "native",
+        "requiresReasoningContentOnAssistantMessages": true
+      },
+      "models": [
+        {
+          "id": "laguna-s21-rocmfp4-strixkvspine-v4",
+          "name": "Laguna S 2.1 ROCmFP4 StrixKVSpine V4 (Chadrock, 60.95 GB)",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

@@ -73,3 +73,31 @@ qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GG
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 gemma_e4b_model: "gemma-4-E4B-it-Q4_K_S.gguf"       # unsloth/gemma-4-E4B-it-GGUF (~4.8 GB)
 gemma_e4b_repo: "unsloth/gemma-4-E4B-it-GGUF"
+
+# --- Laguna S 2.1 (Chadrock ROCmFP4 StrixKVSpine V4) ---
+# Ciru ROCmFPX Runtime V3 — NOT stock upstream llama.cpp.
+# AMD-optimized ROCmFP4 quant at 4.453 BPW for Strix Halo (gfx1151).
+# 118B total / ~8B active, 60.945 GiB, 131K validated context.
+laguna_port: 8082
+laguna_host: "127.0.0.1"
+laguna_ctx: 131072
+laguna_model: "laguna-s-2.1-ROCmFP4-StrixKVSpine-v4.gguf"
+laguna_sha256: "ea1d854a72c47ec8e72c16ea91b8ff3cd5e1620b834df175f683c86f27dc26d6"
+laguna_repo: "jcbtc/Laguna-S-2.1-Chadrock-ROCmFP4-StrixKVSpine-V4-GGUF"
+laguna_repo_url: "https://github.com/ciru-ai/ROCmFPX.git"
+laguna_branch: "agent/laguna-s21-runtime-v3"
+laguna_commit: "54f5fe06c74350fb8b6aec21d8749071bc195bdb"
+laguna_home: "{{ llama_home }}/rocml-fpx"           # Ciru ROCmFPX Runtime V3 fork
+laguna_bin: "{{ laguna_home }}/build-laguna-strix-vulkan/bin/llama-server"
+laguna_bin_dir: "{{ laguna_home }}/build-laguna-strix-vulkan/bin"
+laguna_vulkan_nodes: 10             # GGML_VK_MAX_NODES_PER_SUBMIT — V2 stability fix
+laguna_vulkan_fa_wg: 4              # GGML_VK_FA_MAX_WORKGROUPS_X_PER_DISPATCH — V2 fix
+laguna_threads: 16
+laguna_batch: 2048                  # V3 validated profile
+laguna_ubatch: 512                  # V3 validated profile
+laguna_sampler_temperature: 1.0
+laguna_sampler_top_p: 1.0
+laguna_sampler_top_k: 20
+laguna_sampler_min_p: 0.0
+laguna_sampler_repeat_penalty: 1.0
+laguna_sampler_seed: 42

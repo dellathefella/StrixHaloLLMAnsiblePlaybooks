@@ -23,4 +23,5 @@
 - import_playbook: ds4.yml
 - import_playbook: qwen-rccl.yml
 - import_playbook: llama.yml
+- import_playbook: laguna.yml
 - import_playbook: summary.yml

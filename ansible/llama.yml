@@ -1,4 +1,4 @@
-- name: "bootstrap — llama.cpp track: latest source build + Gemma4/Qwen3.6 8-bit models"
+- name: "bootstrap — llama.cpp track: latest source build + Gemma4/Qwen3.6/E4B 8-bit models"
   hosts: llama
   gather_facts: yes
   become: yes
