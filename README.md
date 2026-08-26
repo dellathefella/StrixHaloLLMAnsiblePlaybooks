@@ -118,7 +118,7 @@ install** (pi + the plugins present on this system) for this controller machine.
 ```bash
 ./scripts/install-pi.sh
 # installs pi + the pi plugins present on this system (pi-web-access, rpiv-ask-user-question,
-# pi-background-tasks, pi-permission-system, pi-ds4, pi-auto-compact)
+# pi-background-tasks, pi-permission-system, pi-ds4)
 # and merges the pi provider configs from pi-configs/ into ~/.pi/agent/models.json
 ```
 
@@ -364,7 +364,7 @@ The bootstrap drops pi agent configs into `pi-configs/`:
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
 you open `/model`; no restart needed). `install-pi.sh` installs pi + the pi
 plugins present on this system (pi-web-access, rpiv-ask-user-question,
-pi-background-tasks, pi-permission-system, pi-ds4, pi-auto-compact) and merges
+pi-background-tasks, pi-permission-system, pi-ds4) and merges
 the pi provider configs.
 
 ## Config variables (inventory / env)

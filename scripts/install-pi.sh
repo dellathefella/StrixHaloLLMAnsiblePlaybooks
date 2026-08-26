@@ -4,8 +4,8 @@
 #
 # LOCAL pi install only. Installs:
 #   - pi coding agent (pi.dev install script), if not already present
-#   - the pi plugins/extensions that exist on this system (auto-compact,
-#     permission-system, web-access, background-tasks, ask-user-question, pi-ds4)
+#   - the pi plugins/extensions that exist on this system (permission-system,
+#     web-access, background-tasks, ask-user-question, pi-ds4)
 #   - merges the pi provider configs from pi-configs/ into ~/.pi/agent/models.json
 #     (pi-ds4, pi-gemma, pi-qwen36, pi-qwen-rccl — whichever are present)
 #
@@ -31,7 +31,6 @@ PI_PLUGINS=(
     "npm:pi-background-tasks"                        # background tasks
     "npm:@gotgenes/pi-permission-system"             # permission system
     "https://github.com/mitsuhiko/pi-ds4"            # pi-ds4 (DS4 provider plugin)
-    "npm:@capyup/pi-auto-compact"                    # pre-turn auto-compaction
 )
 for p in "${PI_PLUGINS[@]}"; do
     echo "Installing pi plugin: $p"
@@ -82,7 +81,7 @@ fi
 
 echo -e "\nDone. Local pi install:"
 echo "  pi (coding agent) + plugins: pi-web-access, rpiv-ask-user-question, pi-background-tasks,"
-echo "  pi-permission-system, pi-ds4, pi-auto-compact"
+echo "  pi-permission-system, pi-ds4"
 echo "  providers merged into ~/.pi/agent/models.json"
 echo
 echo "Next: DS4 host setup is separate — run ./scripts/ds4-setup.sh for the DS4 node."
