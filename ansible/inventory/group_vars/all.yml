@@ -46,11 +46,10 @@ qwen36_mmap: 0
 qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 
-# --- llama.cpp track: Step 3.5 Flash IQ4_XS (~108 GB, 11B active/26B total MoE) ---
-# ubergarm IQ4_XS — 4 shards, 4.38 bpw, best quality/size tradeoff.
+# --- llama.cpp track: Step 3.5 Flash smol-IQ3_KS (~81.5 GB, 11B active/26B total MoE) ---
+# ubergarm smol-IQ3_KS — 3 shards, ~3.05 bpw, smart small quant for best quality/size.
 # ROCm/HIP backend: 4.7× faster PP, 65% less energy than Vulkan.
-# --cache-ram 0 required: 108GB model + KV cache + host prompt cache > 128GB UMA.
-step35flash_ctx: 65536   # 65K default — safe with 108GB model on 128GB (131K needs --cache-ram 0)
+step35flash_ctx: 131072   # 131K safe with 81.5 GB model on 128GB (even with --cache-ram 0)
 step35flash_port: 8084
 step35flash_host: "127.0.0.1"
 step35flash_device: "ROCm0"
@@ -59,7 +58,7 @@ step35flash_ubatch: 2048
 step35flash_flash_attn: 1
 step35flash_mmap: 0
 step35flash_threads: 32
-step35flash_model: "Step-3.5-Flash-IQ4_XS-00001-of-00004.gguf"   # first shard; llama.cpp auto-detects remaining 3
+step35flash_model: "Step-3.5-Flash-smol-IQ3_KS-00001-of-00003.gguf"   # first shard; llama.cpp auto-detects remaining 2
 step35flash_repo: "ubergarm/Step-3.5-Flash-GGUF"
 
 # --- llama.cpp track: Ornith-1.5-35B-A3B (Q8_0, ~37.8 GB) ---

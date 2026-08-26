@@ -17,7 +17,7 @@ order; any track file can also run standalone):
    vLLM + Ray + RCCL, context pushed to 65536 (guide default is 32768).
 3. **llama.cpp** — **Qwen3.6-35B-A3B** (8-bit UD-Q8_K_XL, 38.5 GB) served by
    the **latest llama.cpp built from source** with the **ROCm/HIP** backend.
-   Also includes: **Step 3.5 Flash** (ubergarm IQ4_XS, ~108 GB, 26B total /
+   Also includes: **Step 3.5 Flash** (ubergarm smol-IQ3_KS, ~81.5 GB, 26B total /
    11B active MoE, 256K native context), and **Ornith-1.5-35B-A3B** (Q8_0,
    ~37.8 GB, 35B total / ~3B active MoE — agentic coding, vision-language).
 
@@ -43,7 +43,7 @@ nightlies, latest llama.cpp from source):
   128 GB shared pool).
 - **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
   ≈ 3 GB/token ≈ 65-70 t/s at 8-bit UD-Q8_K_XL. Step 3.5 Flash ~11B active
-  ≈ 11 GB/token ≈ 30-48 t/s at IQ4_XS. Both roughly **2×** the BF16 speeds,
+  ≈ 11 GB/token ≈ 30-48 t/s at smol-IQ3_KS. Both roughly **2×** the BF16 speeds,
   with near-lossless quality.
 
 **Network note:** host NICs are 2.5Gbe (HP Z2 G1a), below the guide's 10Gbps;
@@ -85,8 +85,8 @@ Both qwen36 and step35flash share the same llama.cpp build.
 │   ├── ds4.yml                    DS4: single-node IQ2_XXS default + multi-node [ds4]
 │   ├── qwen36.yml                 Qwen3.6-35B-A3B (ROCm-built llama.cpp,        [llama]
 │   │                              UD-Q8_K_XL, ~38.5 GB)
-│   ├── step35flash.yml            Step 3.5 Flash IQ4_XS (~108 GB, 4 shards)    [llama]
-│   │                              ROCm-built llama.cpp, ubergarm quant
+│   ├── step35flash.yml            Step 3.5 Flash smol-IQ3_KS (~81.5 GB, 3    [llama]
+│   │                              shards) ROCm-built llama.cpp, ubergarm quant
 │   ├── ornith15.yml               Ornith-1.5-35B-A3B Q8_0 (~37.8 GB) via      [llama]
 │   │                              ROCm-built llama.cpp, vision-language MoE
 │   ├── tasks/                       shared task files (all llama tracks call)
@@ -320,7 +320,7 @@ MTP is disabled by default (`DS4_USE_MTP=1` to enable).
 ### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash + Ornith-1.5 (ROCm/HIP)
 ```bash
 ./scripts/qwen36-start.sh        # ctx 131072 (keep >=128k for thinking)
-./scripts/step35flash-start.sh   # ctx 65536 default, 108 GB, MoE (batch=2048)
+./scripts/step35flash-start.sh   # ctx 131072, 81.5 GB, MoE (batch=2048)
 ./scripts/ornith15-start.sh      # ctx 131072, 37.8 GB, MoE (batch=256)
 ```
 Both use the same ROCm-built `llama-server` (HIP graphs, 4.7× faster PP than
@@ -333,10 +333,9 @@ decode is memory-bandwidth-bound.
 Validated ROCm profile: batch=2048, ubatch=2048 (step35flash), batch=256
 (qwen36), ctx=131072, F16/F16 KV cache, 16/32 threads, 999 GPU layers.
 
-**Note:** ubergarm's IQ4_XS quant is 4 shards (~108 GB total) — llama.cpp
-auto-detects remaining shards from `.index.json`. The AesSedai IQ4_XS (3
-shards, ~100.5 GB) is also compatible but ubergarm's imatrix quant has
-slightly better PPL.
+**Note:** ubergarm's smol-IQ3_KS quant is 3 shards (~81.5 GB total) — llama.cpp
+auto-detects remaining shards from `.index.json`. smol-IQ3_KS is a ~3.05 bpw
+quant optimized for quality at the smallest practical size.
 
 Runtime stability: ROCm 7.x on Strix Halo is stable for llama.cpp when built
 with `-DGGML_HIP_GRAPHS=ON`. If you hit GPU hangs, try

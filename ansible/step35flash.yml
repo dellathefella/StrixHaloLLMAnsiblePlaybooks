@@ -1,4 +1,4 @@
-- name: "bootstrap — step35flash: llama.cpp source build + Step 3.5 Flash IQ4_XS"
+- name: "bootstrap — step35flash: llama.cpp source build + Step 3.5 Flash smol-IQ3_KS"
   hosts: llama
   gather_facts: yes
   become: yes
@@ -6,17 +6,16 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-    # ubergarm's IQ4_XS: 4 shards, ~108 GB total (4.38 bpw)
-    # https://huggingface.co/ubergarm/Step-3.5-Flash-GGUF/tree/main/IQ4_XS
-    step35flash_shard_count: 4
+    # ubergarm's smol-IQ3_KS: 3 shards, ~81.5 GB total (~3.05 bpw)
+    # https://huggingface.co/ubergarm/Step-3.5-Flash-GGUF/tree/main/smol-IQ3_KS
+    step35flash_shard_count: 3
     step35flash_shards:
-      - "Step-3.5-Flash-IQ4_XS-00001-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00002-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00003-of-00004.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00004-of-00004.gguf"
+      - "Step-3.5-Flash-smol-IQ3_KS-00001-of-00003.gguf"
+      - "Step-3.5-Flash-smol-IQ3_KS-00002-of-00003.gguf"
+      - "Step-3.5-Flash-smol-IQ3_KS-00003-of-00003.gguf"
     # llama.cpp uses the first shard to detect a sharded model
     step35flash_model: "{{ step35flash_shards[0] }}"
-    step35flash_url_base: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/IQ4_XS"
+    step35flash_url_base: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/smol-IQ3_KS"
 
   tasks:
     - name: Include ROCm build dependencies
