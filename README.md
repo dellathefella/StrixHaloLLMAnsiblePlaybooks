@@ -37,8 +37,7 @@ nightlies, latest llama.cpp from source):
   llama.cpp **ROCm-only** (HIP graphs enabled), which avoids the old ROCm
   regression (fixed by TheRock/nightly ROCm) and gives the best overall
   throughput.
-- **MoE models need 2^n batching** → `batch=256` for qwen36,
-  `batch=2048` for step35flash.
+- **MoE models need 2^n batching** — `batch=256` for qwen36 (38.5 GB, fits KV cache); `batch=512` for step35flash (was 2048, reduced to fit KV cache on 128 GB UMA); `batch=64` for ornith15 (reduced from 256 for same reason).
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
 - **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
@@ -320,8 +319,8 @@ MTP is disabled by default (`DS4_USE_MTP=1` to enable).
 ### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash + Ornith-1.5 (ROCm/HIP)
 ```bash
 ./scripts/qwen36-start.sh        # ctx 131072 (keep >=128k for thinking)
-./scripts/step35flash-start.sh   # ctx 131072, 81.5 GB, MoE (batch=2048)
-./scripts/ornith15-start.sh      # ctx 131072, 37.8 GB, MoE (batch=256)
+./scripts/step35flash-start.sh   # ctx 131072, 81.5 GB, MoE (batch=512, reduced for KV cache)
+./scripts/ornith15-start.sh      # ctx 131072, 37.8 GB, MoE (batch=64, reduced for KV cache)
 ```
 Both use the same ROCm-built `llama-server` (HIP graphs, 4.7× faster PP than
 Vulkan), `--flash-attn on`, `--no-mmap` (full load into the unified shared
@@ -330,8 +329,7 @@ pool), `--cache-ram 0` (prevents host/GPU memory competition on 128GB UMA),
 `http://127.0.0.1:8084/v1` (step35flash). First request is shader-JIT slow;
 decode is memory-bandwidth-bound.
 
-Validated ROCm profile: batch=2048, ubatch=2048 (step35flash), batch=256
-(qwen36), ctx=131072, F16/F16 KV cache, 16/32 threads, 999 GPU layers.
+Validated ROCm profile: batch=256 (qwen36, 38.5 GB — KV cache fits), batch=512 (step35flash, 81.5 GB), batch=64 (ornith15, 37.8 GB). ctx=131072, F16/F16 KV cache, 16/32 threads, 999 GPU layers.
 
 **Note:** ubergarm's smol-IQ3_KS quant is 3 shards (~81.5 GB total) — llama.cpp
 auto-detects remaining shards from `.index.json`. smol-IQ3_KS is a ~3.05 bpw
@@ -420,7 +418,7 @@ the pi provider configs.
   `ds4_coord_ip/port`, `ds4_download_single/multi/mtp` (model downloads per host)
 - llama.cpp: `qwen36_ctx` (131072), `qwen36_port` (8081), `qwen36_host/device/batch/ubatch/flash_attn/mmap` (same defaults);
   `step35flash_ctx` (131072), `step35flash_port` (8084), `step35flash_host` (127.0.0.1),
-  `step35flash_batch` (2048), `step35flash_ubatch` (2048), `step35flash_threads` (32),
+  `step35flash_batch` (512), `step35flash_ubatch` (512), `step35flash_threads` (32),
   `step35flash_vulkan_fa_wg` (4)
 - Qwen: `qwen_head_ip`, `qwen_worker_ip`, `qwen_max_model_len` (default 65536),
   `qwen_tp_size` (default 2), `qwen_port`, `qwen_ifname`

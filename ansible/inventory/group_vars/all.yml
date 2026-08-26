@@ -53,8 +53,8 @@ step35flash_ctx: 131072   # 131K safe with 81.5 GB model on 128GB (even with --c
 step35flash_port: 8084
 step35flash_host: "127.0.0.1"
 step35flash_device: "ROCm0"
-step35flash_batch: 2048
-step35flash_ubatch: 2048
+step35flash_batch: 512
+step35flash_ubatch: 512
 step35flash_flash_attn: 1
 step35flash_mmap: 0
 step35flash_threads: 32
@@ -69,8 +69,8 @@ ornith15_ctx: 131072
 ornith15_port: 8085
 ornith15_host: "127.0.0.1"
 ornith15_device: "ROCm0"
-ornith15_batch: 256
-ornith15_ubatch: 512
+ornith15_batch: 64
+ornith15_ubatch: 128
 ornith15_flash_attn: 1
 ornith15_mmap: 0
 ornith15_threads: 16

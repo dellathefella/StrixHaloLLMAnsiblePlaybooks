@@ -9,8 +9,7 @@
 #
 # Optimized for Strix Halo (gfx1151) — ROCm/HIP backend:
 #   • ROCm 4.7× faster prompt processing, 65% less energy than Vulkan.
-#   • MoE: batch=2048, ubatch=2048 (validated for 16k ctx; use ubatch=1024
-#     for 256K context).
+#   • MoE: batch=512, ubatch=512 (reduced from 2048 to fit KV cache on 128 GB UMA; increase if memory allows).
 #   • --no-mmap loads weights into the unified 128GB shared pool.
 #   • --cache-ram 0 prevents host/GPU memory competition on 128GB UMA.
 #   • ~11B active params ≈ 11 GB/token ≈ 30-48 tok/s at ~215 GB/s.
