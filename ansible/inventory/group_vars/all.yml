@@ -59,6 +59,7 @@ llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp
 llama_prefix: "{{ llama_home }}/llama-cpp"        # cmake --install prefix
 llama_bin: "{{ llama_home }}/llama-cpp/bin/llama-server"
 llama_models_dir: "{{ llama_home }}/.local/share/llama-models"
+qwen36_host: "127.0.0.1"
 qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
 qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 gemma_e4b_model: "gemma-4-E4B-it-Q4_K_S.gguf"       # unsloth/gemma-4-E4B-it-GGUF (~4.8 GB)
