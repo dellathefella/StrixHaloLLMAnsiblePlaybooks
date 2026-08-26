@@ -1,4 +1,4 @@
-- name: "bootstrap — llama.cpp track: latest source build + Qwen3.6/Gemma4-E4B 8-bit models"
+- name: "bootstrap — step35flash: llama.cpp source build + Step 3.5 Flash IQ4_XS"
   hosts: llama
   gather_facts: yes
   become: yes
@@ -12,8 +12,7 @@
       - glslang-tools
       - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
       - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
-    qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
-    gemma_e4b_url: "https://huggingface.co/{{ gemma_e4b_repo }}/resolve/main/{{ gemma_e4b_model }}"
+    step35flash_url: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/{{ step35flash_model }}"
 
   tasks:
     - name: Install llama.cpp build dependencies
@@ -81,59 +80,32 @@
         mode: "0755"
       become: no
 
-    - name: Check if Gemma 4 E4B model already present
+    - name: Check if Step 3.5 Flash model already present
       ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ gemma_e4b_model }}"
-      register: gemma_e4b_stat
+        path: "{{ llama_models_dir }}/{{ step35flash_model }}"
+      register: step35flash_stat
       become: no
-      tags: [model, gemma-e4b]
+      tags: [model, step35flash]
 
-    - name: Download Gemma 4 E4B Q4_K_S ({{ gemma_e4b_model }}) [skip if present]
+    - name: Download Step 3.5 Flash IQ4_XS ({{ step35flash_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
-          -o {{ gemma_e4b_model }}
-          {{ gemma_e4b_url }}
+          -o {{ step35flash_model }}
+          {{ step35flash_url }}
       args:
         chdir: "{{ llama_models_dir }}"
       become: no
       changed_when: false
-      when: not gemma_e4b_stat.stat.exists
-      tags: [model, gemma-e4b]
+      when: not step35flash_stat.stat.exists
+      tags: [model, step35flash]
 
-    - name: Gemma 4 E4B model already present — skipping download
+    - name: Step 3.5 Flash model already present — skipping download
       ansible.builtin.debug:
-        msg: "SKIP [gemma-e4b] {{ gemma_e4b_model }} already in {{ llama_models_dir }}"
-      when: gemma_e4b_stat.stat.exists
-      tags: [model, gemma-e4b]
-
-    - name: Check if Qwen3.6 model already present
-      ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ qwen36_model }}"
-      register: qwen36_stat
-      become: no
-      tags: [model, qwen36]
-
-    - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_model }}) [skip if present]
-      ansible.builtin.command:
-        cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ qwen36_model }}
-          {{ qwen36_url }}
-      args:
-        chdir: "{{ llama_models_dir }}"
-      become: no
-      changed_when: false
-      when: not qwen36_stat.stat.exists
-      tags: [model, qwen36]
-
-    - name: Qwen3.6 model already present — skipping download
-      ansible.builtin.debug:
-        msg: "SKIP [qwen36] {{ qwen36_model }} already in {{ llama_models_dir }}"
-      when: qwen36_stat.stat.exists
-      tags: [model, qwen36]
+        msg: "SKIP [step35flash] {{ step35flash_model }} already in {{ llama_models_dir }}"
+      when: step35flash_stat.stat.exists
+      tags: [model, step35flash]
 
     - name: Check downloaded model files present
       ansible.builtin.find:
@@ -141,30 +113,28 @@
         patterns: "*.gguf"
       register: model_files
       become: no
-      tags: [model, qwen36, gemma-e4b]
+      tags: [model, step35flash]
 
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
-        msg: "WARNING [model] expected 2 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
-      when: not (model_files.matched | int >= 2)
-      tags: [model, qwen36, gemma-e4b]
+        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
+      when: not (model_files.matched | int >= 1)
+      tags: [model, step35flash]
 
-    - name: Print llama.cpp track summary
+    - name: Print step35flash track summary
       ansible.builtin.debug:
         msg: |
-          ==== llama.cpp track complete on {{ inventory_hostname }} ====
+          ==== step35flash track complete on {{ inventory_hostname }} ====
           engine: {{ llama_bin }}
-          models in {{ llama_models_dir }}:
-            gemma_e4b: {{ gemma_e4b_model }}  ({{ gemma_e4b_ctx }} ctx, Q4_K_S ~4.8 GB, port {{ gemma_e4b_port }})
-            qwen36: {{ qwen36_model }}  ({{ qwen36_ctx }} ctx, port {{ qwen36_port }})
-          Launch later via scripts/gemma-e4b-start.sh / scripts/qwen36-start.sh.
+          model: {{ step35flash_model }}  ({{ step35flash_ctx }} ctx, port {{ step35flash_port }})
+          Launch later via scripts/step35flash-start.sh.
           Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
       tags: [info]
 
 # -----------------------------------------------------------------------------
-# Launch render — drop local qwen36/gemma-e4b launch scripts + pi configs
+# Launch render — drop local step35flash launch script + pi config
 # -----------------------------------------------------------------------------
-- name: "bootstrap — drop local qwen36 + gemma-e4b launch scripts & pi configs"
+- name: "bootstrap — drop local step35flash launch script & pi config"
   hosts: llama
   gather_facts: yes
   become: no
@@ -172,37 +142,21 @@
   tags: [launch, llama]
 
   tasks:
-    - name: Render qwen36-start.sh launch script into scripts/
+    - name: Render step35flash-start.sh launch script into scripts/
       ansible.builtin.template:
-        src: templates/qwen36-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/qwen36-start.sh"
+        src: templates/step35flash-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/step35flash-start.sh"
         mode: "0755"
       delegate_to: localhost
-      tags: [launch, qwen36]
+      tags: [launch, step35flash]
 
-    - name: Render gemma-e4b-start.sh launch script into scripts/
+    - name: Render pi agent config for Step 3.5 Flash (pi-step35flash.json) into pi-configs/
       ansible.builtin.template:
-        src: templates/gemma-e4b-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/gemma-e4b-start.sh"
-        mode: "0755"
-      delegate_to: localhost
-      tags: [launch, gemma-e4b]
-
-    - name: Render pi agent config for Gemma 4 E4B (pi-gemma-e4b.json) into pi-configs/
-      ansible.builtin.template:
-        src: templates/pi-gemma-e4b.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-gemma-e4b.json"
+        src: templates/pi-step35flash.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-step35flash.json"
         mode: "0644"
       delegate_to: localhost
-      tags: [launch, gemma-e4b]
-
-    - name: Render pi agent config for Qwen3.6 (pi-qwen36.json) into pi-configs/
-      ansible.builtin.template:
-        src: templates/pi-qwen36.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36.json"
-        mode: "0644"
-      delegate_to: localhost
-      tags: [launch, qwen36]
+      tags: [launch, step35flash]
 
     - name: Check llama-server binary present
       ansible.builtin.stat:
@@ -213,7 +167,7 @@
 
     - name: Warn if llama-server did not build (scripts will fail)
       ansible.builtin.debug:
-        msg: "WARNING [launch] llama-server missing — scripts/gemma-e4b-start.sh and scripts/qwen36-start.sh will not run until the build succeeds."
+        msg: "WARNING [launch] llama-server missing — scripts/step35flash-start.sh will not run until the build succeeds."
       delegate_to: localhost
       when: not llama_server_stat.stat.exists
       tags: [launch]

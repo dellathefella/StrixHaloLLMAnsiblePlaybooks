@@ -1,13 +1,13 @@
 # Local-machine test inventory for ansible/bootstrap.yml.
-# This HP Z2 G1a runs the DS4 (single-node) + llama.cpp (Qwen3.6/Gemma4-E4B) tracks.
+# This HP Z2 G1a runs the DS4 (single-node) + Qwen3.6 (llama.cpp) tracks.
 # Local connection + password-fed become (native, no NOPASSWD):
 #   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:'
 #   which ansible's become prompt-match never detects (times out).
 # Test with:  ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base -K
 # DS4 single-node default: IQ2_XXS at 126k ctx (AMD guide), port 8000.
-# llama.cpp track: Qwen3.6-35B-A3B (port 8081) + Gemma4-E4B (port 8083),
-# latest source build, Vulkan/RADV.
+# Qwen3.6 track: Qwen3.6-35B-A3B (port 8081),
+# latest llama.cpp source build, Vulkan/RADV.
 
 [ds4_single]
 # single-node DeepSeek V4 Flash (ds4.c, IQ2_XXS at 126k ctx) — default on this controller
@@ -16,6 +16,14 @@ localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/b
 [ds4:children]
 ds4_single
 
-[llama]
-# Qwen3.6-35B-A3B + Gemma4-E4B via latest llama.cpp (Vulkan/RADV)
+[qwen36]
+# Qwen3.6-35B-A3B via latest llama.cpp (Vulkan/RADV)
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[step35flash]
+# Step 3.5 Flash IQ4_XS via latest llama.cpp (Vulkan/RADV)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[llama:children]
+qwen36
+step35flash

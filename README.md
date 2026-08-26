@@ -2,7 +2,7 @@
 
 Organized workspace for bootstrapping AMD ROCm inference on the Ryzen AI Max
 "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs — no 10Gbps
-requirement). Ubuntu/Debian only. Four tracks, driven by **per-track ansible
+requirement). Ubuntu/Debian only. Three tracks, driven by **per-track ansible
 playbooks** under `ansible/` (an orchestrator, `bootstrap.yml`, runs them in
 order; any track file can also run standalone):
 
@@ -17,12 +17,8 @@ order; any track file can also run standalone):
    vLLM + Ray + RCCL, context pushed to 65536 (guide default is 32768).
 3. **llama.cpp** — **Qwen3.6-35B-A3B** (8-bit UD-Q8_K_XL, 38.5 GB) served by
    the **latest llama.cpp built from source** with the **Vulkan (Mesa RADV)**
-   backend. **Gemma 4 26B-A4B (27.6 GB) removed per user — Qwen3.6 covers the
-   use case.** Also included: Gemma 4 E4B (4.8 GB, Q4_K_S, Q4 quant).
-4. **Laguna S 2.1** — **Chadrock ROCmFP4 StrixKVSpine V4** quant (4.453 BPW,
-   ~60.95 GB, AMD-optimized tensor protection for Strix Halo), served by the
-   **Ciru ROCmFPX Runtime V3** (CIRR-ai/ROCmFPX fork — NOT stock upstream
-   llama.cpp).
+   backend. Also includes: **Step 3.5 Flash** (IQ4_XS, ~100.5 GB, 26B total /
+   11B active MoE, 256K native context).
 
 The qwen38 (Qwen3.8-27B) and ds4fa (Lucebox ROCmFPX) tracks were **removed**
 per user request (qwen38 too slow; ds4fa failed with an engine/model mismatch
@@ -43,10 +39,10 @@ nightlies, latest llama.cpp from source):
 - **MoE models need 2^n batching on Vulkan** → `batch=256, ubatch=512`.
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
-- **Token generation is memory-bandwidth bound** (~215 GB/s). 8-bit UD-Q8_K_XL
-  keeps active params small — Qwen3.6 ~3B active ≈ 3 GB/token ≈ 65-70 t/s.
-  That's roughly **2×** the BF16
-  speeds, with near-lossless quality.
+- **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
+  ≈ 3 GB/token ≈ 65-70 t/s at 8-bit UD-Q8_K_XL. Step 3.5 Flash ~11B active
+  ≈ 11 GB/token ≈ 30-48 t/s at IQ4_XS. Both roughly **2×** the BF16 speeds,
+  with near-lossless quality.
 
 **Network note:** host NICs are 2.5Gbe (HP Z2 G1a), below the guide's 10Gbps;
 tensor-parallel KV exchange is the bottleneck. The playbook warns on this but
@@ -72,6 +68,7 @@ into `pi-configs/` — you run/merge them when ready.
 (`scripts/ds4-setup.sh` — DS4 itself only); everything else (base, Qwen RCCL,
 llama.cpp) is done via ansible. `scripts/install-pi.sh` is the **local pi
 install** (pi + the plugins present on this system) for this controller machine.
+Both qwen36 and step35flash share the same llama.cpp build.
 
 ## Layout
 
@@ -85,21 +82,20 @@ install** (pi + the plugins present on this system) for this controller machine.
 │   ├── bootstrap.yml              ORCHESTRATOR: imports the per-track playbooks
 │   ├── base.yml                   base preflight, packages, toolchain, GRUB   [base]
 │   ├── ds4.yml                    DS4: single-node IQ2_XXS default + multi-node [ds4]
+│   ├── qwen36.yml                 Qwen3.6-35B-A3B (latest llama.cpp source      [llama]
+│   │                              build, Vulkan/RADV, UD-Q8_K_XL)
+│   ├── step35flash.yml            Step 3.5 Flash IQ4_XS (~100.5 GB) via         [llama]
+│   │                              latest llama.cpp source build, Vulkan/RADV
 │   ├── qwen-rccl.yml                   Qwen RCCL cluster (vLLM + Ray + RCCL)       [qwen-rccl]
-│   ├── llama.yml                  Qwen3.6-35B-A3B + Gemma4-E4B (latest       [llama]
-│   │                              llama.cpp source build, Vulkan/RADV)
-│   ├── laguna.yml                 Laguna S 2.1 ROCmFP4 (Ciru ROCmFPX        [laguna]
-│   │                              Runtime V3 fork — separate from upstream
-│   │                              llama.cpp)
 │   ├── summary.yml                final per-host completion summary           [summary]
 │   ├── templates/                 Jinja templates (rendered by each track playbook)
 │   │   ├── ds4-start.sh.j2        DS4 launch template (single + multi, role via env)
 │   │   ├── qwen36-start.sh.j2     Qwen3.6-35B-A3B launch (Vulkan, MoE batching)
+│   │   ├── step35flash-start.sh.j2  Step 3.5 Flash launch (Vulkan, MoE batching)
 │   │   ├── qwen-rccl-start.sh.j2       Qwen RCCL launch template
 │   │   ├── pi-ds4.json.j2         pi agent config (DS4 single-node default)
 │   │   ├── pi-qwen36.json.j2      pi agent config (Qwen3.6)
-│   │   ├── laguna-start.sh.j2          Laguna S 2.1 ROCmFP4 launch (ROCmFPX)
-│   │   ├── pi-laguna.json.j2           pi agent config (Laguna S 2.1)
+│   │   ├── pi-step35flash.json.j2   pi agent config (Step 3.5 Flash)
 │   │   └── pi-qwen-rccl.json.j2        pi agent config (Qwen RCCL)
 │   └── inventory/
 │       ├── hosts                  your real inventory (local ds4_single + llama test)
@@ -109,12 +105,12 @@ install** (pi + the plugins present on this system) for this controller machine.
 │   ├── install-pi.sh              local pi install (pi + plugins on this system)
 │   ├── ds4-start.sh               rendered DS4 launch (DS4_ROLE=single|coordinator|worker)
 │   ├── qwen36-start.sh            rendered Qwen3.6-35B-A3B launch
-│   ├── laguna-start.sh            rendered Laguna S 2.1 ROCmFP4 launch
+│   ├── step35flash-start.sh       rendered Step 3.5 Flash launch
 │   └── qwen-rccl-start.sh              rendered Qwen RCCL launch (role via env)
 └── pi-configs/                    rendered pi agent configs (dropped locally)
     ├── pi-ds4.json                merge into ~/.pi/agent/models.json
     ├── pi-qwen36.json
-    ├── pi-laguna.json
+    ├── pi-step35flash.json
     └── pi-qwen-rccl.json
 ```
 
@@ -139,8 +135,9 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --skip-tags ba
 ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --tags llama
 # Any track file can also run standalone:
 ansible-playbook -i ansible/inventory/hosts ansible/ds4.yml        # DS4 (single + multi)
-ansible-playbook -i ansible/inventory/hosts ansible/llama.yml      # Qwen3.6 + Gemma4-E4B
-ansible-playbook -i ansible/inventory/hosts ansible/qwen-rccl.yml       # Qwen RCCL cluster
+ansible-playbook -i ansible/inventory/hosts ansible/qwen36.yml     # Qwen3.6-35B-A3B (llama.cpp)
+ansible-playbook -i ansible/inventory/hosts ansible/step35flash.yml # Step 3.5 Flash (llama.cpp)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen-rccl.yml  # Qwen RCCL cluster
 ```
 
 ### Local run — `connection=local` + password-fed `become` (native, no NOPASSWD)
@@ -214,21 +211,16 @@ QWEN_ROLE=worker ./scripts/qwen-rccl-start.sh
 # endpoint http://<head_ip>:7000/v1
 ```
 
-**4. llama.cpp track (Qwen3.6-35B-A3B 8-bit UD-Q8_K_XL + Gemma4-E4B Q4_K_S)**
+**4. llama.cpp tracks (Qwen3.6-35B-A3B + Step 3.5 Flash — shared build)**
 ```bash
-ansible-playbook -i ansible/inventory/hosts ansible/llama.yml -K
-./scripts/qwen36-start.sh     # Qwen3.6-35B-A3B -> http://127.0.0.1:8081/v1
-./scripts/gemma-e4b-start.sh  # Gemma4-E4B Q4_K_S -> http://127.0.0.1:8083/v1
+ansible-playbook -i ansible/inventory/hosts ansible/qwen36.yml -K
+ansible-playbook -i ansible/inventory/hosts ansible/step35flash.yml -K
+./scripts/qwen36-start.sh        # Qwen3.6-35B-A3B -> http://127.0.0.1:8081/v1
+./scripts/step35flash-start.sh   # Step 3.5 Flash -> http://127.0.0.1:8084/v1
 # override ctx for Qwen3.6, e.g.:
 QWEN36_CTX=262144 ./scripts/qwen36-start.sh   # Qwen3.6 native 256k (keep >=128k)
-```
-
-**5. Laguna S 2.1 ROCmFP4 (Ciru ROCmFPX Runtime V3 — separate from llama.cpp)**
-```bash
-ansible-playbook -i ansible/inventory/hosts ansible/laguna.yml -K
-./scripts/laguna-start.sh     # Laguna S 2.1 ROCmFP4 -> http://127.0.0.1:8082/v1
-# override context (256K experimental lane):
-STABILITY_MODE=performance ./scripts/laguna-start.sh
+# override ubatch for 256K context (Step 3.5 Flash official docs):
+STEP35FLASH_UBATCH=1024 ./scripts/step35flash-start.sh
 ```
 
 **5. Everything at once (full bootstrap)**
@@ -237,19 +229,16 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml -K
 # then, per track:
 ./scripts/ds4-start.sh
 ./scripts/qwen36-start.sh
-./scripts/gemma-e4b-start.sh
-./scripts/laguna-start.sh
+./scripts/step35flash-start.sh
 ./scripts/qwen-rccl-start.sh
 ```
 
 **Common flags** — `--tags <track>` runs one track (`base`, `ds4`, `qwen`,
-`llama`, `laguna`); `--skip-tags base` skips the base play; `--tags model`
+`llama`, `qwen-rccl`); `--skip-tags base` skips the base play; `--tags model`
 re-runs just downloads; `--check` dry-runs. Within the llama track, per-model
-tags `qwen36` / `gemma-e4b` run only that model's download + launch-script/pi-config
-render, and `--skip-tags qwen36` / `--skip-tags gemma-e4b` skip just that model. The
-laguna track has its own tags (`--tags laguna`, `--tags build`, `--tags model`,
-`--tags laguna`). A track file can be run standalone (no need to go through the
-orchestrator).
+tags `qwen36` / `step35flash` run only that model's download + launch-script/pi-config
+render, and `--skip-tags qwen36` / `--skip-tags step35flash` skip just that model.
+A track file can be run standalone (no need to go through the orchestrator).
 
 ### DS4 single-node local bootstrap (the one kept local script)
 ```bash
@@ -279,17 +268,16 @@ cd ~/ds4 && \
     -o DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
     "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
 
-# Laguna S 2.1 ROCmFP4 StrixKVSpine V4 (~60.95 GB, Ciru ROCmFPX Runtime V3 only)
+# Step 3.5 Flash IQ4_XS (~100.53 GB, 11B active/26B total MoE)
 cd ~/.local/share/llama-models && \
   aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false --continue=true \
-    -o laguna-s-2.1-ROCmFP4-StrixKVSpine-v4.gguf \
-    "https://huggingface.co/jcbtc/Laguna-S-2.1-Chadrock-ROCmFP4-StrixKVSpine-V4-GGUF/resolve/main/laguna-s-2.1-ROCmFP4-StrixKVSpine-v4.gguf"
+    -o Step-3.5-Flash-IQ4_XS.gguf \
+    "https://huggingface.co/AesSedai/Step-3.5-Flash-GGUF/resolve/main/Step-3.5-Flash-IQ4_XS.gguf"
 ```
 
 Verify integrity after download (HF publishes sha256, not md5):
 ```bash
 sha256sum <file>.gguf   # compare against the repo's file listing
-# Laguna S 2.1 expected sha256: ea1d854a72c47ec8e72c16ea91b8ff3cd5e1620b834df175f683c86f27dc26d6
 ```
 ```bash
 sha256sum <file>.gguf   # compare against the repo's file listing
@@ -320,23 +308,16 @@ DS4_ROLE=worker      ./scripts/ds4-start.sh
 ```
 MTP is disabled by default (`DS4_USE_MTP=1` to enable).
 
-### llama.cpp — Qwen3.6-35B-A3B + Gemma 4 E4B (Vulkan/RADV)
+### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash (Vulkan/RADV)
 ```bash
-./scripts/qwen36-start.sh   # ctx 131072 (keep >=128k for thinking)
-./scripts/gemma-e4b-start.sh # ctx 131072, dense model, large batch
+./scripts/qwen36-start.sh        # ctx 131072 (keep >=128k for thinking)
+./scripts/step35flash-start.sh   # ctx 131072, MoE (batch=2048, ubatch=2048)
 ```
-Both use the latest source-built `llama-server` with the Mesa RADV Vulkan
+Both use the same source-built `llama-server` with the Mesa RADV Vulkan
 backend (fastest tg + MoE pp on Strix Halo), `--flash-attn on`, `--no-mmap`
 (full load into the unified shared pool), `--n-gpu-layers 999`. Endpoints:
-`http://127.0.0.1:8081/v1` (qwen36) and `http://127.0.0.1:8083/v1` (gemma-e4b).
+`http://127.0.0.1:8081/v1` (qwen36) and `http://127.0.0.1:8084/v1` (step35flash).
 First request is shader-JIT slow; decode is memory-bandwidth-bound.
-
-### Laguna S 2.1 ROCmFP4 StrixKVSpine V4 (Ciru ROCmFPX Runtime V3)
-```bash
-./scripts/laguna-start.sh
-# raise context (experimental 256K lane — not yet fully validated):
-STABILITY_MODE=performance ./scripts/laguna-start.sh
-```
 **Runtime V3** uses the Ciru ROCmFPX fork (NOT stock upstream llama.cpp).
 AMD-optimized ROCmFP4 quant: 118B total / ~8B active, **60.95 GB** at **4.453
 BPW**, tested at **35.62 tok/s** generation and **195.70 tok/s** PP at 128K.
@@ -366,11 +347,9 @@ The launch scripts and pi configs are **generated from templates** (not hand-kep
 files). Source: `ansible/templates/*.j2` → rendered by the launch-render play
 (`llama.yml`, play 2, `tags: [launch, llama]`) into:
 - `scripts/qwen36-start.sh` ← `templates/qwen36-start.sh.j2`  (`tags: [launch, qwen36]`)
-- `scripts/gemma-e4b-start.sh` ← `templates/gemma-e4b-start.sh.j2` (`tags: [launch, gemma-e4b]`)
-- `scripts/laguna-start.sh` ← `templates/laguna-start.sh.j2`  (`tags: [launch, laguna]`)
+- `scripts/step35flash-start.sh` ← `templates/step35flash-start.sh.j2`  (`tags: [launch, step35flash]`)
 - `pi-configs/pi-qwen36.json` ← `templates/pi-qwen36.json.j2` (`tags: [launch, qwen36]`)
-- `pi-configs/pi-gemma-e4b.json` ← `templates/pi-gemma-e4b.json.j2` (`tags: [launch, gemma-e4b]`)
-- `pi-configs/pi-laguna.json` ← `templates/pi-laguna.json.j2` (`tags: [launch, laguna]`)
+- `pi-configs/pi-step35flash.json` ← `templates/pi-step35flash.json.j2` (`tags: [launch, step35flash]`)
 
 The DS4 + Qwen tracks render their own start scripts / pi configs the same way.
 
@@ -381,18 +360,20 @@ cat scripts/qwen36-start.sh    # launch script (Vulkan0, port 8081)
 cat pi-configs/pi-qwen36.json  # pi agent config
 ```
 
-**Render just the laguna config** (full track, includes ROCmFPX build):
+**Render just the step35flash config:**
 ```bash
-ansible-playbook -i ansible/inventory/hosts ansible/laguna.yml -K
-cat scripts/laguna-start.sh
+ansible-playbook -i ansible/inventory/hosts ansible/step35flash.yml -K
+cat scripts/step35flash-start.sh
+cat pi-configs/pi-step35flash.json
 # skip build and download, only render:
-ansible-playbook -i ansible/inventory/hosts ansible/laguna.yml -K --tags launch
+ansible-playbook -i ansible/inventory/hosts ansible/step35flash.yml -K --tags launch
 ```
 
 Per-model tags: `--tags qwen36` runs only the qwen36 download + render; `--tags
-gemma-e4b` runs only the gemma-e4b download + render; `--tags
-launch` runs the whole launch-render play (both qwen36 + gemma-e4b scripts + pi
-configs). The laguna track is fully standalone (`ansible/laguna.yml`). Once
+step35flash` runs only the step35flash download + render; `--tags
+launch` runs the whole launch-render play (both qwen36 + step35flash scripts + pi
+configs). Each track file is fully standalone — no need to go through the
+orchestrator. Once
 rendered, `./scripts/install-pi.sh` merges `pi-configs/*` into
 `~/.pi/agent/models.json`.
 
@@ -402,7 +383,7 @@ The bootstrap drops pi agent configs into `pi-configs/`:
 - `pi-ds4.json` — `ds4` provider → `http://127.0.0.1:8000/v1`, model `deepseek-v4-flash` (single-node IQ2_XXS).
 
 - `pi-qwen36.json` — `qwen36` provider → `http://127.0.0.1:8081/v1`, model `qwen3.6-35b-a3b`.
-- `pi-laguna.json` — `laguna-s21` provider → `http://127.0.0.1:8082/v1`, model `laguna-s21-rocmfp4-strixkvspine-v4` (ROCmFP4, Ciru ROCmFPX Runtime V3).
+- `pi-step35flash.json` — `step35flash` provider → `http://127.0.0.1:8084/v1`, model `step-3.5-flash`.
 - `pi-qwen-rccl.json` — `qwen-rccl` provider → `http://<head_ip>:7000/v1`, model `Qwen/Qwen3.5-397B-A17B-GPTQ-Int4`.
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
@@ -415,16 +396,13 @@ the pi provider configs.
 - DS4 (single + multi): `ds4_mode` (single default), `ds4_ctx_single` (126000),
   `ds4_ctx` (262144 multi), `ds4_port` (8000), `ds4_host` (127.0.0.1),
   `ds4_coord_ip/port`, `ds4_download_single/multi/mtp` (model downloads per host)
-- llama.cpp: `qwen36_ctx` (131072),
-  `qwen36_port` (8081), `qwen36_host/device/batch/ubatch/flash_attn/mmap` (same defaults);
-  `laguna_ctx` (131072), `laguna_port` (8082), `laguna_host` (127.0.0.1),
-  `laguna_batch` (2048), `laguna_ubatch` (512), `laguna_threads` (16),
-  `laguna_vulkan_nodes` (10), `laguna_vulkan_fa_wg` (4), `laguna_sha256`,
-  `laguna_repo`/`laguna_branch`/`laguna_commit` (Ciru ROCmFPX Runtime V3)
+- llama.cpp: `qwen36_ctx` (131072), `qwen36_port` (8081), `qwen36_host/device/batch/ubatch/flash_attn/mmap` (same defaults);
+  `step35flash_ctx` (131072), `step35flash_port` (8084), `step35flash_host` (127.0.0.1),
+  `step35flash_batch` (2048), `step35flash_ubatch` (2048), `step35flash_threads` (32),
+  `step35flash_vulkan_fa_wg` (4)
 - Qwen: `qwen_head_ip`, `qwen_worker_ip`, `qwen_max_model_len` (default 65536),
   `qwen_tp_size` (default 2), `qwen_port`, `qwen_ifname`
 - Scripts: `DS4_ROLE` (single|coordinator|worker), `DS4_USE_MTP`, `DS4_CTX_SINGLE`,
-  `DS4_CTX`, `DS4_MODELS_DIR`, `DS4_HOST`; `GEMMA_*/QWEN36_*` (BIN/MODEL/CTX/
-  PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS); `LAGUNA_*` (BIN/LIB/MODEL/CTX/
-  PORT/HOST/BIN_DIR/BATCH/UBATCH/THREADS/CTX_CHECKPOINTS/STABILITY_MODE); `QWEN_ROLE`;
+  `DS4_CTX`, `DS4_MODELS_DIR`, `DS4_HOST`; `QWEN36_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS);
+  `STEP35FLASH_*` (BIN/LIB/MODEL/CTX/PORT/HOST/DEVICE/BATCH/UBATCH/FA/MMAP/THREADS); `QWEN_ROLE`;
   `HF_TOKEN`
