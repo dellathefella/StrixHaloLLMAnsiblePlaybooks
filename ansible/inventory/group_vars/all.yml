@@ -43,6 +43,8 @@ qwen36_batch: 256
 qwen36_ubatch: 512
 qwen36_flash_attn: 1
 qwen36_mmap: 0
+qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
+qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
 
 # --- llama.cpp track: Step 3.5 Flash (IQ4_XS, ~100.5 GB, 11B active/26B total MoE) ---
 # StepFun's validated Vulkan profile: batch=2048, ubatch=2048 for 16k ctx.
@@ -65,5 +67,3 @@ llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp
 llama_prefix: "{{ llama_home }}/llama-cpp"        # cmake --install prefix
 llama_bin: "{{ llama_home }}/llama-cpp/bin/llama-server"
 llama_models_dir: "{{ llama_home }}/.local/share/llama-models"
-qwen36_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
-qwen36_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
