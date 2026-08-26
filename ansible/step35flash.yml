@@ -6,23 +6,31 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
+    # ROCm build deps (HIP toolkit headers — no Vulkan needed)
     llama_build_deps:
       - cmake
-      - libvulkan-dev     # Vulkan headers + ICD loader (vulkan.h)
-      - glslang-tools
-      - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
-      - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
-    step35flash_shard_count: 3
+      - rocminfo              # rocminfo binary for probe
+      - rocblas               # rocBLAS (matrix multiply)
+      - hipblas               # hipBLAS (vector ops)
+      - hipfft                # hipFFT (attention)
+      - hipsolver             # hipSOLVER (eigen, svd)
+      - hipsparse             # hipSPARSE (sparse ops)
+      - hipcub                # HIPCUB
+      - miopen-hip            # MIOpen (conv)
+    # ubergarm's IQ4_XS: 4 shards, ~108 GB total (4.38 bpw)
+    # https://huggingface.co/ubergarm/Step-3.5-Flash-GGUF/tree/main/IQ4_XS
+    step35flash_shard_count: 4
     step35flash_shards:
-      - "Step-3.5-Flash-IQ4_XS-00001-of-00003.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00002-of-00003.gguf"
-      - "Step-3.5-Flash-IQ4_XS-00003-of-00003.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00001-of-00004.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00002-of-00004.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00003-of-00004.gguf"
+      - "Step-3.5-Flash-IQ4_XS-00004-of-00004.gguf"
     # llama.cpp uses the first shard to detect a sharded model
     step35flash_model: "{{ step35flash_shards[0] }}"
     step35flash_url_base: "https://huggingface.co/{{ step35flash_repo }}/resolve/main/IQ4_XS"
 
   tasks:
-    - name: Install llama.cpp build dependencies
+    - name: Install ROCm build dependencies (no Vulkan needed)
       ansible.builtin.apt:
         name: "{{ llama_build_deps }}"
         state: present
@@ -37,10 +45,11 @@
         force: yes
       become: no
 
-    - name: Configure build — Vulkan backend (Mesa RADV), release
+    - name: Configure build — ROCm backend, release, graphs for PP perf
       ansible.builtin.command:
         cmd: >-
-          cmake -B build -DGGML_VULKAN=ON -DGGML_HIP=OFF
+          cmake -B build -DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON
+          -DGGML_VULKAN=OFF
           -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
           -DCMAKE_INSTALL_PREFIX={{ llama_prefix }}
       args:
@@ -141,7 +150,7 @@
           engine: {{ llama_bin }}
           model: {{ step35flash_model }}  ({{ step35flash_shard_count }} shards, {{ step35flash_ctx }} ctx, port {{ step35flash_port }})
           Launch later via scripts/step35flash-start.sh.
-          Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
+          ROCm backend — 4.7x faster PP, 65% less energy than Vulkan.
       tags: [info]
 
 # -----------------------------------------------------------------------------

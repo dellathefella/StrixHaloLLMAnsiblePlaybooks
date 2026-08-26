@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "step35flash": {
+      "name": "Step 3.5 Flash (llama.cpp, IQ4_XS)",
+      "baseUrl": "http://127.0.0.1:8084/v1",
+      "api": "openai-completions",
+      "apiKey": "step35flash-local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens",
+        "supportsStrictMode": false,
+        "thinkingFormat": "step",
+        "requiresReasoningContentOnAssistantMessages": true
+      },
+      "models": [
+        {
+          "id": "step-3.5-flash",
+          "name": "Step 3.5 Flash (llama.cpp, IQ4_XS)",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh"
+          },
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

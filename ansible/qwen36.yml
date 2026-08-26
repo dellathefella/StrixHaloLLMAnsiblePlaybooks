@@ -6,16 +6,21 @@
 
   vars:
     llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
+    # ROCm build deps (HIP toolkit — no Vulkan needed)
     llama_build_deps:
       - cmake
-      - libvulkan-dev     # Vulkan headers + ICD loader (vulkan.h)
-      - glslang-tools
-      - glslc             # provides glslc (Vulkan shader compiler) for llama.cpp
-      - spirv-headers     # SPIRV-HeadersConfig.cmake — required by ggml-vulkan CMake
+      - rocminfo              # rocminfo binary for probe
+      - rocblas               # rocBLAS (matrix multiply)
+      - hipblas               # hipBLAS (vector ops)
+      - hipfft                # hipFFT (attention)
+      - hipsolver             # hipSOLVER (eigen, svd)
+      - hipsparse             # hipSPARSE (sparse ops)
+      - hipcub                # HIPCUB
+      - miopen-hip            # MIOpen (conv)
     qwen36_url: "https://huggingface.co/{{ qwen36_repo }}/resolve/main/{{ qwen36_model }}"
 
   tasks:
-    - name: Install llama.cpp build dependencies
+    - name: Install ROCm build dependencies (no Vulkan needed)
       ansible.builtin.apt:
         name: "{{ llama_build_deps }}"
         state: present
@@ -30,10 +35,11 @@
         force: yes
       become: no
 
-    - name: Configure build — Vulkan backend (Mesa RADV), release
+    - name: Configure build — ROCm backend, release, graphs for PP perf
       ansible.builtin.command:
         cmd: >-
-          cmake -B build -DGGML_VULKAN=ON -DGGML_HIP=OFF
+          cmake -B build -DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON
+          -DGGML_VULKAN=OFF
           -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
           -DCMAKE_INSTALL_PREFIX={{ llama_prefix }}
       args:
@@ -128,7 +134,7 @@
           engine: {{ llama_bin }}
           model: {{ qwen36_model }}  ({{ qwen36_ctx }} ctx, port {{ qwen36_port }})
           Launch later via scripts/qwen36-start.sh.
-          Vulkan (Mesa RADV) backend — fastest tg + MoE pp on Strix Halo.
+          ROCm backend — 4.7x faster PP, 65% less energy than Vulkan.
       tags: [info]
 
 # -----------------------------------------------------------------------------

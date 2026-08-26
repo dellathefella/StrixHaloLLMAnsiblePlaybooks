@@ -55,8 +55,7 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.3** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for the DS4 track; the llama.cpp track uses
-Vulkan (Mesa RADV) and doesn't need HIP.
+package (7.1.0). ROCm is needed for DS4, qwen36, and step35flash tracks.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
@@ -82,16 +81,16 @@ Both qwen36 and step35flash share the same llama.cpp build.
 │   ├── bootstrap.yml              ORCHESTRATOR: imports the per-track playbooks
 │   ├── base.yml                   base preflight, packages, toolchain, GRUB   [base]
 │   ├── ds4.yml                    DS4: single-node IQ2_XXS default + multi-node [ds4]
-│   ├── qwen36.yml                 Qwen3.6-35B-A3B (latest llama.cpp source      [llama]
-│   │                              build, Vulkan/RADV, UD-Q8_K_XL)
-│   ├── step35flash.yml            Step 3.5 Flash IQ4_XS (~100.5 GB) via         [llama]
-│   │                              latest llama.cpp source build, Vulkan/RADV
+│   ├── qwen36.yml                 Qwen3.6-35B-A3B (ROCm-built llama.cpp,        [llama]
+│   │                              UD-Q8_K_XL, ~38.5 GB)
+│   ├── step35flash.yml            Step 3.5 Flash IQ4_XS (~108 GB, 4 shards)    [llama]
+│   │                              ROCm-built llama.cpp, ubergarm quant
 │   ├── qwen-rccl.yml                   Qwen RCCL cluster (vLLM + Ray + RCCL)       [qwen-rccl]
 │   ├── summary.yml                final per-host completion summary           [summary]
 │   ├── templates/                 Jinja templates (rendered by each track playbook)
 │   │   ├── ds4-start.sh.j2        DS4 launch template (single + multi, role via env)
-│   │   ├── qwen36-start.sh.j2     Qwen3.6-35B-A3B launch (Vulkan, MoE batching)
-│   │   ├── step35flash-start.sh.j2  Step 3.5 Flash launch (Vulkan, MoE batching)
+│   │   ├── qwen36-start.sh.j2     Qwen3.6-35B-A3B launch (ROCm, MoE batching)
+│   │   ├── step35flash-start.sh.j2  Step 3.5 Flash launch (ROCm, MoE batching)
 │   │   ├── qwen-rccl-start.sh.j2       Qwen RCCL launch template
 │   │   ├── pi-ds4.json.j2         pi agent config (DS4 single-node default)
 │   │   ├── pi-qwen36.json.j2      pi agent config (Qwen3.6)
@@ -308,28 +307,29 @@ DS4_ROLE=worker      ./scripts/ds4-start.sh
 ```
 MTP is disabled by default (`DS4_USE_MTP=1` to enable).
 
-### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash (Vulkan/RADV)
+### llama.cpp — Qwen3.6-35B-A3B + Step 3.5 Flash (ROCm/HIP)
 ```bash
 ./scripts/qwen36-start.sh        # ctx 131072 (keep >=128k for thinking)
-./scripts/step35flash-start.sh   # ctx 131072, MoE (batch=2048, ubatch=2048)
+./scripts/step35flash-start.sh   # ctx 65536 default, 108 GB, MoE (batch=2048)
 ```
-Both use the same source-built `llama-server` with the Mesa RADV Vulkan
-backend (fastest tg + MoE pp on Strix Halo), `--flash-attn on`, `--no-mmap`
-(full load into the unified shared pool), `--n-gpu-layers 999`. Endpoints:
-`http://127.0.0.1:8081/v1` (qwen36) and `http://127.0.0.1:8084/v1` (step35flash).
-First request is shader-JIT slow; decode is memory-bandwidth-bound.
-**Runtime V3** uses the Ciru ROCmFPX fork (NOT stock upstream llama.cpp).
-AMD-optimized ROCmFP4 quant: 118B total / ~8B active, **60.95 GB** at **4.453
-BPW**, tested at **35.62 tok/s** generation and **195.70 tok/s** PP at 128K.
+Both use the same ROCm-built `llama-server` (HIP graphs, 4.7× faster PP than
+Vulkan), `--flash-attn on`, `--no-mmap` (full load into the unified shared
+pool), `--cache-ram 0` (prevents host/GPU memory competition on 128GB UMA),
+`--n-gpu-layers 999`. Endpoints: `http://127.0.0.1:8081/v1` (qwen36) and
+`http://127.0.0.1:8084/v1` (step35flash). First request is shader-JIT slow;
+decode is memory-bandwidth-bound.
 
-V3 Vulkan stability fixes (Runtime V2 baseline):
-- `GGML_VK_MAX_NODES_PER_SUBMIT=10` — split large FA dispatch (prevents RADV DeviceLost)
-- `GGML_VK_FA_MAX_WORKGROUPS_X_PER_DISPATCH=4` — bounded FA workgroups
-- Context checkpoints disabled (`--ctx-checkpoints 0`) for hybrid/SWA safety
-- JSON grammar fixes (PR #24835: no trailing whitespace in generated JSON values)
+Validated ROCm profile: batch=2048, ubatch=2048 (step35flash), batch=256
+(qwen36), ctx=131072, F16/F16 KV cache, 16/32 threads, 999 GPU layers.
 
-Validated profile: batch=2048, ubatch=512, ctx=131072, F16/F16 KV cache, 16
-threads, 999 GPU layers. Endpoint: `http://127.0.0.1:8082/v1`.
+**Note:** ubergarm's IQ4_XS quant is 4 shards (~108 GB total) — llama.cpp
+auto-detects remaining shards from `.index.json`. The AesSedai IQ4_XS (3
+shards, ~100.5 GB) is also compatible but ubergarm's imatrix quant has
+slightly better PPL.
+
+Runtime stability: ROCm 7.x on Strix Halo is stable for llama.cpp when built
+with `-DGGML_HIP_GRAPHS=ON`. If you hit GPU hangs, try
+`export HSA_FORCE_FINE_GRAIN_PCIE=1`.
 
 ### Qwen cluster (head first, then worker)
 ```bash
@@ -344,8 +344,8 @@ Qwen weights into the models dir on first serve.
 ## Output the rendered configs
 
 The launch scripts and pi configs are **generated from templates** (not hand-kept
-files). Source: `ansible/templates/*.j2` → rendered by the launch-render play
-(`llama.yml`, play 2, `tags: [launch, llama]`) into:
+files). Source: `ansible/templates/*.j2` → rendered by the launch-render plays
+(`qwen36.yml` play 2 + `step35flash.yml` play 2, `tags: [launch, llama]`) into:
 - `scripts/qwen36-start.sh` ← `templates/qwen36-start.sh.j2`  (`tags: [launch, qwen36]`)
 - `scripts/step35flash-start.sh` ← `templates/step35flash-start.sh.j2`  (`tags: [launch, step35flash]`)
 - `pi-configs/pi-qwen36.json` ← `templates/pi-qwen36.json.j2` (`tags: [launch, qwen36]`)
