@@ -56,6 +56,8 @@ step35flash_ubatch: 2048
 step35flash_flash_attn: 1
 step35flash_mmap: 0
 step35flash_threads: 32
+step35flash_model: "Step-3.5-Flash-IQ4_XS.gguf"   # AesSedai/Step-3.5-Flash-GGUF (~100.5 GB)
+step35flash_repo: "AesSedai/Step-3.5-Flash-GGUF"
 
 # --- llama.cpp structural paths + model filenames (single source of truth) ---
 llama_home: "/home/{{ ansible_user }}"
