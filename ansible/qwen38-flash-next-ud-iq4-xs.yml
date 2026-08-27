@@ -70,11 +70,15 @@
       failed_when: false
       tags: [build]
 
+    # LLAMA_BUILD_TESTS defaults ON for standalone builds and emits install
+    # rules for test binaries — but we only build llama-server/llama-bench,
+    # so `cmake --install` would fail on the missing test targets.
     - name: Configure build — Vulkan backend, release
       ansible.builtin.command:
         cmd: >-
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DGGML_NATIVE=OFF -DGGML_HIP=OFF -DGGML_VULKAN=ON
+          -DLLAMA_BUILD_TESTS=OFF
           -DCMAKE_INSTALL_PREFIX={{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}
       args:
         chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
@@ -91,13 +95,24 @@
       changed_when: false
       tags: [build]
 
-    - name: Install to {{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}
-      ansible.builtin.command:
-        cmd: "cmake --install build --prefix {{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}"
+    # `cmake --install` installs every target that has an install rule (tests,
+    # all examples, tools, app) — but we only build llama-server/llama-bench,
+    # so it fails on the missing binaries. Copy exactly what the launch
+    # script needs instead (bin + runtime shared libs).
+    - name: Install llama-server + shared libraries
+      ansible.builtin.shell: |
+        set -euo pipefail
+        prefix="{{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}"
+        mkdir -p "$prefix/bin" "$prefix/lib"
+        install -m 0755 build/bin/llama-server "$prefix/bin/"
+        install -m 0755 build/bin/llama-bench   "$prefix/bin/"
+        # fresh copy of the runtime libs (real files + .so symlinks)
+        rm -f "$prefix"/lib/libggml*.so* "$prefix"/lib/libllama*.so* "$prefix"/lib/libmtmd*.so*
+        cp -P build/bin/libggml*.so* build/bin/libllama*.so* build/bin/libmtmd*.so* "$prefix/lib/"
       args:
         chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
       become: no
-      changed_when: false
+      changed_when: true
       tags: [build]
 
     - name: Verify llama-server binary
