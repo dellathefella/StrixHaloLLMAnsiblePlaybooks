@@ -1,0 +1,173 @@
+---
+# =============================================================================
+# qwen3-coder-next-ud-q4-k-xl.yml
+# Qwen3-Coder-Next (UD-Q4_K_XL, single GGUF) — llama.cpp ROCm/HIP
+#
+# Uses its own llama.cpp clone in ~/llama-cpp-coder (separate from other
+# tracks) so we can independently branch/PR without blocking other tracks.
+# =============================================================================
+
+- name: "bootstrap — qwen3-coder-next: build + model download + render configs (UD-Q4_K_XL)"
+  hosts: qwen3-coder-next
+  gather_facts: yes
+  become: yes
+  tags: [qwen3-coder-next]
+
+  vars:
+    qwen3_coder_next_ud_q4_k_xl_url: "https://huggingface.co/{{ qwen3_coder_next_ud_q4_k_xl_hf_repo }}/resolve/main/{{ qwen3_coder_next_ud_q4_k_xl_model }}"
+
+  tasks:
+    - name: Include ROCm build dependencies
+      ansible.builtin.include_tasks:
+        file: tasks/rocm-build-deps.yml
+      tags: [packages, rocm]
+
+    - name: Clone llama.cpp HEAD (independent repo for this track)
+      ansible.builtin.git:
+        repo: "{{ llama_common_repo_url }}"
+        dest: "{{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}"
+        version: HEAD
+        force: yes
+      become: no
+      tags: [build]
+
+    - name: Configure build — ROCm backend, release, graphs for PP perf
+      ansible.builtin.command:
+        cmd: >-
+          cmake -B build -DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON
+          -DGGML_VULKAN=OFF
+          -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
+          -DCMAKE_INSTALL_PREFIX={{ qwen3_coder_next_ud_q4_k_xl_engine_prefix }}
+      args:
+        chdir: "{{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Build all targets (parallel)
+      ansible.builtin.command:
+        cmd: "cmake --build build --config Release -j{{ ansible_processor_vcpus | default(16) }}"
+      args:
+        chdir: "{{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Install to {{ qwen3_coder_next_ud_q4_k_xl_engine_prefix }}
+      ansible.builtin.command:
+        cmd: "cmake --install build --prefix {{ qwen3_coder_next_ud_q4_k_xl_engine_prefix }}"
+      args:
+        chdir: "{{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Verify llama-server binary
+      ansible.builtin.stat:
+        path: "{{ qwen3_coder_next_ud_q4_k_xl_engine_bin }}"
+      register: qwen3_coder_next_bin_stat
+      tags: [build]
+
+    - name: Warn if llama-server did not build
+      ansible.builtin.debug:
+        msg: "WARNING [qwen3-coder-next] llama-server missing at {{ qwen3_coder_next_ud_q4_k_xl_engine_bin }} — build failed. Check cmake/build logs in {{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}/build."
+      when: not qwen3_coder_next_bin_stat.stat.exists
+
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ llama_common_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Check if Qwen3-Coder-Next model already present
+      ansible.builtin.stat:
+        path: "{{ llama_common_models_dir }}/{{ qwen3_coder_next_ud_q4_k_xl_model }}"
+      register: qwen3_coder_next_model_stat
+      become: no
+      tags: [model, qwen3-coder-next]
+
+    - name: Download Qwen3-Coder-Next UD-Q4_K_XL ({{ qwen3_coder_next_ud_q4_k_xl_model }}) [skip if present]
+      ansible.builtin.command:
+        cmd: >-
+          aria2c -x 16 -s 16 --file-allocation=none
+          --continue=true --allow-overwrite=true
+          -o {{ qwen3_coder_next_ud_q4_k_xl_model }}
+          {{ qwen3_coder_next_ud_q4_k_xl_url }}
+      args:
+        chdir: "{{ llama_common_models_dir }}"
+      become: no
+      changed_when: false
+      when: not qwen3_coder_next_model_stat.stat.exists
+      tags: [model, qwen3-coder-next]
+
+    - name: Qwen3-Coder-Next model already present — skipping download
+      ansible.builtin.debug:
+        msg: "SKIP [qwen3-coder-next] {{ qwen3_coder_next_ud_q4_k_xl_model }} already in {{ llama_common_models_dir }}"
+      when: qwen3_coder_next_model_stat.stat.exists
+      tags: [model, qwen3-coder-next]
+
+    - name: Check downloaded model files present
+      ansible.builtin.find:
+        paths: "{{ llama_common_models_dir }}"
+        patterns: "*.gguf"
+      register: model_files
+      become: no
+      tags: [model, qwen3-coder-next]
+
+    - name: Warn if model downloads are incomplete
+      ansible.builtin.debug:
+        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_common_models_dir }} — re-run download."
+      when: not (model_files.matched | int >= 1)
+      tags: [model, qwen3-coder-next]
+
+    - name: Print qwen3-coder-next track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== qwen3-coder-next track complete on {{ inventory_hostname }} ====
+          engine: {{ qwen3_coder_next_ud_q4_k_xl_engine_bin }} (ROCm/HIP)
+          repo: {{ qwen3_coder_next_ud_q4_k_xl_engine_repo }}
+          model: {{ qwen3_coder_next_ud_q4_k_xl_model }}  ({{ qwen3_coder_next_ud_q4_k_xl_ctx }} ctx, port {{ qwen3_coder_next_ud_q4_k_xl_port }})
+          Launch later via scripts/qwen3-coder-next-ud-q4-k-xl-start.sh.
+      tags: [info]
+
+# -----------------------------------------------------------------------------
+# Launch render — drop local qwen3-coder-next launch script + pi config
+# -----------------------------------------------------------------------------
+- name: "bootstrap — drop local qwen3-coder-next launch script & pi config"
+  hosts: qwen3-coder-next
+  gather_facts: yes
+  become: no
+  run_once: yes
+  tags: [launch, qwen3-coder-next]
+
+  tasks:
+    - name: Render qwen3-coder-next-ud-q4-k-xl-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/qwen3-coder-next-ud-q4-k-xl-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen3-coder-next-ud-q4-k-xl-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch, qwen3-coder-next]
+
+    - name: Render pi agent config for Qwen3-Coder-Next (pi-qwen3-coder-next-ud-q4-k-xl.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen3-coder-next-ud-q4-k-xl.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen3-coder-next-ud-q4-k-xl.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch, qwen3-coder-next]
+
+    - name: Check llama-server binary present
+      ansible.builtin.stat:
+        path: "{{ qwen3_coder_next_ud_q4_k_xl_engine_bin }}"
+      delegate_to: localhost
+      register: llama_server_stat
+      tags: [launch]
+
+    - name: Warn if llama-server did not build (scripts will fail)
+      ansible.builtin.debug:
+        msg: "WARNING [launch] llama-server missing — scripts/qwen3-coder-next-ud-q4-k-xl-start.sh will not run until the build succeeds."
+      delegate_to: localhost
+      when: not llama_server_stat.stat.exists
+      tags: [launch]

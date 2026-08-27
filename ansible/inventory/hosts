@@ -30,3 +30,8 @@ localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/b
 # Qwen3.8-Flash-Next via llama.cpp Vulkan (UD-IQ4_XS, 3-part GGUF, ~87 GB)
 # PR #27742 — no ROCm kernels for this arch, Vulkan (RADV) wins
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen3-coder-next]
+# Qwen3-Coder-Next via llama.cpp ROCm/HIP (UD-Q4_K_XL, single GGUF)
+# unsloth/Qwen3-Coder-Next-GGUF, 262k ctx, port 8086
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws

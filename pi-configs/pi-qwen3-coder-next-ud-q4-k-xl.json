@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen3-coder-next-ud-q4-k-xl": {
+      "name": "Qwen3-Coder-Next (UD-Q4_K_XL, ROCm/HIP)",
+      "baseUrl": "http://127.0.0.1:8086/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen3-coder-next-local",
+      "models": [
+        {
+          "id": "qwen3-coder-next-ud-q4-k-xl",
+          "name": "Qwen3-Coder-Next (UD-Q4_K_XL, ROCm/HIP)",
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
