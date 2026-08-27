@@ -1,9 +1,10 @@
 ---
 # Defaults for all hosts. These are LOWER precedence than per-host inventory
-# vars (e.g. `ds4_c_iq2xxs_ctx_single=131072` on a host line still overrides here).
-# Structural vars (homes, engine dirs, model filenames) are also here — one
-# source of truth shared by the download (PLAY 1) and template-render (PLAY 2)
-# tasks of each track playbook.
+# vars. Structural vars (homes, engine dirs, model filenames) are also here —
+# one source of truth shared by the download and template-render tasks.
+#
+# IMPORTANT: Each llama.cpp track gets its OWN clone + build prefix so we can
+# independently branch/PR without blocking other tracks.
 
 # --- DS4 (single-node default + multi-node optional) ---
 ds4_c_iq2xxs_mode: "single"      # single | multi
@@ -20,7 +21,7 @@ ds4_c_iq2xxs_download_multi: 0
 ds4_c_iq2xxs_download_mtp: 0
 
 # --- DS4 structural paths + model filenames (single source of truth) ---
-ds4_c_iq2xxs_home: "/home/{{ ansible_user }}"   # ansible_user must be set in inventory
+ds4_c_iq2xxs_home: "/home/{{ ansible_user }}"
 ds4_c_iq2xxs_models_dir: "{{ ds4_c_iq2xxs_home }}/ds4-c-iq2xxs"
 ds4_c_iq2xxs_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
 ds4_c_iq2xxs_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
@@ -37,7 +38,12 @@ qwen35_397b_gptq_rccl_model: "Qwen3.5-397B-A10B-GPTQ-Int4"
 qwen35_397b_gptq_rccl_tp_size: 2
 qwen35_397b_gptq_rccl_gpu_util: 0.9
 
-# --- llama.cpp track: Qwen3.6-35B-A3B (UD-Q8_K_XL) ---
+# --- Common paths shared by all llama.cpp tracks ---
+llama_common_home: "/home/{{ ansible_user }}"
+llama_common_models_dir: "{{ llama_common_home }}/.local/share/llama-models"
+llama_common_repo_url: "https://github.com/ggml-org/llama.cpp.git"
+
+# === Qwen36-35B-A3B (UD-Q8_K_XL) — independent llama.cpp clone ===
 qwen36_35b_ud_q8_k_xl_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
 qwen36_35b_ud_q8_k_xl_port: 8081
 qwen36_35b_ud_q8_k_xl_host: "127.0.0.1"
@@ -47,13 +53,34 @@ qwen36_35b_ud_q8_k_xl_ubatch: 512
 qwen36_35b_ud_q8_k_xl_flash_attn: 1
 qwen36_35b_ud_q8_k_xl_mmap: 0
 qwen36_35b_ud_q8_k_xl_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
-qwen36_35b_ud_q8_k_xl_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+qwen36_35b_ud_q8_k_xl_hf_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"      # HuggingFace repo for URL
 qwen36_35b_ud_q8_k_xl_n_gpu: 999
 qwen36_35b_ud_q8_k_xl_threads: 16
+qwen36_35b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen36"
+qwen36_35b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen36"
+qwen36_35b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen36/bin/llama-server"
 
-# --- llama.cpp structural paths + model filenames (single source of truth) ---
-llama_home: "/home/{{ ansible_user }}"
-llama_repo: "{{ llama_home }}/llama-cpp"          # git clone ggml-org/llama.cpp -> llama-cpp
-llama_prefix: "{{ llama_home }}/llama-cpp"        # cmake --install prefix
-llama_bin: "{{ llama_home }}/llama-cpp/bin/llama-server"
-llama_models_dir: "{{ llama_home }}/.local/share/llama-models"
+# === Qwen3.8-27B (UD-Q4_K_XL) — independent llama.cpp clone ===
+qwen38_27b_ud_q8_k_xl_ctx: 262144    # native ceiling — 262k context (measured exact at 261,130/262,144)
+qwen38_27b_ud_q8_k_xl_port: 8084
+qwen38_27b_ud_q8_k_xl_host: "127.0.0.1"
+qwen38_27b_ud_q8_k_xl_device: "ROCm0"
+qwen38_27b_ud_q8_k_xl_model: "Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf"  # unsloth/Qwen3.8-27B-GGUF (~27 GB)
+qwen38_27b_ud_q8_k_xl_hf_repo: "unsloth/Qwen3.8-27B-GGUF"         # HuggingFace repo for URL
+qwen38_27b_ud_q8_k_xl_n_gpu: 999
+qwen38_27b_ud_q8_k_xl_threads: 16
+qwen38_27b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen38-27b"
+qwen38_27b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen38-27b"
+qwen38_27b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen38-27b/bin/llama-server"
+
+# === Qwen3.8-Flash-Next (UD-IQ4_XS, 3-part GGUF) — independent llama.cpp clone ===
+qwen38_flash_next_ud_iq4_xs_ctx: 131072  # f16 KV required (quantized KV asserts on this arch)
+qwen38_flash_next_ud_iq4_xs_port: 8085
+qwen38_flash_next_ud_iq4_xs_host: "127.0.0.1"
+qwen38_flash_next_ud_iq4_xs_device: "Vulkan0"
+qwen38_flash_next_ud_iq4_xs_model: "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"  # unsloth/Qwen3.8-Flash-Next-GGUF (~87 GB, 3-part)
+qwen38_flash_next_ud_iq4_xs_hf_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"                  # HuggingFace repo for URL
+qwen38_flash_next_ud_iq4_xs_n_gpu: 999
+qwen38_flash_next_ud_iq4_xs_engine_repo: "{{ llama_common_home }}/llama-cpp-flash"
+qwen38_flash_next_ud_iq4_xs_engine_prefix: "{{ llama_common_home }}/llama-cpp-flash"
+qwen38_flash_next_ud_iq4_xs_engine_bin: "{{ llama_common_home }}/llama-cpp-flash/bin/llama-server"

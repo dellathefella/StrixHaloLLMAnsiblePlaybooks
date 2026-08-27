@@ -3,16 +3,18 @@
 # bootstrap.yml — ORCHESTRATOR: imports the per-track playbooks in order.
 #
 # The tracks live in separate files (see Layout in the README):
-#   base.yml           base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
-#   ds4-c-iq2xxs.yml   DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)          [ds4-c-iq2xxs]
-#   qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP + UD-Q8_K_XL) [llama]
-#   qwen35-397b-gptq-rccl.yml  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4) [qwen35-397b-gptq-rccl]
-#   summary.yml        final per-host completion summary                         [summary]
+#   base.yml                                   base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
+#   ds4-c-iq2xxs.yml                           DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)          [ds4-c-iq2xxs]
+#   qwen36-35b-ud-q8-k-xl.yml                  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, ~/llama-cpp-qwen36) [qwen36-35b-ud-q8-k-xl]
+#   qwen38-27b-ud-q8-k-xl.yml                  Qwen3.8-27B (llama.cpp ROCm/HIP, ~/llama-cpp-qwen38-27b) [qwen38-27b]
+#   qwen38-flash-next-ud-iq4-xs.yml            Qwen3.8-Flash-Next (llama.cpp Vulkan PR#27742)            [qwen38-flash-next]
+#   qwen35-397b-gptq-rccl.yml                  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4)      [qwen35-397b-gptq-rccl]
+#   summary.yml                                final per-host completion summary                         [summary]
 #
 # Any track file can also be run standalone, e.g.:
-#   ansible-playbook -i inventory/hosts ansible/qwen35-397b-gptq-rccl.yml
+#   ansible-playbook -i inventory/hosts ansible/qwen38-27b-ud-q8-k-xl.yml
 #
-# Tags select tracks: --tags ds4-c-iq2xxs runs only that track (imports are
+# Tags select tracks: --tags qwen38-27b runs only that track (imports are
 # static, so skipped plays/tasks cost nothing). --skip-tags base skips the
 # base play on an already-provisioned host.
 # =============================================================================
@@ -20,5 +22,7 @@
 - import_playbook: base.yml
 - import_playbook: ds4-c-iq2xxs.yml
 - import_playbook: qwen36-35b-ud-q8-k-xl.yml
+- import_playbook: qwen38-27b-ud-q8-k-xl.yml
+- import_playbook: qwen38-flash-next-ud-iq4-xs.yml
 - import_playbook: qwen35-397b-gptq-rccl.yml
 - import_playbook: summary.yml

@@ -1,0 +1,168 @@
+---
+# =============================================================================
+# qwen38-flash-next-ud-iq4-xs.yml
+# Qwen3.8-Flash-Next (UD-IQ4_XS, ~87 GB, 3-part GGUF) — llama.cpp Vulkan
+# Build: PR #27742 (danielhanchen) — Vulkan/RADV (no ROCm kernels for this arch)
+# =============================================================================
+
+- name: "bootstrap — qwen38-flash-next: PR #27742 build + model download + render"
+  hosts: qwen38-flash-next
+  gather_facts: yes
+  become: yes
+  tags: [qwen38-flash-next]
+
+  vars:
+    qwen38_flash_next_ud_iq4_xs_base_url: "https://huggingface.co/{{ qwen38_flash_next_ud_iq4_xs_hf_repo }}/resolve/main/"
+    qwen38_flash_next_ud_iq4_xs_part1: "{{ qwen38_flash_next_ud_iq4_xs_model }}"
+
+  tasks:
+    - name: Include Vulkan build dependencies
+      ansible.builtin.include_tasks:
+        file: tasks/vulkan-build-deps.yml
+      tags: [packages, vulkan]
+      ignore_errors: yes
+
+    - name: Clone llama.cpp (PR #27742 for Qwen4exp architecture)
+      ansible.builtin.git:
+        repo: "{{ llama_common_repo_url }}"
+        dest: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+        version: "refs/pull/27742/head"
+        force: yes
+      become: no
+      tags: [build]
+
+    - name: Apply manual patch — add LLM_ARCH_QWEN4EXP to graph_max_nodes()
+      ansible.builtin.shell: |
+        if ! grep -q 'LLM_ARCH_QWEN4EXP' "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}/src/llama-context.cpp"; then
+          sed -i '/case LLM_ARCH_QWEN2:/a\        case LLM_ARCH_QWEN4EXP:' \
+            "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}/src/llama-context.cpp"
+        fi
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [build]
+
+    - name: Configure build — Vulkan backend, release
+      ansible.builtin.command:
+        cmd: >-
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DGGML_NATIVE=OFF -DGGML_HIP=OFF -DGGML_VULKAN=ON
+          -DCMAKE_INSTALL_PREFIX={{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Build all targets (parallel)
+      ansible.builtin.command:
+        cmd: "cmake --build build --target llama-server llama-bench -j{{ ansible_processor_vcpus | default(16) }}"
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Install to {{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}
+      ansible.builtin.command:
+        cmd: "cmake --install build --prefix {{ qwen38_flash_next_ud_iq4_xs_engine_prefix }}"
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      become: no
+      changed_when: false
+      tags: [build]
+
+    - name: Verify llama-server binary
+      ansible.builtin.stat:
+        path: "{{ qwen38_flash_next_ud_iq4_xs_engine_bin }}"
+      register: qwen38_flash_next_bin_stat
+      tags: [build]
+
+    - name: Warn if llama-server did not build
+      ansible.builtin.debug:
+        msg: "WARNING [qwen38-flash-next] llama-server missing at {{ qwen38_flash_next_ud_iq4_xs_engine_bin }} — build failed."
+      when: not qwen38_flash_next_bin_stat.stat.exists
+
+    - name: Create model storage directory
+      ansible.builtin.file:
+        path: "{{ llama_common_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+
+    - name: Check if Flash model part 1 already present
+      ansible.builtin.stat:
+        path: "{{ llama_common_models_dir }}/{{ qwen38_flash_next_ud_iq4_xs_part1 }}"
+      register: qwen38_flash_next_stat
+      become: no
+      tags: [model, qwen38-flash-next]
+
+    - name: Download Qwen3.8-Flash-Next UD-IQ4_XS part 1 [skip if present]
+      ansible.builtin.command:
+        cmd: >-
+          aria2c -x 16 -s 16 --file-allocation=none
+          --continue=true --allow-overwrite=true
+          -o {{ qwen38_flash_next_ud_iq4_xs_part1 }}
+          {{ qwen38_flash_next_ud_iq4_xs_base_url }}{{ qwen38_flash_next_ud_iq4_xs_part1 }}
+      args:
+        chdir: "{{ llama_common_models_dir }}"
+      become: no
+      changed_when: false
+      when: not qwen38_flash_next_stat.stat.exists
+      tags: [model, qwen38-flash-next]
+
+    - name: Qwen3.8-Flash-Next model already present — skipping download
+      ansible.builtin.debug:
+        msg: "SKIP [qwen38-flash-next] {{ qwen38_flash_next_ud_iq4_xs_part1 }} already in {{ llama_common_models_dir }}"
+      when: qwen38_flash_next_stat.stat.exists
+      tags: [model, qwen38-flash-next]
+
+    - name: Print qwen38-flash-next track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== qwen38-flash-next track complete ====
+          engine: {{ qwen38_flash_next_ud_iq4_xs_engine_bin }} (Vulkan/RADV)
+          repo: {{ qwen38_flash_next_ud_iq4_xs_engine_repo }} (PR #27742)
+          model: {{ qwen38_flash_next_ud_iq4_xs_part1 }} (UD-IQ4_XS, 3-part GGUF, ~87 GB)
+          ctx: {{ qwen38_flash_next_ud_iq4_xs_ctx }}, port {{ qwen38_flash_next_ud_iq4_xs_port }}
+      tags: [info]
+
+- name: "bootstrap — drop local qwen38-flash-next launch script & pi config"
+  hosts: qwen38-flash-next
+  gather_facts: yes
+  become: no
+  run_once: yes
+  tags: [launch, qwen38-flash-next]
+
+  tasks:
+    - name: Render qwen38-flash-next-ud-iq4-xs-start.sh into scripts/
+      ansible.builtin.template:
+        src: templates/qwen38-flash-next-ud-iq4-xs-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/qwen38-flash-next-ud-iq4-xs-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch, qwen38-flash-next]
+
+    - name: Render pi agent config (pi-qwen38-flash-next-ud-iq4-xs.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen38-flash-next-ud-iq4-xs.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen38-flash-next-ud-iq4-xs.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch, qwen38-flash-next]
+
+    - name: Check llama-server binary present
+      ansible.builtin.stat:
+        path: "{{ qwen38_flash_next_ud_iq4_xs_engine_bin }}"
+      delegate_to: localhost
+      register: llama_server_stat
+      tags: [launch]
+
+    - name: Warn if llama-server did not build
+      ansible.builtin.debug:
+        msg: "WARNING [launch] llama-server missing — scripts will not run until build succeeds."
+      delegate_to: localhost
+      when: not llama_server_stat.stat.exists
+      tags: [launch]

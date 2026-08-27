@@ -27,8 +27,8 @@
 set -euo pipefail
 
 # --- baked config (override via env) ---
-QWEN36_35B_UD_Q8_K_XL_MODEL="${QWEN36_35B_UD_Q8_K_XL_MODEL:-{{ llama_models_dir }}/{{ qwen36_35b_ud_q8_k_xl_model }}}"
-QWEN36_35B_UD_Q8_K_XL_BIN="${QWEN36_35B_UD_Q8_K_XL_BIN:-{{ llama_bin }}}"
+QWEN36_35B_UD_Q8_K_XL_MODEL="${QWEN36_35B_UD_Q8_K_XL_MODEL:-{{ llama_common_models_dir }}/{{ qwen36_35b_ud_q8_k_xl_model }}}"
+QWEN36_35B_UD_Q8_K_XL_BIN="${QWEN36_35B_UD_Q8_K_XL_BIN:-{{ qwen36_35b_ud_q8_k_xl_engine_bin }}}"
 QWEN36_35B_UD_Q8_K_XL_CTX="${QWEN36_35B_UD_Q8_K_XL_CTX:-{{ qwen36_35b_ud_q8_k_xl_ctx }}}"
 QWEN36_35B_UD_Q8_K_XL_PORT="${QWEN36_35B_UD_Q8_K_XL_PORT:-{{ qwen36_35b_ud_q8_k_xl_port }}}"
 QWEN36_35B_UD_Q8_K_XL_HOST="${QWEN36_35B_UD_Q8_K_XL_HOST:-{{ qwen36_35b_ud_q8_k_xl_host }}}"

@@ -6,8 +6,8 @@
 #   which ansible's become prompt-match never detects (times out).
 # Test with:  ansible-playbook -i inventory/hosts bootstrap.yml --skip-tags base -K
 # DS4-C-IQ2XXS single-node default: IQ2_XXS at 126k ctx (AMD guide), port 8000.
-# Qwen36-35B-UD-Q8-K-XL track: Qwen3.6-35B-A3B (port 8081),
-# latest llama.cpp source build, ROCm/HIP.
+# Qwen36-35B-A3B track: Qwen3.6-35B-A3B (port 8081),
+# independent llama.cpp build in ~/llama-cpp-qwen36, ROCm/HIP.
 
 [ds4-c-iq2xxs_single]
 # single-node DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant, 126k ctx) — default on this controller
@@ -17,8 +17,16 @@ localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/b
 ds4-c-iq2xxs_single
 
 [qwen36-35b-ud-q8-k-xl]
-# Qwen3.6-35B-A3B via latest llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
+# Qwen3.6-35B-A3B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
+# Uses ~/llama-cpp-qwen36 (independent from qwen38-27b and flash)
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
-[llama:children]
-qwen36-35b-ud-q8-k-xl
+[qwen38-27b]
+# Qwen3.8-27B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
+# KyaniteLabs Strix Halo profile — 262k ctx, q4_0 KV, draft-mtp n=12
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen38-flash-next]
+# Qwen3.8-Flash-Next via llama.cpp Vulkan (UD-IQ4_XS, 3-part GGUF, ~87 GB)
+# PR #27742 — no ROCm kernels for this arch, Vulkan (RADV) wins
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws

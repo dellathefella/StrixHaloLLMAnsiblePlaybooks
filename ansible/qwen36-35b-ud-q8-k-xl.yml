@@ -1,12 +1,21 @@
-- name: "bootstrap — qwen36: llama.cpp source build + Qwen3.6-35B-A3B UD-Q8_K_XL"
-  hosts: llama
+---
+# =============================================================================
+# qwen36-35b-ud-q8-k-xl.yml
+# Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB) — llama.cpp ROCm/HIP
+#
+# Uses its own llama.cpp clone in ~/llama-cpp-qwen36 (separate from the
+# qwen38-27b and flash tracks) so we can independently branch/PR without
+# blocking other tracks.
+# =============================================================================
+
+- name: "bootstrap — qwen36: build + model download + render configs (UD-Q8_K_XL)"
+  hosts: qwen36-35b-ud-q8-k-xl
   gather_facts: yes
   become: yes
-  tags: [llama]
+  tags: [qwen36-35b-ud-q8-k-xl]
 
   vars:
-    llama_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-    qwen36_35b_ud_q8_k_xl_url: "https://huggingface.co/{{ qwen36_35b_ud_q8_k_xl_repo }}/resolve/main/{{ qwen36_35b_ud_q8_k_xl_model }}"
+    qwen36_35b_ud_q8_k_xl_url: "https://huggingface.co/{{ qwen36_35b_ud_q8_k_xl_hf_repo }}/resolve/main/{{ qwen36_35b_ud_q8_k_xl_model }}"
 
   tasks:
     - name: Include ROCm build dependencies
@@ -14,14 +23,14 @@
         file: tasks/rocm-build-deps.yml
       tags: [packages, rocm]
 
-    - name: Clone latest llama.cpp (HEAD)
+    - name: Clone llama.cpp HEAD (independent repo for this track)
       ansible.builtin.git:
-        repo: "{{ llama_repo_url }}"
-        dest: "{{ llama_repo }}"
-        depth: 1
+        repo: "{{ llama_common_repo_url }}"
+        dest: "{{ qwen36_35b_ud_q8_k_xl_engine_repo }}"
         version: HEAD
         force: yes
       become: no
+      tags: [build]
 
     - name: Configure build — ROCm backend, release, graphs for PP perf
       ansible.builtin.command:
@@ -29,9 +38,9 @@
           cmake -B build -DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON
           -DGGML_VULKAN=OFF
           -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
-          -DCMAKE_INSTALL_PREFIX={{ llama_prefix }}
+          -DCMAKE_INSTALL_PREFIX={{ qwen36_35b_ud_q8_k_xl_engine_prefix }}
       args:
-        chdir: "{{ llama_repo }}"
+        chdir: "{{ qwen36_35b_ud_q8_k_xl_engine_repo }}"
       become: no
       changed_when: false
       tags: [build]
@@ -40,44 +49,42 @@
       ansible.builtin.command:
         cmd: "cmake --build build --config Release -j{{ ansible_processor_vcpus | default(16) }}"
       args:
-        chdir: "{{ llama_repo }}"
+        chdir: "{{ qwen36_35b_ud_q8_k_xl_engine_repo }}"
       become: no
       changed_when: false
       tags: [build]
 
-    - name: Install to {{ llama_prefix }} (full install)
-      # Full cmake --install needs every target built (it references test
-      # binaries like test-tokenizer-0); build above covers all of them.
+    - name: Install to {{ qwen36_35b_ud_q8_k_xl_engine_prefix }}
       ansible.builtin.command:
-        cmd: "cmake --install build --prefix {{ llama_prefix }}"
+        cmd: "cmake --install build --prefix {{ qwen36_35b_ud_q8_k_xl_engine_prefix }}"
       args:
-        chdir: "{{ llama_repo }}"
+        chdir: "{{ qwen36_35b_ud_q8_k_xl_engine_repo }}"
       become: no
       changed_when: false
       tags: [build]
 
     - name: Verify llama-server binary
       ansible.builtin.stat:
-        path: "{{ llama_bin }}"
-      register: llama_bin_stat
+        path: "{{ qwen36_35b_ud_q8_k_xl_engine_bin }}"
+      register: qwen36_35b_ud_q8_k_xl_bin_stat
       tags: [build]
 
     - name: Warn if llama-server did not build
       ansible.builtin.debug:
-        msg: "WARNING [llama] llama-server missing at {{ llama_bin }} — build failed. Check the cmake/build logs in {{ llama_repo }}/build."
-      when: not llama_bin_stat.stat.exists
+        msg: "WARNING [qwen36] llama-server missing at {{ qwen36_35b_ud_q8_k_xl_engine_bin }} — build failed. Check cmake/build logs in {{ qwen36_35b_ud_q8_k_xl_engine_repo }}/build."
+      when: not qwen36_35b_ud_q8_k_xl_bin_stat.stat.exists
 
     - name: Create model storage directory
       ansible.builtin.file:
-        path: "{{ llama_models_dir }}"
+        path: "{{ llama_common_models_dir }}"
         state: directory
         mode: "0755"
       become: no
 
     - name: Check if Qwen3.6 model already present
       ansible.builtin.stat:
-        path: "{{ llama_models_dir }}/{{ qwen36_35b_ud_q8_k_xl_model }}"
-      register: qwen36_35b_ud_q8_k_xl_stat
+        path: "{{ llama_common_models_dir }}/{{ qwen36_35b_ud_q8_k_xl_model }}"
+      register: qwen36_35b_ud_q8_k_xl_model_stat
       become: no
       tags: [model, qwen36-35b-ud-q8-k-xl]
 
@@ -89,21 +96,21 @@
           -o {{ qwen36_35b_ud_q8_k_xl_model }}
           {{ qwen36_35b_ud_q8_k_xl_url }}
       args:
-        chdir: "{{ llama_models_dir }}"
+        chdir: "{{ llama_common_models_dir }}"
       become: no
       changed_when: false
-      when: not qwen36_35b_ud_q8_k_xl_stat.stat.exists
+      when: not qwen36_35b_ud_q8_k_xl_model_stat.stat.exists
       tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Qwen3.6 model already present — skipping download
       ansible.builtin.debug:
-        msg: "SKIP [qwen36] {{ qwen36_35b_ud_q8_k_xl_model }} already in {{ llama_models_dir }}"
-      when: qwen36_35b_ud_q8_k_xl_stat.stat.exists
+        msg: "SKIP [qwen36] {{ qwen36_35b_ud_q8_k_xl_model }} already in {{ llama_common_models_dir }}"
+      when: qwen36_35b_ud_q8_k_xl_model_stat.stat.exists
       tags: [model, qwen36-35b-ud-q8-k-xl]
 
     - name: Check downloaded model files present
       ansible.builtin.find:
-        paths: "{{ llama_models_dir }}"
+        paths: "{{ llama_common_models_dir }}"
         patterns: "*.gguf"
       register: model_files
       become: no
@@ -111,7 +118,7 @@
 
     - name: Warn if model downloads are incomplete
       ansible.builtin.debug:
-        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_models_dir }} — re-run download."
+        msg: "WARNING [model] expected 1 GGUF(s) missing in {{ llama_common_models_dir }} — re-run download."
       when: not (model_files.matched | int >= 1)
       tags: [model, qwen36-35b-ud-q8-k-xl]
 
@@ -119,7 +126,8 @@
       ansible.builtin.debug:
         msg: |
           ==== qwen36 track complete on {{ inventory_hostname }} ====
-          engine: {{ llama_bin }}
+          engine: {{ qwen36_35b_ud_q8_k_xl_engine_bin }} (ROCm/HIP)
+          repo: {{ qwen36_35b_ud_q8_k_xl_engine_repo }}
           model: {{ qwen36_35b_ud_q8_k_xl_model }}  ({{ qwen36_35b_ud_q8_k_xl_ctx }} ctx, port {{ qwen36_35b_ud_q8_k_xl_port }})
           Launch later via scripts/qwen36-35b-ud-q8-k-xl-start.sh.
           ROCm backend — 4.7x faster PP, 65% less energy than Vulkan.
@@ -129,11 +137,11 @@
 # Launch render — drop local qwen36 launch script + pi config
 # -----------------------------------------------------------------------------
 - name: "bootstrap — drop local qwen36 launch script & pi config"
-  hosts: llama
+  hosts: qwen36-35b-ud-q8-k-xl
   gather_facts: yes
   become: no
   run_once: yes
-  tags: [launch, llama]
+  tags: [launch, qwen36-35b-ud-q8-k-xl]
 
   tasks:
     - name: Render qwen36-35b-ud-q8-k-xl-start.sh launch script into scripts/
@@ -154,9 +162,9 @@
 
     - name: Check llama-server binary present
       ansible.builtin.stat:
-        path: "{{ llama_bin }}"
-      register: llama_server_stat
+        path: "{{ qwen36_35b_ud_q8_k_xl_engine_bin }}"
       delegate_to: localhost
+      register: llama_server_stat
       tags: [launch]
 
     - name: Warn if llama-server did not build (scripts will fail)

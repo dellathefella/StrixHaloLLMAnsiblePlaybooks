@@ -1,10 +1,10 @@
 {
   "providers": {
-    "qwen36": {
-      "name": "Qwen3.6-35B-A3B (llama.cpp, UD-Q8_K_XL)",
+    "qwen36-35b-ud-q8-k-xl": {
+      "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
       "baseUrl": "http://127.0.0.1:8081/v1",
       "api": "openai-completions",
-      "apiKey": "qwen36-local",
+      "apiKey": "qwen36-35b-ud-q8-k-xl-local",
       "compat": {
         "supportsStore": false,
         "supportsDeveloperRole": false,
@@ -17,8 +17,8 @@
       },
       "models": [
         {
-          "id": "qwen3.6-35b-a3b",
-          "name": "Qwen3.6-35B-A3B (llama.cpp, UD-Q8_K_XL)",
+          "id": "qwen3.6-35b-ud-q8-k-xl",
+          "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
           "reasoning": true,
           "thinkingLevelMap": {
             "off": null,

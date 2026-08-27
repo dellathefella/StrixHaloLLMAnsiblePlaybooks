@@ -1,0 +1,21 @@
+# =============================================================================
+# Vulkan build dependencies for llama.cpp (Vulkan backend)
+#
+# Imported by tracks that build llama.cpp with `-DGGML_VULKAN=ON`.
+# These are the minimal packages needed for Vulkan GPU acceleration on Linux.
+#
+# NOTE: libvulkan-radeon does not exist on Ubuntu/Debian. RADV support comes
+#       from mesa-vulkan-drivers. On Ubuntu 26.04 (Plucky) this is already
+#       included in the base image.
+# =============================================================================
+
+- name: Install Vulkan build dependencies (RADV driver + dev headers)
+  ansible.builtin.apt:
+    name:
+      - cmake              # CMake build system
+      - libvulkan-dev      # Vulkan dev headers
+      - libshaderc-dev     # Shader compilation library
+      - mesa-vulkan-drivers # RADV (AMD Vulkan driver) — no libvulkan-radeon on Ubuntu
+    state: present
+    update_cache: yes
+  tags: [packages, vulkan]

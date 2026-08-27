@@ -2,7 +2,7 @@
 
 Organized workspace for bootstrapping AMD ROCm inference on the Ryzen AI Max
 "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs — no 10Gbps
-requirement). Ubuntu/Debian only. Three tracks, driven by **per-track ansible
+requirement). Ubuntu/Debian only. Five tracks, driven by **per-track ansible
 playbooks** under `ansible/` (an orchestrator, `bootstrap.yml`, runs them in
 order; any track file can also run standalone):
 
@@ -14,8 +14,17 @@ order; any track file can also run standalone):
    uses the `ds4-toolbox` distrobox pipeline (Q4KExperts ~153GB, layers
    0:21 / 22:output across 2 nodes).
 2. **Qwen36-35B-UD-Q8-K-XL** — **Qwen3.6-35B-A3B** (8-bit UD-Q8_K_XL, 38.5 GB) served by
-   the **latest llama.cpp built from source** with the **ROCm/HIP** backend.
-3. **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
+   **llama.cpp built from source** with the **ROCm/HIP** backend (independent
+   clone in `~/llama-cpp-qwen36`).
+3. **Qwen38-27B-UD-Q4-K-XL** — **Qwen3.8-27B** (UD-Q8_K_XL, ~27 GB) via
+   **llama.cpp ROCm/HIP** (independent clone in `~/llama-cpp-qwen38-27b`).
+   KyaniteLabs Strix Halo profile: 262k native ctx, q4_0 KV cache,
+   draft-mtp + ngram-mod speculation (n-max 12).
+4. **Qwen38-Flash-Next-UD-IQ4-XS** — **Qwen3.8-Flash-Next** (125B/6B MoE, 3-part
+   GGUF ~87 GB) via **llama.cpp Vulkan** (PR #27742, independent clone in
+   `~/llama-cpp-flash`). Hybrid attention (Gated DeltaNet + QSA sparse),
+   f16 KV cache required.
+5. **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
    vLLM + Ray + RCCL, context pushed to 65536 (guide default is 32768).
 
 ## Strix Halo optimization rationale (Frame.work LLM bench thread)
@@ -46,7 +55,7 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.3** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS and qwen36-35b-ud-q8-k-xl tracks.
+package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b-ud-q8-k-xl, and qwen38-27b-ud-q8-k-xl tracks. Vulkan is needed for the qwen38-flash-next-ud-iq4-xs track.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
@@ -58,7 +67,7 @@ into `pi-configs/` — you run/merge them when ready.
 (`scripts/ds4-setup.sh` — DS4 itself only); everything else (base, Qwen RCCL,
 llama.cpp) is done via ansible. `scripts/install-pi.sh` is the **local pi
 install** (pi + the plugins present on this system) for this controller machine.
-qwen36-35b-ud-q8-k-xl uses the llama.cpp build.
+qwen36-35b-ud-q8-k-xl, qwen38-27b-ud-q8-k-xl, and qwen38-flash-next-ud-iq4-xs each use their own isolated llama.cpp clone.
 
 ## Layout
 
@@ -72,31 +81,41 @@ qwen36-35b-ud-q8-k-xl uses the llama.cpp build.
 │   ├── bootstrap.yml              ORCHESTRATOR: imports the per-track playbooks
 │   ├── base.yml                   base preflight, packages, toolchain, GRUB   [base]
 │   ├── ds4-c-iq2xxs.yml           DS4-C-IQ2XXS: single-node IQ2XXS default + multi-node [ds4-c-iq2xxs]
-│   ├── qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP,          [llama]
-│   │                              UD-Q8_K_XL, ~38.5 GB)
+│   ├── qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, ~/llama-cpp-qwen36) [qwen36-35b-ud-q8-k-xl]
+│   ├── qwen38-27b-ud-q8-k-xl.yml  Qwen3.8-27B (llama.cpp ROCm/HIP, ~/llama-cpp-qwen38-27b) [qwen38-27b]
+│   ├── qwen38-flash-next-ud-iq4-xs.yml  Qwen3.8-Flash-Next (llama.cpp Vulkan PR#27742, ~/llama-cpp-flash) [qwen38-flash-next]
 │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster (vLLM + RCCL)   [qwen35-397b-gptq-rccl]
 │   ├── tasks/                     shared task files (all llama tracks call)
-│   │   └── rocm-build-deps.yml    ROCm runtime + dev packages                 [packages,rocm]
+│   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages                 [packages,rocm]
+│   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages          [packages,vulkan]
 │   ├── summary.yml                final per-host completion summary           [summary]
 │   ├── templates/                 Jinja templates (rendered by each track playbook)
-│   │   ├── ds4-c-iq2xxs-start.sh.j2     DS4-C-IQ2XXS launch template (single + multi, role via env)
-│   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2  Qwen3.6-35B-A3B launch (ROCm, MoE batching)
+│   │   ├── ds4-c-iq2xxs-start.sh.j2          DS4-C-IQ2XXS launch template (single + multi, role via env)
+│   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B-A3B launch (ROCm, MoE batching)
+│   │   ├── qwen38-27b-ud-q8-k-xl-start.sh.j2   Qwen3.8-27B launch (ROCm, KyaniteLabs profile)
+│   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch (Vulkan, PR#27742)
 │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch template
-│   │   ├── pi-ds4-c-iq2xxs.json.j2      pi agent config (DS4-C-IQ2XXS single-node default)
+│   │   ├── pi-ds4-c-iq2xxs.json.j2          pi agent config (DS4-C-IQ2XXS single-node default)
 │   │   ├── pi-qwen36-35b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.6-35B-UD-Q8-K-XL)
+│   │   ├── pi-qwen38-27b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.8-27B-UD-Q8-K-XL)
+│   │   ├── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash-Next-UD-IQ4-XS)
 │   │   └── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B-GPTQ-RCCL)
 │   └── inventory/
-│       ├── hosts                  your real inventory (local ds4-c-iq2xxs_single + llama test)
+│       ├── hosts                  your real inventory (local ds4-c-iq2xxs_single + llama.cpp tracks)
 │       └── hosts.example          sample inventory + vars for all tracks
 ├── scripts/                       rendered launch scripts (dropped locally by bootstrap)
 │   ├── ds4-setup.sh               DS4-C-IQ2XXS host bootstrap (DS4 itself only)
 │   ├── install-pi.sh              local pi install (pi + plugins on this system)
 │   ├── ds4-c-iq2xxs-start.sh      rendered DS4-C-IQ2XXS launch (DS4_C_IQ2XXS_ROLE=single|coordinator|worker)
 │   ├── qwen36-35b-ud-q8-k-xl-start.sh   rendered Qwen3.6-35B-A3B launch
+│   ├── qwen38-27b-ud-q8-k-xl-start.sh   rendered Qwen3.8-27B launch (KyaniteLabs profile)
+│   ├── qwen38-flash-next-ud-iq4-xs-start.sh   rendered Qwen3.8-Flash-Next launch (Vulkan PR#27742)
 │   └── qwen35-397b-gptq-rccl-start.sh     rendered Qwen3.5-397B RCCL launch (role via env)
 └── pi-configs/                    rendered pi agent configs (dropped locally)
-    ├── pi-ds4-c-iq2xxs.json       merge into ~/.pi/agent/models.json
+    ├── pi-ds4-c-iq2xxs.json               merge into ~/.pi/agent/models.json
     ├── pi-qwen36-35b-ud-q8-k-xl.json
+    ├── pi-qwen38-27b-ud-q8-k-xl.json
+    ├── pi-qwen38-flash-next-ud-iq4-xs.json
     └── pi-qwen35-397b-gptq-rccl.json
 ```
 
@@ -118,11 +137,14 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 # Re-test a track on an already-provisioned host (skip base):
 ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --skip-tags base
 # Only one track (tags select tracks; imports are static):
-ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --tags llama
+ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml --tags qwen38-27b
+# Available track tags: ds4-c-iq2xxs, qwen36-35b-ud-q8-k-xl, qwen38-27b, qwen38-flash-next, qwen35-397b-gptq-rccl
 # Any track file can also run standalone:
-ansible-playbook -i ansible/inventory/hosts ansible/ds4-c-iq2xxs.yml           # DS4-C-IQ2XXS (single + multi)
-ansible-playbook -i ansible/inventory/hosts ansible/qwen36-35b-ud-q8-k-xl.yml  # Qwen3.6-35B-A3B (llama.cpp)
-ansible-playbook -i ansible/inventory/hosts ansible/qwen35-397b-gptq-rccl.yml  # Qwen3.5-397B GPTQ RCCL cluster
+ansible-playbook -i ansible/inventory/hosts ansible/ds4-c-iq2xxs.yml                     # DS4-C-IQ2XXS (single + multi)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen36-35b-ud-q8-k-xl.yml            # Qwen3.6-35B-A3B (llama.cpp ROCm/HIP)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen38-27b-ud-q8-k-xl.yml            # Qwen3.8-27B (llama.cpp ROCm/HIP)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen38-flash-next-ud-iq4-xs.yml      # Qwen3.8-Flash-Next (Vulkan PR#27742)
+ansible-playbook -i ansible/inventory/hosts ansible/qwen35-397b-gptq-rccl.yml            # Qwen3.5-397B GPTQ RCCL cluster
 ```
 
 ### Local run — `connection=local` + password-fed `become` (native, no NOPASSWD)
