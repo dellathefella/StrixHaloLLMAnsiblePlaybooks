@@ -44,7 +44,7 @@ llama_common_models_dir: "{{ llama_common_home }}/.local/share/llama-models"
 llama_common_repo_url: "https://github.com/ggml-org/llama.cpp.git"
 
 # === Qwen36-35B-A3B (UD-Q8_K_XL) — independent llama.cpp clone ===
-qwen36_35b_ud_q8_k_xl_ctx: 131072   # 8-bit 38.5 GB; Qwen3.6 needs >=128k ctx to preserve thinking
+qwen36_35b_ud_q8_k_xl_ctx: 262144   # 8-bit 38.5 GB; 256k native — matches qwen38-27b profile
 qwen36_35b_ud_q8_k_xl_port: 8081
 qwen36_35b_ud_q8_k_xl_host: "127.0.0.1"
 qwen36_35b_ud_q8_k_xl_device: "ROCm0"
