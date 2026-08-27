@@ -24,15 +24,15 @@
     # PR refs are NOT fetched by git's default refspec — the git module
     # alone can never check out refs/pull/27742/head. Clone the repo, then
     # fetch the PR ref explicitly into a remote-tracking ref and branch it.
-    # NOTE: no `version` here — with version: HEAD the module resolves HEAD to
-    # the current branch and runs `git reset --hard origin/<branch>`, which
-    # fails for the PR branch (origin/qwen4exp-pr27742 doesn't exist upstream).
-    # The module only clones + fetches; the PR fetch/checkout below owns HEAD.
+    # force: no — prevents the module from resetting to origin/<current-branch>
+    # which fails when the current branch is a local-only PR branch (e.g.
+    # origin/qwen4exp-pr27742 doesn't exist upstream). The PR fetch/checkout
+    # tasks below own HEAD regardless of whether the clone is skipped.
     - name: Clone llama.cpp (independent repo for this track)
       ansible.builtin.git:
         repo: "{{ llama_common_repo_url }}"
         dest: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
-        force: yes
+        force: no
       become: no
       tags: [build]
 
