@@ -78,8 +78,13 @@ qwen38_flash_next_ud_iq4_xs_ctx: 131072  # f16 KV required (quantized KV asserts
 qwen38_flash_next_ud_iq4_xs_port: 8085
 qwen38_flash_next_ud_iq4_xs_host: "127.0.0.1"
 qwen38_flash_next_ud_iq4_xs_device: "Vulkan0"
-qwen38_flash_next_ud_iq4_xs_model: "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"  # unsloth/Qwen3.8-Flash-Next-GGUF (~87 GB, 3-part)
-qwen38_flash_next_ud_iq4_xs_hf_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"                  # HuggingFace repo for URL
+qwen38_flash_next_ud_iq4_xs_hf_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"   # HuggingFace repo for URL
+qwen38_flash_next_ud_iq4_xs_hf_path: "UD-IQ4_XS"                        # subfolder inside the HF repo
+qwen38_flash_next_ud_iq4_xs_parts:
+  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
+  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf"
+  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"                  # ~87 GB total
+qwen38_flash_next_ud_iq4_xs_model: "{{ qwen38_flash_next_ud_iq4_xs_parts[0] }}"  # llama.cpp loads part 1, finds the rest by name
 qwen38_flash_next_ud_iq4_xs_n_gpu: 999
 qwen38_flash_next_ud_iq4_xs_engine_repo: "{{ llama_common_home }}/llama-cpp-flash"
 qwen38_flash_next_ud_iq4_xs_engine_prefix: "{{ llama_common_home }}/llama-cpp-flash"

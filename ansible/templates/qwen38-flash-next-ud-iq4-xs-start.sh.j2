@@ -26,7 +26,7 @@
 set -euo pipefail
 
 # --- baked config (override via env) ---
-QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL="${QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL:-{{ llama_common_models_dir }}/{{ qwen38_flash_next_ud_iq4_xs_model }}"
+QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL="${QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL:-{{ llama_common_models_dir }}/{{ qwen38_flash_next_ud_iq4_xs_model }}}"
 QWEN38_FLASH_NEXT_UD_IQ4_XS_BIN="${QWEN38_FLASH_NEXT_UD_IQ4_XS_BIN:-{{ qwen38_flash_next_ud_iq4_xs_engine_bin }}}"
 QWEN38_FLASH_NEXT_UD_IQ4_XS_CTX="${QWEN38_FLASH_NEXT_UD_IQ4_XS_CTX:-{{ qwen38_flash_next_ud_iq4_xs_ctx }}}"
 QWEN38_FLASH_NEXT_UD_IQ4_XS_PORT="${QWEN38_FLASH_NEXT_UD_IQ4_XS_PORT:-{{ qwen38_flash_next_ud_iq4_xs_port }}}"
@@ -43,10 +43,13 @@ export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
 
 # --- sanity ---
 [ -x "$QWEN38_FLASH_NEXT_UD_IQ4_XS_BIN" ] || { echo "llama-server not found: $QWEN38_FLASH_NEXT_UD_IQ4_XS_BIN (run bootstrap)" >&2; exit 1; }
-[ -f "$QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL" ] || { echo "model part 1 not found: $QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL" >&2; exit 1; }
+MODEL_DIR="$(dirname "$QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL")"
+{% for part in qwen38_flash_next_ud_iq4_xs_parts %}
+[ -f "$MODEL_DIR/{{ part }}" ] || { echo "missing model part: {{ part }} (run bootstrap)" >&2; exit 1; }
+{% endfor %}
 
 echo "Qwen3.8-Flash-Next UD-IQ4_XS (125B/6B) on $QWEN38_FLASH_NEXT_UD_IQ4_XS_DEVICE, ctx=$QWEN38_FLASH_NEXT_UD_IQ4_XS_CTX"
-echo "3-part GGUF: $QWEN38_FLASH_NEXT_UD_IQ4_XS_MODEL + *-00002-of-* + *-00003-of-*"
+echo "3-part GGUF in $MODEL_DIR (~87 GB total)"
 echo "PR #27742 (Vulkan/RADV) — no ROCm kernels for this arch"
 echo "Endpoint: http://$QWEN38_FLASH_NEXT_UD_IQ4_XS_HOST:$QWEN38_FLASH_NEXT_UD_IQ4_XS_PORT/v1   alias: qwen3.8-flash-next"
 

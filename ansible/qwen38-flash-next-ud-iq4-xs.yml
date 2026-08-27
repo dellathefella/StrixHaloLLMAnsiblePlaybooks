@@ -13,7 +13,6 @@
 
   vars:
     qwen38_flash_next_ud_iq4_xs_base_url: "https://huggingface.co/{{ qwen38_flash_next_ud_iq4_xs_hf_repo }}/resolve/main/"
-    qwen38_flash_next_ud_iq4_xs_part1: "{{ qwen38_flash_next_ud_iq4_xs_model }}"
 
   tasks:
     - name: Include Vulkan build dependencies
@@ -133,31 +132,24 @@
         mode: "0755"
       become: no
 
-    - name: Check if Flash model part 1 already present
-      ansible.builtin.stat:
-        path: "{{ llama_common_models_dir }}/{{ qwen38_flash_next_ud_iq4_xs_part1 }}"
-      register: qwen38_flash_next_stat
-      become: no
-      tags: [model, qwen38-flash-next]
-
-    - name: Download Qwen3.8-Flash-Next UD-IQ4_XS part 1 [skip if present]
+    # 3-part GGUF (~87 GB total) lives in the UD-IQ4_XS/ subfolder of the HF
+    # repo. No stat-skip: aria2c --continue resumes interrupted parts, and
+    # completed parts finish instantly (server size check), so re-runs are
+    # safe and cheap.
+    - name: Download Qwen3.8-Flash-Next UD-IQ4_XS ({{ qwen38_flash_next_ud_iq4_xs_parts | length }} parts, ~87 GB) [resume-safe]
       ansible.builtin.command:
         cmd: >-
           aria2c -x 16 -s 16 --file-allocation=none
           --continue=true --allow-overwrite=true
-          -o {{ qwen38_flash_next_ud_iq4_xs_part1 }}
-          {{ qwen38_flash_next_ud_iq4_xs_base_url }}{{ qwen38_flash_next_ud_iq4_xs_part1 }}
+          -o {{ item }}
+          {{ qwen38_flash_next_ud_iq4_xs_base_url }}{{ qwen38_flash_next_ud_iq4_xs_hf_path }}/{{ item }}
       args:
         chdir: "{{ llama_common_models_dir }}"
       become: no
       changed_when: false
-      when: not qwen38_flash_next_stat.stat.exists
-      tags: [model, qwen38-flash-next]
-
-    - name: Qwen3.8-Flash-Next model already present — skipping download
-      ansible.builtin.debug:
-        msg: "SKIP [qwen38-flash-next] {{ qwen38_flash_next_ud_iq4_xs_part1 }} already in {{ llama_common_models_dir }}"
-      when: qwen38_flash_next_stat.stat.exists
+      loop: "{{ qwen38_flash_next_ud_iq4_xs_parts }}"
+      loop_control:
+        label: "{{ item }}"
       tags: [model, qwen38-flash-next]
 
     - name: Print qwen38-flash-next track summary
@@ -166,7 +158,7 @@
           ==== qwen38-flash-next track complete ====
           engine: {{ qwen38_flash_next_ud_iq4_xs_engine_bin }} (Vulkan/RADV)
           repo: {{ qwen38_flash_next_ud_iq4_xs_engine_repo }} (PR #27742)
-          model: {{ qwen38_flash_next_ud_iq4_xs_part1 }} (UD-IQ4_XS, 3-part GGUF, ~87 GB)
+          model: {{ qwen38_flash_next_ud_iq4_xs_parts | join(', ') }} (UD-IQ4_XS, 3-part GGUF, ~87 GB)
           ctx: {{ qwen38_flash_next_ud_iq4_xs_ctx }}, port {{ qwen38_flash_next_ud_iq4_xs_port }}
       tags: [info]
 
