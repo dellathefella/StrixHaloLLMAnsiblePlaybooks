@@ -22,13 +22,39 @@
       tags: [packages, vulkan]
       ignore_errors: yes
 
-    - name: Clone llama.cpp (PR #27742 for Qwen4exp architecture)
+    # PR refs are NOT fetched by git's default refspec — the git module
+    # alone can never check out refs/pull/27742/head. Clone the repo, then
+    # fetch the PR ref explicitly into a remote-tracking ref and branch it.
+    # NOTE: no `version` here — with version: HEAD the module resolves HEAD to
+    # the current branch and runs `git reset --hard origin/<branch>`, which
+    # fails for the PR branch (origin/qwen4exp-pr27742 doesn't exist upstream).
+    # The module only clones + fetches; the PR fetch/checkout below owns HEAD.
+    - name: Clone llama.cpp (independent repo for this track)
       ansible.builtin.git:
         repo: "{{ llama_common_repo_url }}"
         dest: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
-        version: "refs/pull/27742/head"
         force: yes
       become: no
+      tags: [build]
+
+    - name: Fetch PR #27742 (Qwen4exp architecture support)
+      ansible.builtin.command:
+        cmd: git fetch origin +refs/pull/27742/head:refs/remotes/origin/pr-27742
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      register: qwen4exp_fetch
+      become: no
+      changed_when: qwen4exp_fetch.stdout != ''
+      tags: [build]
+
+    - name: Check out PR #27742 as local branch
+      ansible.builtin.command:
+        cmd: git checkout --force -B qwen4exp-pr27742 origin/pr-27742
+      args:
+        chdir: "{{ qwen38_flash_next_ud_iq4_xs_engine_repo }}"
+      register: qwen4exp_checkout
+      become: no
+      changed_when: "'Already on' not in qwen4exp_checkout.stdout"
       tags: [build]
 
     - name: Apply manual patch — add LLM_ARCH_QWEN4EXP to graph_max_nodes()
