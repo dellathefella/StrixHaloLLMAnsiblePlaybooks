@@ -9,11 +9,11 @@
 # Qwen3.6-35B-A3B via llama.cpp Podman Vulkan (UD-Q8_K_XL quant)
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
-[qwen38-27b-ud-q8-k-xl-podman]
+[qwen38-27b-ud-q8-k-xl]
 # Qwen3.8-27B via llama.cpp Podman Vulkan (UD-Q8_K_XL quant, MTP speculation)
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 
 
 [aiservers:children]
-qwen38-27b-ud-q8-k-xl-podman
+qwen38-27b-ud-q8-k-xl
 qwen36-35b-ud-q8-k-xl
