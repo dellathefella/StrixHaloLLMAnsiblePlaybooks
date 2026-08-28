@@ -1,75 +1,9 @@
 ---
-# Defaults for all hosts. These are LOWER precedence than per-host inventory
-# vars. Structural vars (homes, engine dirs, model filenames) are also here —
-# one source of truth shared by the download and template-render tasks.
+# =============================================================================
+# group_vars/all.yml — Single-Node
 #
-# IMPORTANT: Each llama.cpp track gets its OWN clone + build prefix so we can
-# independently branch/PR without blocking other tracks.
+# All single-node playbooks are now self-contained with inline vars.
+# This file is intentionally kept as a placeholder for future shared vars.
+# =============================================================================
 
-# --- DS4 (single-node default + multi-node optional) ---
-ds4_c_iq2xxs_mode: "single"      # single | multi
-ds4_c_iq2xxs_ctx_single: 126000  # AMD guide: IQ2_XXS (~80.8 GB) at 126k context on a 128 GB node
-                        # (shared pool >=110 GB; our GRUB ttm.pages_limit gives ~124 GB)
-ds4_c_iq2xxs_ctx: 262144         # multi-node Q4KExperts context (both nodes MUST match)
-ds4_c_iq2xxs_port: 8000
-ds4_c_iq2xxs_host: "127.0.0.1"   # single-node endpoint; set 0.0.0.0 to expose on LAN,
-                        # or the coordinator LAN IP for multi-node
-ds4_c_iq2xxs_coord_ip: ""        # coordinator LAN IP (multi-node; workers + pi config need it)
-ds4_c_iq2xxs_coord_port: 8081    # coordinator worker-listen port
-ds4_c_iq2xxs_download_single: 1
-ds4_c_iq2xxs_download_multi: 0
-ds4_c_iq2xxs_download_mtp: 0
-
-# --- DS4 structural paths + model filenames (single source of truth) ---
-ds4_c_iq2xxs_home: "/home/{{ ansible_user }}"
-ds4_c_iq2xxs_models_dir: "{{ ds4_c_iq2xxs_home }}/ds4-c-iq2xxs"
-ds4_c_iq2xxs_single_model: "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"   # antirez/deepseek-v4-gguf (~80.8 GB)
-ds4_c_iq2xxs_multi_model: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"   # (~153 GB)
-ds4_c_iq2xxs_mtp_model: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"   # (~3.6 GB, optional)
-ds4_c_iq2xxs_toolbox_single: "docker.io/kyuz0/strix-halo-ds4-toolbox:rocm-7.14"
-ds4_c_iq2xxs_toolbox_multi: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.14"
-
-# --- Qwen35-397B GPTQ RCCL (cluster; unchanged) ---
-qwen35_397b_gptq_rccl_port: 7000
-qwen35_397b_gptq_rccl_max_model_len: 65536
-qwen35_397b_gptq_rccl_head_ip: ""
-qwen35_397b_gptq_rccl_worker_ip: ""
-qwen35_397b_gptq_rccl_model: "Qwen3.5-397B-A10B-GPTQ-Int4"
-qwen35_397b_gptq_rccl_tp_size: 2
-qwen35_397b_gptq_rccl_gpu_util: 0.9
-
-# --- Common paths shared by all llama.cpp tracks ---
-llama_common_home: "/home/{{ ansible_user }}"
-llama_common_models_dir: "{{ llama_common_home }}/models"
-llama_common_repo_url: "https://github.com/ggml-org/llama.cpp.git"
-
-# === Qwen3.8-27B (UD-Q8_K_XL) — independent llama.cpp clone ===
-qwen38_27b_ud_q8_k_xl_ctx: 262144    # native ceiling — 262k context (measured exact at 261,130/262,144)
-qwen38_27b_ud_q8_k_xl_port: 8084
-qwen38_27b_ud_q8_k_xl_host: "127.0.0.1"
-qwen38_27b_ud_q8_k_xl_device: "ROCm0"
-qwen38_27b_ud_q8_k_xl_model: "Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf"  # unsloth/Qwen3.8-27B-GGUF (~27 GB)
-qwen38_27b_ud_q8_k_xl_hf_repo: "unsloth/Qwen3.8-27B-GGUF"         # HuggingFace repo for URL
-qwen38_27b_ud_q8_k_xl_n_gpu: 999
-qwen38_27b_ud_q8_k_xl_threads: 16
-qwen38_27b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen38-27b"
-qwen38_27b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen38-27b"
-qwen38_27b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen38-27b/bin/llama-server"
-
-
-# === Qwen3.8-Flash-Next (UD-IQ4_XS, 3-part GGUF) — independent llama.cpp clone ===
-qwen38_flash_next_ud_iq4_xs_ctx: 131072  # f16 KV required (quantized KV asserts on this arch)
-qwen38_flash_next_ud_iq4_xs_port: 8085
-qwen38_flash_next_ud_iq4_xs_host: "127.0.0.1"
-qwen38_flash_next_ud_iq4_xs_device: "Vulkan0"
-qwen38_flash_next_ud_iq4_xs_hf_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"   # HuggingFace repo for URL
-qwen38_flash_next_ud_iq4_xs_hf_path: "UD-IQ4_XS"                        # subfolder inside the HF repo
-qwen38_flash_next_ud_iq4_xs_parts:
-  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
-  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf"
-  - "Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"                  # ~87 GB total
-qwen38_flash_next_ud_iq4_xs_model: "{{ qwen38_flash_next_ud_iq4_xs_parts[0] }}"  # llama.cpp loads part 1, finds the rest by name
-qwen38_flash_next_ud_iq4_xs_n_gpu: 999
-qwen38_flash_next_ud_iq4_xs_engine_repo: "{{ llama_common_home }}/llama-cpp-flash"
-qwen38_flash_next_ud_iq4_xs_engine_prefix: "{{ llama_common_home }}/llama-cpp-flash"
-qwen38_flash_next_ud_iq4_xs_engine_bin: "{{ llama_common_home }}/llama-cpp-flash/bin/llama-server"
+# (no vars defined — all tracks define their vars inline in their own playbooks)
