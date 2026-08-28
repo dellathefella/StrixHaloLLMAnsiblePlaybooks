@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen36-35b-ud-q8-k-xl": {
+      "name": "Qwen3.6-35B-A3B (UD-Q8_K_XL, KyaniteLabs Strix Halo)",
+      "baseUrl": "http://0.0.0.0:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen36-35b-local",
+      "models": [
+        {
+          "id": "qwen3.6-35b-ud-q8-k-xl",
+          "name": "Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB)",
+          "input": ["text"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

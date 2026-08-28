@@ -1,33 +1,43 @@
 ---
 # =============================================================================
-# qwen36-35b-podman-rocm.yml
-# Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB) — llama.cpp via Podman Vulkan container
+# qwen38-27b-ud-q8-k-xl-podman.yml
+# Qwen3.8-27B (UD-Q8_K_XL quantization, ~27 GB) — llama.cpp via Podman Vulkan container
 #
 # Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644
+# KyaniteLabs Strix Halo optimized profile:
+#   spec: draft-mtp + ngram-mod, n-max 12, n-min 24
+#   KV cache: q4_0 (K+V)
 # =============================================================================
 
 - name: "podman — setup + deploy llama.cpp Vulkan container (UD-Q8_K_XL)"
-  hosts: qwen36-35b-ud-q8-k-xl
+  hosts: qwen38-27b
   gather_facts: yes
   become: yes
-  tags: [qwen36-35b-podman-rocm]
+  tags: [qwen38-27b-ud-q8-k-xl-podman]
 
   vars:
     # =====================================================================
-    # Qwen36-35B-A3B (UD-Q8_K_XL) track vars — self-contained, no group_vars
+    # Qwen3.8-27B (UD-Q8_K_XL quantization) track vars — self-contained, no group_vars
     # =====================================================================
 
     # Container settings
     docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644"
-    docker_container_name: "qwen36-35b-vulkan"
+    docker_container_name: "qwen38-27b-vulkan"
 
     # Model settings
     ctx: 262144
-    port: 8080
+    port: 8084
     batch: 256
-    model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
-    hf_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+    model: "Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf"
+    hf_repo: "unsloth/Qwen3.8-27B-GGUF"
     n_gpu: 999
+
+    # KyaniteLabs Strix Halo MTP speculation profile
+    spec_type: "draft-mtp,ngram-mod"
+    spec_draft_n_max: 12
+    spec_ngram_mod_n_min: 24
+    cache_type_k: "q4_0"
+    cache_type_v: "q4_0"
 
     # Directories — when become: yes is set, ansible_env.HOME becomes /root.
     # Use ansible_user (original login user) to compute the correct home dir.
@@ -148,6 +158,11 @@
           --ctx-size {{ _docker_ctx_len }}
           --n-gpu-layers {{ n_gpu | d(999) }}
           --batch-size {{ batch | d(256) }}
+          --cache-type-k {{ cache_type_k }}
+          --cache-type-v {{ cache_type_v }}
+          --spec-type {{ spec_type }}
+          --spec-draft-n-max {{ spec_draft_n_max }}
+          --spec-ngram-mod-n-min {{ spec_ngram_mod_n_min }}
       when: podman_binary.rc == 0
       register: container_run_result
       changed_when: "'already exists' not in container_run_result.stdout | lower"
@@ -178,7 +193,7 @@
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
           
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --spec-type {{ spec_type }} --spec-draft-n-max {{ spec_draft_n_max }} --spec-ngram-mod-n-min {{ spec_ngram_mod_n_min }}
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
           Check Vulkan: vulkaninfo --summary
@@ -211,11 +226,19 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render qwen36-35b-vulkan-start.sh into ~/scripts/
+    - name: Render qwen38-27b-vulkan-start.sh into ~/scripts/
       ansible.builtin.template:
-        src: templates/qwen36-35b-vulkan-start.sh.j2
-        dest: "{{ _user_home }}/scripts/qwen36-35b-vulkan-start.sh"
+        src: templates/qwen38-27b-vulkan-start.sh.j2
+        dest: "{{ _user_home }}/scripts/qwen38-27b-vulkan-start.sh"
         mode: "0755"
+      tags: [podman, launch]
+
+    - name: Render pi agent config for Qwen3.8-27B (pi-qwen38-27b-ud-q8-k-xl-podman.json) into ansible/rendered/pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-27b-ud-q8-k-xl-podman.json"
+        mode: "0644"
+      delegate_to: localhost
       tags: [podman, launch]
 
     - name: Print deployment summary
@@ -228,7 +251,7 @@
           Model: {{ _models_dir }}/{{ model }}
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
-          Launch script: ~/scripts/qwen36-35b-vulkan-start.sh
+          Launch script: ~/scripts/qwen38-27b-vulkan-start.sh
 
           === Container log commands ===
           View logs:  podman logs -f {{ docker_container_name }}
