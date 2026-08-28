@@ -28,7 +28,7 @@
     ctx: 262144
     port: 8084
     batch: 256
-    model: "Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf"
+    model: "Qwen3.8-27B-UD-Q8_K_XL.gguf"
     hf_repo: "unsloth/Qwen3.8-27B-GGUF"
     n_gpu: 999
 
