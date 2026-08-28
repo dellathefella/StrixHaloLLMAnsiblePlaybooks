@@ -13,7 +13,6 @@ All llama.cpp tracks run locally on a single machine:
 - **Qwen36-35B-UD-Q8-K-XL** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, 38.5 GB) via llama.cpp ROCm/HIP.
 - **Qwen38-27B-UD-Q4-K-XL** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via llama.cpp ROCm/HIP (KyaniteLabs Strix Halo profile).
 - **Qwen38-Flash-Next-UD-IQ4-XS** — Qwen3.8-Flash-Next (125B/6B MoE, 3-part GGUF ~87 GB) via llama.cpp Vulkan.
-- **Qwen3-Coder-Next-UD-Q4-K-XL** — Qwen3-Coder-Next (specialized coding model) via llama.cpp ROCm/HIP.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
@@ -64,7 +63,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP) [qwen36-35b]
 │   │   ├── qwen38-27b-ud-q8-k-xl.yml  Qwen3.8-27B (llama.cpp ROCm/HIP) [qwen38-27b]
 │   │   ├── qwen38-flash-next-ud-iq4-xs.yml  Qwen3.8-Flash-Next (llama.cpp Vulkan) [qwen38-flash-next]
-│   │   ├── qwen3-coder-next-ud-q4-k-xl.yml  Qwen3-Coder-Next (llama.cpp ROCm/HIP) [qwen3-coder-next]
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (localhost)
 │   │   │   └── group_vars/
@@ -74,12 +72,11 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B-A3B launch
 │   │   │   ├── qwen38-27b-ud-q8-k-xl-start.sh.j2   Qwen3.8-27B launch
 │   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch
-│   │   │   ├── qwen3-coder-next-ud-q4-k-xl-start.sh.j2   Qwen3-Coder-Next launch
 │   │   │   ├── pi-ds4-c-iq2xxs.json.j2          pi agent config (DS4-C-IQ2XXS)
 │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.6-35B)
 │   │   │   ├── pi-qwen38-27b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.8-27B)
 │   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash)
-│   │   │   └── pi-qwen3-coder-next-ud-q4-k-xl.json.j2   pi agent config (Qwen3-Coder)
+│   │   │   └── pi-ds4-c-iq2xxs.json.j2              pi agent config (DS4-C-IQ2XXS)
 │   │   ├── tasks/                 shared task files
 │   │   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages
 │   │   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages
@@ -153,13 +150,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Port**: 8085
 - **Backend**: Vulkan/RADV (no ROCm kernels for this arch)
 
-### Qwen3-Coder-Next-UD-Q4-K-XL
-- **Engine**: llama.cpp ROCm/HIP (independent clone in `~/llama-cpp-coder`)
-- **Model**: Qwen3-Coder-Next UD-Q4_K_XL (~46 GB)
-- **Context**: 262k (native ceiling)
-- **Port**: 8086
-- **Backend**: ROCm/HIP with q4_0 KV cache
-
 ### Qwen35-397B-GPTQ-RCCL (Multi-Node)
 - **Engine**: vLLM + RCCL
 - **Model**: Qwen3.5-397B-A10B-GPTQ-Int4
@@ -220,7 +210,6 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 - `pi-qwen36-35b-ud-q8-k-xl.json` — `qwen36-35b-ud-q8-k-xl` provider → `http://127.0.0.1:8081/v1`, model `qwen3.6-35b-ud-q8-k-xl`.
 - `pi-qwen38-27b-ud-q8-k-xl.json` — `qwen38-27b-ud-q8-k-xl` provider → `http://127.0.0.1:8084/v1`, model `qwen3.8-27b-ud-q4-k-xl`.
 - `pi-qwen38-flash-next-ud-iq4-xs.json` — `qwen38-flash-next-ud-iq4-xs` provider → `http://127.0.0.1:8085/v1`, model `qwen3.8-flash-next-ud-iq4-xs`.
-- `pi-qwen3-coder-next-ud-q4-k-xl.json` — `qwen3-coder-next-ud-q4-k-xl` provider → `http://127.0.0.1:8086/v1`, model `qwen3-coder-next-ud-q4-k-xl`.
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`, model `Qwen3.5-397B-A10B-GPTQ-Int4`.
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
@@ -236,7 +225,6 @@ the pi provider configs.
 - Qwen36-35B: `qwen36_35b_ud_q8_k_xl_ctx` (262144), `qwen36_35b_ud_q8_k_xl_port` (8081), `qwen36_35b_ud_q8_k_xl_host/device/threads`
 - Qwen38-27B: `qwen38_27b_ud_q8_k_xl_ctx` (262144), `qwen38_27b_ud_q8_k_xl_port` (8084), `qwen38_27b_ud_q8_k_xl_host/device/threads`
 - Qwen38-Flash-Next: `qwen38_flash_next_ud_iq4_xs_ctx` (131072), `qwen38_flash_next_ud_iq4_xs_port` (8085), `qwen38_flash_next_ud_iq4_xs_host/device`
-- Qwen3-Coder-Next: `qwen3_coder_next_ud_q4_k_xl_ctx` (262144), `qwen3_coder_next_ud_q4_k_xl_port` (8086), `qwen3_coder_next_ud_q4_k_xl_host/device/threads`
 
 ### Multi-Node Tracks
 - Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
@@ -246,7 +234,6 @@ the pi provider configs.
 - `QWEN36_35B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
 - `QWEN38_27B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
 - `QWEN38_FLASH_NEXT_UD_IQ4_XS_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE)
-- `QWEN3_CODER_NEXT_UD_Q4_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
 ## Strix Halo Optimization Notes
@@ -275,8 +262,7 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, qwen38-27b,
-and qwen3-coder-next tracks. Vulkan is needed for the qwen38-flash-next track.
+package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, and qwen38-27b tracks. Vulkan is needed for the qwen38-flash-next track.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and

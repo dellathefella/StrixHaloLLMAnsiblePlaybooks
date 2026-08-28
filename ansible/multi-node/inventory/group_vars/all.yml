@@ -73,18 +73,6 @@ qwen38_27b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen38-27b
 qwen38_27b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen38-27b"
 qwen38_27b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen38-27b/bin/llama-server"
 
-# === Qwen3-Coder-Next (UD-Q4_K_XL) — independent llama.cpp clone ===
-qwen3_coder_next_ud_q4_k_xl_ctx: 262144   # native ceiling — 262k context
-qwen3_coder_next_ud_q4_k_xl_port: 8086
-qwen3_coder_next_ud_q4_k_xl_host: "127.0.0.1"
-qwen3_coder_next_ud_q4_k_xl_device: "ROCm0"
-qwen3_coder_next_ud_q4_k_xl_model: "Qwen3-Coder-Next-UD-Q4_K_XL.gguf"   # unsloth/Qwen3-Coder-Next-GGUF
-qwen3_coder_next_ud_q4_k_xl_hf_repo: "unsloth/Qwen3-Coder-Next-GGUF"    # HuggingFace repo for URL
-qwen3_coder_next_ud_q4_k_xl_n_gpu: 999
-qwen3_coder_next_ud_q4_k_xl_threads: 16
-qwen3_coder_next_ud_q4_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-coder"
-qwen3_coder_next_ud_q4_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-coder"
-qwen3_coder_next_ud_q4_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-coder/bin/llama-server"
 
 # === Qwen3.8-Flash-Next (UD-IQ4_XS, 3-part GGUF) — independent llama.cpp clone ===
 qwen38_flash_next_ud_iq4_xs_ctx: 131072  # f16 KV required (quantized KV asserts on this arch)

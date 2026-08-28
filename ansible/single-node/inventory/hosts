@@ -20,7 +20,3 @@ localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/b
 [qwen38-flash-next]
 # Qwen3.8-Flash-Next via llama.cpp Vulkan (UD-IQ4_XS, 3-part GGUF, ~87 GB)
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-
-[qwen3-coder-next]
-# Qwen3-Coder-Next via llama.cpp ROCm/HIP (UD-Q4_K_XL, single GGUF)
-localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
