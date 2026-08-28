@@ -33,7 +33,6 @@ Playbooks, templates, and host groups use the **descriptive model + quant name**
 
 | Playbook | Host group tag | Variable prefix |
 |---|---|---|
-| `ds4-c-iq2xxs.yml` | `[ds4-c-iq2xxs]` | `ds4_c_iq2xxs_` |
 | `qwen36-35b-ud-q8-k-xl.yml` | `[qwen36-35b-ud-q8-k-xl]` | `qwen36_35b_ud_q8_k_xl_` |
 | `qwen38-27b-ud-q8-k-xl.yml` | `[qwen38-27b]` | `qwen38_27b_ud_q8_k_xl_` |
 | `qwen38-flash-next-ud-iq4-xs.yml` | `[qwen38-flash-next]` | `qwen38_flash_next_ud_iq4_xs_` |
@@ -45,7 +44,6 @@ Playbooks, templates, and host groups use the **descriptive model + quant name**
 
 ### Variable prefix rules
 - Replace dashes with underscores in the playbook name to form the prefix.
-- `ds4-c-iq2xxs` → `ds4_c_iq2xxs_`
 - `qwen36-35b-ud-q8-k-xl` → `qwen36_35b_ud_q8_k_xl_`
 - `qwen38-flash-next-ud-iq4-xs` → `qwen38_flash_next_ud_iq4_xs_`
 

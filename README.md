@@ -119,13 +119,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 
 ## Track Details
 
-### DS4-C-IQ2XXS
-- **Engine**: `ds4.c` (Dwarf Star 4)
-- **Model**: DeepSeek V4 Flash IQ2XXS imatrix quant (~80.8 GB)
-- **Context**: 126k (single-node), 262k (multi-node)
-- **Port**: 8000
-- **Backend**: ROCm
-
 ### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
 - **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
@@ -242,7 +235,7 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS and qwen36-35b tracks. Vulkan is needed for the qwen38-27b Podman track.
+package (7.1.0). ROCm is needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman track.
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
