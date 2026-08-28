@@ -26,8 +26,9 @@
 
     # Model settings
     ctx: 262144
-    port: 8084
-    batch: 256
+    port: 8080
+    batch: 2048
+    ubatch: 512
     model: "Qwen3.8-27B-UD-Q8_K_XL.gguf"
     hf_repo: "unsloth/Qwen3.8-27B-GGUF"
     n_gpu: 999
@@ -157,7 +158,8 @@
           --port {{ port }}
           --ctx-size {{ _docker_ctx_len }}
           --n-gpu-layers {{ n_gpu | d(999) }}
-          --batch-size {{ batch | d(256) }}
+          --batch-size {{ batch | d(2048) }}
+          --ubatch-size {{ ubatch_size | d(512)}}
           --cache-type-k {{ cache_type_k }}
           --cache-type-v {{ cache_type_v }}
           --spec-type {{ spec_type }}
