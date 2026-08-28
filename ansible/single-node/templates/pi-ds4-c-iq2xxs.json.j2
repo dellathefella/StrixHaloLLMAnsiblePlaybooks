@@ -1,10 +1,10 @@
 {
   "providers": {
-    "qwen36-35b-ud-q8-k-xl": {
-      "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
-      "baseUrl": "http://127.0.0.1:8081/v1",
+    "ds4-c-iq2xxs": {
+      "name": "DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)",
+      "baseUrl": "http://{{ ds4_c_iq2xxs_host }}:{{ ds4_c_iq2xxs_port }}/v1",
       "api": "openai-completions",
-      "apiKey": "qwen36-35b-ud-q8-k-xl-local",
+      "apiKey": "ds4-c-iq2xxs-local",
       "compat": {
         "supportsStore": false,
         "supportsDeveloperRole": false,
@@ -12,13 +12,13 @@
         "supportsUsageInStreaming": true,
         "maxTokensField": "max_tokens",
         "supportsStrictMode": false,
-        "thinkingFormat": "qwen",
+        "thinkingFormat": "deepseek",
         "requiresReasoningContentOnAssistantMessages": true
       },
       "models": [
         {
-          "id": "qwen3.6-35b-ud-q8-k-xl",
-          "name": "Qwen3.6-35B-A3B (llama.cpp ROCm/HIP, UD-Q8_K_XL)",
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)",
           "reasoning": true,
           "thinkingLevelMap": {
             "off": null,
@@ -29,7 +29,7 @@
             "xhigh": "xhigh"
           },
           "input": ["text"],
-          "contextWindow": 131072,
+          "contextWindow": {{ ds4_c_iq2xxs_ctx_single }},
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }

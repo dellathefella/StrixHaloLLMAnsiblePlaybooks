@@ -2,7 +2,7 @@
   "providers": {
     "qwen38-27b-ud-q8-k-xl": {
       "name": "Qwen3.8-27B (UD-Q8_K_XL, KyaniteLabs Strix Halo)",
-      "baseUrl": "http://127.0.0.1:8084/v1",
+      "baseUrl": "http://{{ qwen38_27b_ud_q8_k_xl_host }}:{{ qwen38_27b_ud_q8_k_xl_port }}/v1",
       "api": "openai-completions",
       "apiKey": "qwen38-27b-local",
       "models": [
@@ -10,7 +10,7 @@
           "id": "qwen3.8-27b-ud-q4-k-xl",
           "name": "Qwen3.8-27B (UD-Q8_K_XL, ~17.6 GB)",
           "input": ["text"],
-          "contextWindow": 262144,
+          "contextWindow": {{ qwen38_27b_ud_q8_k_xl_ctx }},
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }

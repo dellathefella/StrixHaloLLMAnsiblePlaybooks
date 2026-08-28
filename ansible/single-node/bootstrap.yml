@@ -1,0 +1,30 @@
+---
+# =============================================================================
+# bootstrap.yml — SINGLE-NODE ORCHESTRATOR
+#
+# Single-node tracks (all run on localhost):
+#   base.yml                                   base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
+#   ds4-c-iq2xxs.yml                           DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)          [ds4-c-iq2xxs]
+#   qwen36-35b-ud-q8-k-xl.yml                  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP)                     [qwen36-35b]
+#   qwen38-27b-ud-q8-k-xl.yml                  Qwen3.8-27B (llama.cpp ROCm/HIP)                         [qwen38-27b]
+#   qwen38-flash-next-ud-iq4-xs.yml            Qwen3.8-Flash-Next (llama.cpp Vulkan PR#27742)          [qwen38-flash-next]
+#   qwen3-coder-next-ud-q4-k-xl.yml            Qwen3-Coder-Next (llama.cpp ROCm/HIP)                    [qwen3-coder-next]
+#   summary.yml                                final per-host completion summary                         [summary]
+#
+# Run from repo root:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
+#
+# Run a single track:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl.yml
+#
+# Tags select tracks: --tags qwen36-35b runs only that track.
+# --skip-tags base skips the base play on an already-provisioned host.
+# =============================================================================
+
+- import_playbook: base.yml
+- import_playbook: ds4-c-iq2xxs.yml
+- import_playbook: qwen36-35b-ud-q8-k-xl.yml
+- import_playbook: qwen38-27b-ud-q8-k-xl.yml
+- import_playbook: qwen38-flash-next-ud-iq4-xs.yml
+- import_playbook: qwen3-coder-next-ud-q4-k-xl.yml
+- import_playbook: summary.yml

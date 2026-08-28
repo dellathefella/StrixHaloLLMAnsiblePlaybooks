@@ -1,0 +1,26 @@
+# Single-node test inventory for ansible/bootstrap.yml.
+# This HP Z2 G1a runs all single-node tracks (DS4-C-IQ2XXS + Qwen3 tracks).
+# Local connection + password-fed become (native, no NOPASSWD):
+#   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
+#   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:'
+#   which ansible's become prompt-match never detects (times out).
+
+[ds4-c-iq2xxs]
+# single-node DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant, 126k ctx) — default on this controller
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen36-35b-ud-q8-k-xl]
+# Qwen3.6-35B-A3B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen38-27b]
+# Qwen3.8-27B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen38-flash-next]
+# Qwen3.8-Flash-Next via llama.cpp Vulkan (UD-IQ4_XS, 3-part GGUF, ~87 GB)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+[qwen3-coder-next]
+# Qwen3-Coder-Next via llama.cpp ROCm/HIP (UD-Q4_K_XL, single GGUF)
+localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws

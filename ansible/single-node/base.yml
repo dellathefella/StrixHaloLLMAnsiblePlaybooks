@@ -1,0 +1,228 @@
+- name: "bootstrap — base preflight, packages, toolchain, GRUB"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tags: [base]
+
+  vars:
+    ubuntu_packages:
+      - python3
+      - python3-venv
+      - python3-pip
+      - libboost-all-dev
+      - dkms
+      - podman
+      - distrobox
+      - pipx
+      - gcc
+      - git
+      - curl
+      - ethtool
+      - cargo
+      - mesa-vulkan-drivers   # Mesa RADV ICD (Vulkan0 Wave64 runtime for ROCmFPX engine)
+    # ROCm 7.2.3 via AMD repo.radeon.com (not the Ubuntu 'rocm' package, which is 7.1.0).
+    # Uses noble packages (resolute/26.04 not yet published; noble debs work on resolute).
+    rocm_version: "7.2.4"
+    rocm_codename: "noble"
+    rocm_amdgpu_install_url: "https://repo.radeon.com/amdgpu-install/7.2.4/ubuntu/noble/amdgpu-install_7.2.4.70204-1_all.deb"
+    rocm_gpg_url: "https://repo.radeon.com/rocm/rocm.gpg.key"
+    rocm_pkgs:
+      - hip-runtime-amd
+      - hipblas
+      - rocblas
+      - hipblaslt
+      - hsa-rocr
+      - rocprofiler-register
+      - rocsolver
+      - roctracer
+      - comgr
+      - rocm-smi
+    grub_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit=32505856 ttm.page_pool_size=32505856"
+    min_kernel: "6.18.5"
+    bad_firmware: "linux-firmware-20251125"
+    good_firmware: "linux-firmware-20260110"
+
+  tasks:
+    # --- 1. kernel warning ---
+    - name: Read running kernel version
+      ansible.builtin.shell:
+        cmd: "uname -r"
+      register: kernel_ver
+      changed_when: false
+
+    - name: Warn if kernel older than {{ min_kernel }}
+      ansible.builtin.debug:
+        msg: |
+          WARNING [kernel] kernel '{{ kernel_ver.stdout }}' < recommended
+          '{{ min_kernel }}'. ROCm 7.x is tested on 6.18.5+. Update kernel.
+      when: kernel_ver.stdout is version(min_kernel, '<')
+
+    # --- 2. linux-firmware warning (known ROCm breaker) ---
+    - name: Detect firmware package version
+      ansible.builtin.shell:
+        cmd: "dpkg-query -W -f='${Version}' linux-firmware 2>/dev/null || true"
+      register: fw_ver
+      changed_when: false
+
+    - name: Warn if firmware is the broken {{ bad_firmware }} build
+      ansible.builtin.debug:
+        msg: "WARNING [firmware] '{{ fw_ver.stdout }}' is the known-bad build; upgrade to {{ good_firmware }}+."
+      when:
+        - fw_ver.stdout | length > 0
+        - "'20251125' in fw_ver.stdout"
+
+    - name: Warn if firmware older than {{ good_firmware }}
+      ansible.builtin.debug:
+        msg: "WARNING [firmware] '{{ fw_ver.stdout }}' predates {{ good_firmware }}; update linux-firmware."
+      when:
+        - fw_ver.stdout | length > 0
+        - "'20251125' not in fw_ver.stdout"
+        - fw_ver.stdout is version('20260110', '<')
+
+    # --- 3. GRUB ROCm args check (TTM is set here via ttm.pages_limit) ---
+    - name: Check ROCm GRUB kernel args present
+      ansible.builtin.shell:
+        cmd: "grep -q '{{ grub_args }}' /etc/default/grub"
+      register: grub_check
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if GRUB ROCm args missing
+      ansible.builtin.debug:
+        msg: |
+          WARNING [grub] ROCm kernel args NOT in /etc/default/grub:
+          '{{ grub_args }}'. Without them the iGPU sees ~64GB not ~124GB.
+          This play appends them (below) — REBOOT needed afterwards.
+      when: grub_check.rc != 0
+
+    # --- 4. memory warning ---
+    - name: Warn if memory below 128 GB
+      ansible.builtin.debug:
+        msg: "WARNING [memory] only {{ ansible_facts.memtotal_mb | int // 1024 }}GB RAM; model tracks need >=128GB unified memory."
+      when: ansible_facts.memtotal_mb | int < 128000
+
+    # --- 5. ROCm device nodes ---
+    - name: Check /dev/kfd and /dev/dri exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: dev_stat
+      loop: ["/dev/kfd", "/dev/dri"]
+      changed_when: false
+
+    - name: Warn if GPU device nodes missing
+      ansible.builtin.debug:
+        msg: "WARNING [device] {{ item.stat.path }} missing — containers need /dev/kfd and /dev/dri."
+      loop: "{{ dev_stat.results }}"
+      when: not item.stat.exists
+
+    # --- 6. BIOS VRAM informational note ---
+    - name: Informational VRAM BIOS guidance
+      ansible.builtin.debug:
+        msg: "NOTE [vram] set BIOS UMA frame buffer to Auto/512MB so the shared pool can grow; 'sudo systemctl reboot --firmware-setup'. Cannot auto-verify."
+      tags: [info]
+
+    # --- 7. install base packages ---
+    - name: Update package cache
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: [packages]
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ ubuntu_packages }}"
+        state: present
+      tags: [packages]
+
+    # --- 7b. ROCm {{ rocm_version }} via AMD repo.radeon.com (replaces Ubuntu 'rocm' 7.1.0) ---
+    - name: Install ca-certs for the ROCm apt repo
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+      tags: [rocm]
+
+    - name: Download ROCm {{ rocm_version }} amdgpu-install deb
+      ansible.builtin.get_url:
+        url: "{{ rocm_amdgpu_install_url }}"
+        dest: /tmp/amdgpu-install_{{ rocm_version }}.deb
+        mode: "0644"
+      tags: [rocm]
+
+    - name: Install amdgpu-install deb (adds the ROCm apt repo)
+      ansible.builtin.apt:
+        deb: /tmp/amdgpu-install_{{ rocm_version }}.deb
+      tags: [rocm]
+
+    - name: Update package cache (picks up ROCm repo)
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: [rocm]
+
+    - name: Install ROCm {{ rocm_version }} runtime + SMI
+      ansible.builtin.apt:
+        name: "{{ rocm_pkgs }}"
+        state: present
+      tags: [rocm]
+
+    - name: Remove amdgpu-install deb from /tmp
+      ansible.builtin.file:
+        path: /tmp/amdgpu-install_{{ rocm_version }}.deb
+        state: absent
+      tags: [rocm]
+
+    # --- 8. user-level toolchain (NOT root) ---
+    - name: Install amdgpu_top via cargo
+      ansible.builtin.command:
+        cmd: cargo install amdgpu_top --locked
+      become: no
+      tags: [cargo]
+
+    - name: Install ds4-cockpit via pipx
+      ansible.builtin.command:
+        cmd: pipx install "git+https://github.com/kyuz0/strix-halo-ds4-toolbox.git#subdirectory=ds4-strix-halo-cockpit"
+      become: no
+      tags: [pipx]
+
+    - name: Install HuggingFace CLI (hf) via pipx
+      ansible.builtin.command:
+        cmd: pipx install "huggingface_hub[cli]"
+      become: no
+      tags: [pipx]
+
+    - name: Ensure pipx binaries on PATH
+      ansible.builtin.command:
+        cmd: pipx ensurepath
+      become: no
+      tags: [pipx]
+
+    # --- 9. GRUB args (TTM sizing lives here) ---
+    - name: Append ROCm kernel args to GRUB_CMDLINE_LINUX if missing
+      ansible.builtin.replace:
+        path: /etc/default/grub
+        regexp: '^(GRUB_CMDLINE_LINUX=")(.*)(")$'
+        replace: 'GRUB_CMDLINE_LINUX="\2 {{ grub_args }}"'
+      when: grub_check.rc != 0
+      tags: [grub]
+
+    - name: Apply GRUB changes (update-grub)
+      ansible.builtin.command:
+        cmd: update-grub
+      when: grub_check.rc != 0
+      tags: [grub]
+
+    - name: Warn GRUB changes need a reboot before serving
+      ansible.builtin.debug:
+        msg: "WARNING [reboot] GRUB args changed — REBOOT this host before serving (TTM/shared-pool sizing takes effect at boot)."
+      when: grub_check.rc != 0
+      tags: [info]
+
+    - name: Print base bootstrap summary
+      ansible.builtin.debug:
+        msg: |
+          ==== base bootstrap complete on {{ inventory_hostname }} ====
+          kernel: {{ kernel_ver.stdout }}   grub: {{ 'ok' if grub_check.rc == 0 else 'appended' }}
+          Fix any [kernel|firmware|grub|memory|device|reboot] warnings above.
+          TTM pool is set by the GRUB args (ttm.pages_limit); no amd-ttm --set.
+          Docs: https://developer.amd.com/playbooks/deepseek-v4-flash-ds4/
+      tags: [info]
+
+

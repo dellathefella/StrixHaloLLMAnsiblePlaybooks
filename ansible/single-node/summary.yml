@@ -1,0 +1,17 @@
+- name: "bootstrap — final summary"
+  hosts: all
+  gather_facts: no   # local/controller runs skip facts; uses inventory_hostname/groups
+  become: yes
+  tags: [summary]
+
+  tasks:
+    - name: Print completion summary
+      ansible.builtin.debug:
+        msg: |
+          ==== bootstrap complete on {{ inventory_hostname }} ====
+          tracks: {{ ['ds4' if 'ds4' in groups and inventory_hostname in groups['ds4'] else '',
+                      'qwen-rccl' if 'qwen_rccl' in groups and inventory_hostname in groups['qwen_rccl'] else '',
+                      'llama' if 'llama' in groups and inventory_hostname in groups['llama'] else ''] | select('string') | join(', ') }}
+          Fix any [kernel|firmware|grub|memory|device|reboot|link|build|model|container]
+          warnings above before serving. Launch scripts + pi configs are dropped
+          locally in scripts/ and pi-configs/. REBOOT if GRUB args were appended.
