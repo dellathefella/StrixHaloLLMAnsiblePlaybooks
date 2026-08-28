@@ -40,27 +40,10 @@ qwen35_397b_gptq_rccl_gpu_util: 0.9
 
 # --- Common paths shared by all llama.cpp tracks ---
 llama_common_home: "/home/{{ ansible_user }}"
-llama_common_models_dir: "{{ llama_common_home }}/.local/share/llama-models"
+llama_common_models_dir: "{{ llama_common_home }}/models"
 llama_common_repo_url: "https://github.com/ggml-org/llama.cpp.git"
 
-# === Qwen36-35B-A3B (UD-Q8_K_XL) — independent llama.cpp clone ===
-qwen36_35b_ud_q8_k_xl_ctx: 262144   # 8-bit 38.5 GB; 256k native — matches qwen38-27b profile
-qwen36_35b_ud_q8_k_xl_port: 8081
-qwen36_35b_ud_q8_k_xl_host: "127.0.0.1"
-qwen36_35b_ud_q8_k_xl_device: "ROCm0"
-qwen36_35b_ud_q8_k_xl_batch: 256
-qwen36_35b_ud_q8_k_xl_ubatch: 512
-qwen36_35b_ud_q8_k_xl_flash_attn: 1
-qwen36_35b_ud_q8_k_xl_mmap: 0
-qwen36_35b_ud_q8_k_xl_model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"     # unsloth/Qwen3.6-35B-A3B-GGUF (~38.5 GB)
-qwen36_35b_ud_q8_k_xl_hf_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"      # HuggingFace repo for URL
-qwen36_35b_ud_q8_k_xl_n_gpu: 999
-qwen36_35b_ud_q8_k_xl_threads: 16
-qwen36_35b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen36"
-qwen36_35b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen36"
-qwen36_35b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen36/bin/llama-server"
-
-# === Qwen3.8-27B (UD-Q4_K_XL) — independent llama.cpp clone ===
+# === Qwen3.8-27B (UD-Q8_K_XL) — independent llama.cpp clone ===
 qwen38_27b_ud_q8_k_xl_ctx: 262144    # native ceiling — 262k context (measured exact at 261,130/262,144)
 qwen38_27b_ud_q8_k_xl_port: 8084
 qwen38_27b_ud_q8_k_xl_host: "127.0.0.1"

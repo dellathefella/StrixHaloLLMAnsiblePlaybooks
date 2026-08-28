@@ -1,0 +1,237 @@
+---
+# =============================================================================
+# qwen36-35b-podman-rocm.yml
+# Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB) — llama.cpp via Podman Vulkan container
+#
+# Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644
+# =============================================================================
+
+- name: "podman — setup + deploy llama.cpp Vulkan container (UD-Q8_K_XL)"
+  hosts: qwen36-35b-ud-q8-k-xl
+  gather_facts: yes
+  become: yes
+  tags: [qwen36-35b-podman-rocm]
+
+  vars:
+    # =====================================================================
+    # Qwen36-35B-A3B (UD-Q8_K_XL) track vars — self-contained, no group_vars
+    # =====================================================================
+
+    # Container settings
+    docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644"
+    docker_container_name: "qwen36-35b-vulkan"
+
+    # Model settings
+    ctx: 262144
+    port: 8080
+    batch: 256
+    model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
+    hf_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+    n_gpu: 999
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/models"
+    _docker_ctx_len: "{{ ctx | d('8192') }}"
+
+    # Model download settings — read token on controller
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Ensure models directory exists
+    # -----------------------------------------------------------------------
+    - name: Ensure models directory exists
+      ansible.builtin.file:
+        path: "{{ _models_dir }}"
+        state: directory
+        mode: "0755"
+      tags: [podman, model]
+
+    - name: Ensure proper ownership of models directory
+      ansible.builtin.file:
+        path: "{{ _models_dir }}"
+        state: directory
+        owner: "{{ ansible_env.USER | default('root') }}"
+        group: "{{ ansible_env.USER | default('root') }}"
+        mode: "0755"
+      become: yes
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 2. Download model if not present
+    # -----------------------------------------------------------------------
+    - name: Check if model file already exists
+      ansible.builtin.stat:
+        path: "{{ _models_dir }}/{{ model }}"
+      register: model_file_stat
+      tags: [podman, model]
+
+    - name: Print model download status
+      ansible.builtin.debug:
+        msg: "Checking for model at: {{ _models_dir }}/{{ model }} | Found: {{ model_file_stat.stat.exists | default('unknown') }} | stat: {{ model_file_stat.stat }}"
+      tags: [podman, model]
+
+
+    - name: Download model from HuggingFace (with token)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }} {{ model }} --token "{{ hf_token_lookup }}" --local-dir {{ _models_dir }}
+      when:
+        - not model_file_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: hf_download_result
+      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
+      tags: [podman, model]
+
+    - name: Download model without token (public repo)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }} {{ model }} --local-dir {{ _models_dir }}
+      when:
+        - not model_file_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: hf_download_result
+      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 3. Check podman and deploy container
+    # -----------------------------------------------------------------------
+    - name: Check if podman is available
+      ansible.builtin.command:
+        cmd: which podman
+      register: podman_binary
+      changed_when: false
+      failed_when: false
+      tags: [podman, deploy]
+
+    - name: Stop existing container if running
+      ansible.builtin.command:
+        cmd: "podman stop {{ docker_container_name }}"
+      ignore_errors: yes
+      changed_when: false
+      when: podman_binary.rc == 0
+      tags: [podman, deploy]
+
+    - name: Remove existing container
+      ansible.builtin.command:
+        cmd: "podman rm -f {{ docker_container_name }}"
+      ignore_errors: yes
+      changed_when: false
+      when: podman_binary.rc == 0
+      tags: [podman, deploy]
+
+    - name: Kill anything using the target port
+      ansible.builtin.shell: |
+        fuser -k {{ port }}/tcp 2>/dev/null || true
+      register: port_kill_result
+      changed_when: "'no process' not in port_kill_result.stderr"
+      failed_when: false
+      tags: [podman, deploy]
+
+    - name: Run llama.cpp Vulkan container
+      ansible.builtin.command:
+        cmd: >-
+          podman run -d --name {{ docker_container_name }}
+          --rm --pull=newer
+          --device=/dev/dri/renderD128
+          --device=/dev/kfd
+          --privileged
+          -v {{ _models_dir }}:{{ _models_dir }}:ro
+          -p {{ port }}:{{ port }}
+          {{ docker_image }}
+          --model {{ _models_dir }}/{{ model }}
+          --host 0.0.0.0
+          --port {{ port }}
+          --ctx-size {{ _docker_ctx_len }}
+          --n-gpu-layers {{ n_gpu | d(999) }}
+          --batch-size {{ batch | d(256) }}
+      when: podman_binary.rc == 0
+      register: container_run_result
+      changed_when: "'already exists' not in container_run_result.stdout | lower"
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 4. Verify
+    # -----------------------------------------------------------------------
+    - name: Check container status after start
+      ansible.builtin.command:
+        cmd: "podman ps -a --filter name={{ docker_container_name }} --format \"{{ '{{' }}.Names{{ '}}' }} {{ '{{' }}.Status{{ '}}' }}\""
+      register: container_status
+      changed_when: false
+      ignore_errors: yes
+      tags: [podman, deploy]
+
+    - name: Show container logs if failed
+      ansible.builtin.command:
+        cmd: "podman logs {{ docker_container_name }} --tail 50"
+      register: container_failure_logs
+      changed_when: false
+      ignore_errors: yes
+      tags: [podman, deploy]
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+          
+          To debug, run manually:
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
+          
+          Check GPU access: ls -la /dev/dri/ /dev/kfd
+          Check Vulkan: vulkaninfo --summary
+      tags: [podman, deploy]
+
+    - name: Sleep 10s to let container initialize
+      ansible.builtin.command:
+        cmd: "sleep 10"
+      changed_when: false
+      tags: [podman, deploy]
+
+    - name: Wait for llama-server API to respond
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health"
+        return_content: yes
+        status_code: 200
+      register: health_check
+      retries: 60
+      delay: 5
+      until: health_check is succeeded
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 5. Write launch script to remote host
+    # -----------------------------------------------------------------------
+    - name: Ensure scripts directory exists on host
+      ansible.builtin.file:
+        path: "{{ _user_home }}/scripts"
+        state: directory
+        mode: "0755"
+      tags: [podman, launch]
+
+    - name: Render qwen36-35b-vulkan-start.sh into ~/scripts/
+      ansible.builtin.template:
+        src: templates/qwen36-35b-vulkan-start.sh.j2
+        dest: "{{ _user_home }}/scripts/qwen36-35b-vulkan-start.sh"
+        mode: "0755"
+      tags: [podman, launch]
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp Vulkan (Podman) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }}
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          Model: {{ _models_dir }}/{{ model }}
+          GPU layers: {{ n_gpu | d(999) }}
+          Context: {{ _docker_ctx_len }}
+          Launch script: ~/scripts/qwen36-35b-vulkan-start.sh
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]

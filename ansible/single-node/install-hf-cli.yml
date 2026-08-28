@@ -1,0 +1,85 @@
+---
+# =============================================================================
+# install-hf-cli.yml
+# Install HuggingFace CLI (hf-cli) via official install script.
+#
+# https://huggingface.co/docs/huggingyn-cli/installation#install
+#
+# Usage:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/install-hf-cli.yml
+# =============================================================================
+
+- name: "install-hf-cli — install HuggingFace CLI"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tags: [hf-cli]
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Install pip for the target distro
+    # -----------------------------------------------------------------------
+    - name: Install pip on Fedora
+      ansible.builtin.dnf:
+        name:
+          - python3-pip
+        state: present
+      when: ansible_os_family | lower == "fedora"
+      tags: [hf-cli, packages]
+
+    - name: Install pip on Debian/Ubuntu
+      ansible.builtin.apt:
+        name:
+          - python3-pip
+        state: present
+        update_cache: yes
+      when:
+        - (ansible_os_family | lower == "debian") or
+          (ansible_os_family | lower == "ubuntu")
+      tags: [hf-cli, packages]
+
+    - name: Install pip on Arch Linux
+      community.general.pacman:
+        name:
+          - python-pip
+        state: present
+        update_cache: true
+      when: ansible_os_family | lower == "archlinux"
+      tags: [hf-cli, packages]
+
+    # -----------------------------------------------------------------------
+    # 2. Install huggingface_hub via pip (fallback for systems without distro packages)
+    # -----------------------------------------------------------------------
+    - name: Install huggingface_hub via pip (fallback)
+      ansible.builtin.pip:
+        name: huggingface_hub
+        state: present
+        extra_args: --break-system-packages
+      when:
+        - ansible_os_family | lower != "fedora" and
+          ansible_os_family | lower != "debian" and
+          ansible_os_family | lower != "ubuntu" and
+          ansible_os_family | lower != "archlinux"
+      tags: [hf-cli, packages]
+
+    - name: Install huggingface_hub via pip on Arch Linux
+      ansible.builtin.pip:
+        name: huggingface_hub
+        state: present
+        extra_args: --break-system-packages
+      tags: [hf-cli, packages]
+
+    # -----------------------------------------------------------------------
+    # 3. Verify installation
+    # -----------------------------------------------------------------------
+    - name: Verify huggingface_hub is installed
+      ansible.builtin.command:
+        cmd: huggingface-cli --version
+      register: hf_cli_version
+      changed_when: false
+      failed_when: false
+      tags: [hf-cli]
+
+    - name: Print huggingface_hub version
+      ansible.builtin.debug:
+        msg: "huggingface_hub installed: {{ hf_cli_version.stdout | default('VERSION UNKNOWN') }}"
+      tags: [hf-cli]

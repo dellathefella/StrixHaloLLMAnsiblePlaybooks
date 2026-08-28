@@ -1,0 +1,146 @@
+---
+# =============================================================================
+# set-grub-ttm.yml
+# Set GRUB kernel args for AMD TTM (Translation Table Manager) shared memory
+# and reboot the machine.
+#
+# Args:
+#   amd_iommu=off                   — disable IOMMU (required for ROCm on Ryzen)
+#   amdgpu.gttsize=126976           — AMDGPU GTT size in MB
+#   ttm.pages_limit=32505856        — TTM page limit
+#   ttm.page_pool_size=32505856     — TTM page pool size
+#
+# Usage:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/set-grub-ttm.yml
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/set-grub-ttm.yml --extra-var "ttm_gb=100"
+# =============================================================================
+
+- name: "set-grub-ttm — configure TTM kernel args and reboot"
+  hosts: aiservers
+  gather_facts: yes
+  become: yes
+  tags: [grub, ttm]
+
+  vars:
+    # Fixed TTM values for Strix Halo
+    ttm_pages: 32505856
+    grub_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Check current GRUB config
+    # -----------------------------------------------------------------------
+    - name: Read current GRUB_CMDLINE_LINUX
+      ansible.builtin.shell:
+        cmd: grep '^GRUB_CMDLINE_LINUX=' /etc/default/grub | sed 's/^GRUB_CMDLINE_LINUX="//;s/"$//'
+      register: current_grub_args
+      changed_when: false
+      failed_when: false
+      tags: [grub, ttm]
+
+    - name: Set default GRUB args if not found
+      ansible.builtin.set_fact:
+        grub_args_current: "{{ current_grub_args.stdout | default('') }}"
+      tags: [grub, ttm]
+
+    # -----------------------------------------------------------------------
+    # 2. Check if TTM args already present
+    # -----------------------------------------------------------------------
+    - name: Check if TTM args already in GRUB
+      ansible.builtin.shell:
+        cmd: "grep -q 'ttm.pages_limit={{ ttm_pages }}' /etc/default/grub"
+      register: ttm_already_set
+      changed_when: false
+      failed_when: false
+      tags: [grub, ttm]
+
+    - name: Check if page_pool_size arg already in GRUB
+      ansible.builtin.shell:
+        cmd: "grep -q 'ttm.page_pool_size={{ ttm_pages }}' /etc/default/grub"
+      register: pool_already_set
+      changed_when: false
+      failed_when: false
+      tags: [grub, ttm]
+
+    - name: Check if amd_iommu arg already in GRUB
+      ansible.builtin.shell:
+        cmd: "grep -q 'amd_iommu=off' /etc/default/grub"
+      register: iommu_already_set
+      changed_when: false
+      failed_when: false
+      tags: [grub, ttm]
+
+    # -----------------------------------------------------------------------
+    # 3. Update GRUB if needed
+    # -----------------------------------------------------------------------
+    - name: Update GRUB_CMDLINE_LINUX with ROCm/TTM args
+      ansible.builtin.replace:
+        path: /etc/default/grub
+        regexp: '^(GRUB_CMDLINE_LINUX=")(.*)(")$'
+        replace: 'GRUB_CMDLINE_LINUX="\2 {{ grub_args }}"'
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [grub, ttm]
+
+    - name: Print GRUB summary
+      ansible.builtin.debug:
+        msg: |
+          Current GRUB_CMDLINE_LINUX: {{ grub_args_current }}
+          New GRUB args to append: {{ grub_args }}
+          Reboot required for changes to take effect.
+      tags: [grub, ttm]
+
+    # -----------------------------------------------------------------------
+    # 4. Apply GRUB changes
+    # -----------------------------------------------------------------------
+    - name: Run update-grub
+      ansible.builtin.command:
+        cmd: update-grub
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [grub, ttm]
+
+    # -----------------------------------------------------------------------
+    # 5. Reboot
+    # -----------------------------------------------------------------------
+    - name: Reboot system for GRUB/TTM changes to take effect
+      ansible.builtin.command:
+        cmd: "shutdown -r now 'Ansible: GRUB TTM args updated'"
+      async: 1
+      poll: 0
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [grub, ttm, reboot]
+
+    - name: Wait for system to come back after reboot
+      ansible.builtin.wait_for:
+        host: "{{ ansible_facts['default_ipv4']['address'] | default(inventory_hostname) }}"
+        port: 22
+        state: started
+        timeout: 300
+        connect_timeout: 5
+      delegate_to: localhost
+      become: no
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      ignore_errors: yes
+      tags: [grub, ttm, reboot]
+
+    # -----------------------------------------------------------------------
+    # 6. Verify after reboot
+    # -----------------------------------------------------------------------
+    - name: Verify TTM pages_limit is set
+      ansible.builtin.command:
+        cmd: cat /sys/module/ttm/parameters/pages_limit
+      register: ttm_verify
+      changed_when: false
+      failed_when: false
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [grub, ttm, verify]
+
+    - name: Print TTM verification
+      ansible.builtin.debug:
+        msg: |
+          ==== GRUB TTM configuration complete ====
+          TTM pages_limit: {{ ttm_pages }}
+          TTM page_pool_size: {{ ttm_pages }}
+          Current kernel TTM pages_limit: {{ ttm_verify.stdout | default('N/A (pre-reboot or not applied)') }}
+          {{ '✓ TTM pages_limit verified!' if (ttm_verify.stdout | default('') | string | int(0)) == ttm_pages else '⚠ Reboot required for changes to take effect.' }}
+      when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [grub, ttm, verify]

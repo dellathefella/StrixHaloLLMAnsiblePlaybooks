@@ -1,0 +1,166 @@
+---
+# =============================================================================
+# set-limine-ttm.yml
+# Set TTM kernel args for Limine bootloader and reboot.
+#
+# Appends TTM args to KERNEL_CMDLINE[default] in /etc/default/limine.
+#
+# Args:
+#   amd_iommu=off                   — disable IOMMU (required for ROCm on Ryzen)
+#   amdgpu.gttsize=126976           — AMDGPU GTT size in MB
+#   ttm.pages_limit=32505856        — TTM page limit
+#   ttm.page_pool_size=32505856     — TTM page pool size
+#
+# Usage:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/set-limine-ttm.yml
+# =============================================================================
+
+- name: "set-limine-ttm — configure TTM kernel args in Limine and reboot"
+  hosts: aiservers
+  gather_facts: yes
+  become: yes
+  tags: [limine, ttm]
+
+  vars:
+    # Fixed TTM values for Strix Halo
+    ttm_pages: 32505856
+    limine_ttm_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}"
+    limine_conf_path: "/etc/default/limine"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Check if Limine config exists
+    # -----------------------------------------------------------------------
+    - name: Check if Limine config exists
+      ansible.builtin.stat:
+        path: "{{ limine_conf_path }}"
+      register: limine_conf_stat
+      tags: [limine, ttm]
+
+    - name: Fail if Limine config not found
+      ansible.builtin.fail:
+        msg: "Limine config not found at {{ limine_conf_path }}"
+      when: not limine_conf_stat.stat.exists | default(false)
+      tags: [limine, ttm]
+
+    # -----------------------------------------------------------------------
+    # 2. Check if TTM args already present
+    # -----------------------------------------------------------------------
+    - name: Check if TTM args already in Limine config
+      ansible.builtin.shell:
+        cmd: "grep -q 'ttm.pages_limit={{ ttm_pages }}' {{ limine_conf_path }}"
+      register: ttm_already_set
+      changed_when: false
+      failed_when: false
+      tags: [limine, ttm]
+
+    - name: Check if page_pool_size already in Limine config
+      ansible.builtin.shell:
+        cmd: "grep -q 'ttm.page_pool_size={{ ttm_pages }}' {{ limine_conf_path }}"
+      register: pool_already_set
+      changed_when: false
+      failed_when: false
+      tags: [limine, ttm]
+
+    # -----------------------------------------------------------------------
+    # 3. Append TTM args if not present
+    # -----------------------------------------------------------------------
+    - name: Set need_limine_ttm fact
+      ansible.builtin.set_fact:
+        need_limine_ttm: true
+      when: ttm_already_set.rc != 0 or pool_already_set.rc != 0
+      tags: [limine, ttm]
+
+    - name: Set need_limine_ttm fact to false if already present
+      ansible.builtin.set_fact:
+        need_limine_ttm: false
+      when: ttm_already_set.rc == 0 and pool_already_set.rc == 0
+      tags: [limine, ttm]
+
+    - name: Print current Limine config
+      ansible.builtin.command:
+        cmd: "cat {{ limine_conf_path }}"
+      register: current_config
+      changed_when: false
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm]
+
+    - name: Show current Limine config
+      ansible.builtin.debug:
+        msg: "{{ current_config.stdout_lines }}"
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm]
+
+    - name: Append TTM args to KERNEL_CMDLINE[default] in Limine config
+      ansible.builtin.lineinfile:
+        path: "{{ limine_conf_path }}"
+        line: "KERNEL_CMDLINE[default]+={{ limine_ttm_args }}"
+        state: present
+        create: no
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm]
+
+    - name: Run limine-update to apply changes
+      ansible.builtin.command:
+        cmd: limine-update
+      when: need_limine_ttm | default(false)
+      register: limine_update_result
+      changed_when: true
+      failed_when: false
+      tags: [limine, ttm]
+
+    - name: Print Limine config summary
+      ansible.builtin.debug:
+        msg: |
+          Limine config: {{ limine_conf_path }}
+          TTM args to append: {{ limine_ttm_args }}
+          Reboot required for changes to take effect.
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm]
+
+    # -----------------------------------------------------------------------
+    # 4. Reboot
+    # -----------------------------------------------------------------------
+    - name: Reboot system for Limine/TTM changes to take effect
+      ansible.builtin.command:
+        cmd: "shutdown -r now 'Ansible: Limine TTM args updated'"
+      async: 1
+      poll: 0
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm, reboot]
+
+    - name: Wait for system to come back after reboot
+      ansible.builtin.wait_for:
+        host: "{{ ansible_facts['default_ipv4']['address'] | default(inventory_hostname) }}"
+        port: 22
+        state: started
+        timeout: 300
+        connect_timeout: 5
+      delegate_to: localhost
+      become: no
+      when: need_limine_ttm | default(false)
+      ignore_errors: yes
+      tags: [limine, ttm, reboot]
+
+    # -----------------------------------------------------------------------
+    # 5. Verify after reboot
+    # -----------------------------------------------------------------------
+    - name: Verify TTM pages_limit is set
+      ansible.builtin.command:
+        cmd: cat /sys/module/ttm/parameters/pages_limit
+      register: ttm_verify
+      changed_when: false
+      failed_when: false
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm, verify]
+
+    - name: Print TTM verification
+      ansible.builtin.debug:
+        msg: |
+          ==== Limine TTM configuration complete ====
+          TTM pages_limit: {{ ttm_pages }}
+          TTM page_pool_size: {{ ttm_pages }}
+          Current kernel TTM pages_limit: {{ ttm_verify.stdout | default('N/A (pre-reboot or not applied)') }}
+          {{ '✓ TTM pages_limit verified!' if (ttm_verify.stdout | default('') | string | int(0)) == ttm_pages else '⚠ Reboot required for changes to take effect.' }}
+      when: need_limine_ttm | default(false)
+      tags: [limine, ttm, verify]
