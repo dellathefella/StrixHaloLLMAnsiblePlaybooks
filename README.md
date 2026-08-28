@@ -10,10 +10,6 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 ### Single-Node Tracks (`ansible/single-node/`)
 All llama.cpp tracks run locally on a single machine:
 
-- **DS4-C-IQ2XXS** — DeepSeek V4 Flash via the `ds4.c` engine (ROCm-optimized).
-  Default mode is single-node: IQ2XXS imatrix quant (~80.8 GB) at **126k
-  context** on one 128 GB node.
-
 - **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
   via Podman Vulkan container (`ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`).
   Port 8080, ctx 262144.
@@ -21,9 +17,6 @@ All llama.cpp tracks run locally on a single machine:
 - **Qwen38-27B (UD-Q8_K_XL)** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via Podman
   Vulkan container with **KyaniteLabs Strix Halo MTP speculation profile**
   (`draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache). Port 8084, ctx 262144.
-
-- **Qwen38-Flash-Next (UD-IQ4_XS)** — Qwen3.8-Flash-Next (125B/6B MoE, 3-part
-  GGUF ~87 GB) via llama.cpp Vulkan (ROCm bootstrap + independent build). Port 8085.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
@@ -90,10 +83,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   └── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
-│   │   │   ├── ds4-c-iq2xxs-start.sh.j2          DS4-C-IQ2XXS launch (ROCm)
-│   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch (Vulkan)
-│   │   │   ├── pi-ds4-c-iq2xxs.json.j2          pi agent config (DS4-C-IQ2XXS)
-│   │   │   └── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -141,13 +130,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Port**: 8084
 - **Backend**: Vulkan/RADV + KyaniteLabs MTP speculation
 - **MTP Profile**: `draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache
-
-### Qwen38-Flash-Next (UD-IQ4_XS)
-- **Engine**: llama.cpp Vulkan (independent clone in `~/llama-cpp-flash`)
-- **Model**: Qwen3.8-Flash-Next UD-IQ4_XS (3-part GGUF ~87 GB)
-- **Context**: 131k
-- **Port**: 8085
-- **Backend**: Vulkan/RADV (no ROCm kernels for this arch)
 
 ### Qwen35-397B-GPTQ-RCCL (Multi-Node)
 - **Engine**: vLLM + RCCL
@@ -202,38 +184,26 @@ QWEN35_397B_GPTQ_RCCL_ROLE=worker ./ansible/rendered/scripts/qwen35-397b-gptq-rc
 
 The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 
-- **Podman tracks (new):**
-  - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://0.0.0.0:8080/v1`
-  - `pi-qwen38-27b-ud-q8-k-xl-podman.json` — provider `qwen38-27b-ud-q8-k-xl` → `http://0.0.0.0:8084/v1`
-
-- **ROCm tracks (legacy):**
-  - `pi-ds4-c-iq2xxs.json` — `ds4-c-iq2xxs` provider → `http://127.0.0.1:8000/v1`
-  - `pi-qwen38-flash-next-ud-iq4-xs.json` — `qwen38-flash-next-ud-iq4-xs` provider → `http://127.0.0.1:8085/v1`
+- **Podman tracks:**
+  - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-27b-ud-q8-k-xl-podman.json` — provider `qwen38-27b-ud-q8-k-xl` → `http://<node_ip>:8084/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
-you open `/model`; no restart needed). `scripts/install-pi.sh` installs pi + the pi
-plugins present on this system (pi-web-access, rpiv-ask-user-question,
-pi-background-tasks, pi-permission-system, pi-ds4) and merges
-the pi provider configs.
+you open `/model`; no restart needed).
 
 ## Config Variables (inventory / env)
 
 ### Single-Node Tracks
-- DS4-C-IQ2XXS: `ds4_c_iq2xxs_mode` (single default), `ds4_c_iq2xxs_ctx_single` (126000), `ds4_c_iq2xxs_port` (8000), `ds4_c_iq2xxs_host` (127.0.0.1)
-- Qwen36-35B (Podman): `ctx`, `port`, `batch`, `model`, `hf_repo`, `n_gpu` (inline vars, no group_vars)
-- Qwen38-27B (Podman + MTP): `ctx`, `port`, `batch`, `model`, `hf_repo`, `spec_type`, `spec_draft_n_max`, `spec_ngram_mod_n_min`, `cache_type_k`, `cache_type_v`
-- Qwen38-Flash-Next: `qwen38_flash_next_ud_iq4_xs_ctx` (131072), `qwen38_flash_next_ud_iq4_xs_port` (8085), `qwen38_flash_next_ud_iq4_xs_host/device`
+(All single-node playbooks are self-contained with inline vars — no group_vars needed.)
 
 ### Multi-Node Tracks
 - Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
 
 ### Scripts
-- `DS4_C_IQ2XXS_ROLE` (single|coordinator|worker), `DS4_C_IQ2XXS_USE_MTP`, `DS4_C_IQ2XXS_CTX_SINGLE`
-- `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
+- `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
-- `QWEN38_FLASH_NEXT_UD_IQ4_XS_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
 ## Strix Halo Optimization Notes
@@ -262,7 +232,7 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, and qwen38-27b tracks. Vulkan is needed for the qwen38-flash-next track and the new Podman tracks.
+package (7.1.0). ROCm is needed for DS4-C-IQ2XXS and qwen36-35b tracks. Vulkan is needed for the qwen38-27b Podman track.
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the

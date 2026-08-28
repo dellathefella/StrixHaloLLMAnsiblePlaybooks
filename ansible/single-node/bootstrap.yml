@@ -8,17 +8,15 @@
 #   install-hf-cli.yml                         HuggingFace CLI installation                              [install-hf-cli]
 #   set-grub-ttm.yml                           GRUB kernel args: TTM, IOMMU, GTT size                     [grub-ttm]
 #   set-limine-ttm.yml                         Limine kernel args: TTM, IOMMU, GTT size                     [limine-ttm]
-#   ds4-c-iq2xxs.yml                           DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant)          [ds4-c-iq2xxs]
-#   qwen36-35b-podman-rocm.yml                 Qwen3.6-35B-A3B (podman ROCm/Vulkan)                       [qwen36-35b-podman]
-#   qwen38-27b-ud-q8-k-xl.yml                  Qwen3.8-27B (llama.cpp ROCm/HIP)                         [qwen38-27b]
-#   qwen38-flash-next-ud-iq4-xs.yml            Qwen3.8-Flash-Next (llama.cpp Vulkan PR#27742)          [qwen38-flash-next]
+#   qwen36-35b-ud-q8-k-xl-podman.yml          Qwen3.6-35B-A3B (Podman Vulkan)                             [qwen36-35b-ud-q8-k-xl-podman]
+#   qwen38-27b-ud-q8-k-xl-podman.yml          Qwen3.8-27B (Podman Vulkan + MTP)                          [qwen38-27b-ud-q8-k-xl-podman]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
 # Run from repo root:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
 #
 # Run a single track:
-#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-podman-rocm.yml
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 #
 # Run only base + podman install:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml \
@@ -27,7 +25,7 @@
 # Run only TTM args for GRUB:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/set-grub-ttm.yml
 #
-# Tags select tracks: --tags qwen36-35b runs only that track.
+# Tags select tracks: --tags qwen38-27b-ud-q8-k-xl-podman runs only that track.
 # --skip-tags base skips the base play on an already-provisioned host.
 # =============================================================================
 
@@ -46,17 +44,11 @@
 - import_playbook: set-limine-ttm.yml
   tags: limine-ttm
 
-- import_playbook: ds4-c-iq2xxs.yml
-  tags: ds4-c-iq2xxs
+- import_playbook: qwen36-35b-ud-q8-k-xl-podman.yml
+  tags: [qwen36-35b-ud-q8-k-xl-podman]
 
-- import_playbook: qwen36-35b-podman-rocm.yml
-  tags: qwen36-35b-podman
-
-- import_playbook: qwen38-27b-ud-q8-k-xl.yml
-  tags: qwen38-27b
-
-- import_playbook: qwen38-flash-next-ud-iq4-xs.yml
-  tags: qwen38-flash-next
+- import_playbook: qwen38-27b-ud-q8-k-xl-podman.yml
+  tags: [qwen38-27b-ud-q8-k-xl-podman]
 
 - import_playbook: summary.yml
   tags: summary

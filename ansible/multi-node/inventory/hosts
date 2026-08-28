@@ -1,5 +1,4 @@
 # Multi-node cluster inventory for ansible/bootstrap.yml.
-# This setup runs the Qwen3.5-397B RCCL cluster across multiple nodes.
 
 [qwen35-397b-gptq-rccl]
 # Qwen3.5-397B via vLLM + RCCL (GPTQ-Int4, tensor parallel)
@@ -7,4 +6,3 @@
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 # Add additional nodes here for the cluster:
 # worker1 ansible_host=<worker1_ip> ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-# worker2 ansible_host=<worker2_ip> ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
