@@ -131,18 +131,18 @@
   tags: [launch, ds4-c-iq2xxs]
 
   tasks:
-    - name: Render ds4-c-iq2xxs-start.sh launch script into scripts/
+    - name: Render ds4-c-iq2xxs-start.sh launch script into ansible/rendered/scripts/
       ansible.builtin.template:
         src: templates/ds4-c-iq2xxs-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/ds4-c-iq2xxs-start.sh"
+        dest: "{{ playbook_dir }}/rendered/scripts/ds4-c-iq2xxs-start.sh"
         mode: "0755"
       delegate_to: localhost
       tags: [launch]
 
-    - name: Render pi agent config (pi-ds4-c-iq2xxs.json) into pi-configs/
+    - name: Render pi agent config (pi-ds4-c-iq2xxs.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
         src: templates/pi-ds4-c-iq2xxs.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-ds4-c-iq2xxs.json"
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-ds4-c-iq2xxs.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch]

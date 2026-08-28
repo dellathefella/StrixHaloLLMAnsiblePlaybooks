@@ -168,18 +168,18 @@
   tags: [launch, qwen38-flash-next]
 
   tasks:
-    - name: Render qwen38-flash-next-ud-iq4-xs-start.sh into scripts/
+    - name: Render qwen38-flash-next-ud-iq4-xs-start.sh into ansible/rendered/scripts/
       ansible.builtin.template:
         src: templates/qwen38-flash-next-ud-iq4-xs-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/qwen38-flash-next-ud-iq4-xs-start.sh"
+        dest: "{{ playbook_dir }}/rendered/scripts/qwen38-flash-next-ud-iq4-xs-start.sh"
         mode: "0755"
       delegate_to: localhost
       tags: [launch, qwen38-flash-next]
 
-    - name: Render pi agent config (pi-qwen38-flash-next-ud-iq4-xs.json) into pi-configs/
+    - name: Render pi agent config (pi-qwen38-flash-next-ud-iq4-xs.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
         src: templates/pi-qwen38-flash-next-ud-iq4-xs.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen38-flash-next-ud-iq4-xs.json"
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-flash-next-ud-iq4-xs.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch, qwen38-flash-next]

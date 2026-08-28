@@ -141,18 +141,18 @@
   tags: [launch, qwen36-35b-ud-q8-k-xl]
 
   tasks:
-    - name: Render qwen36-35b-ud-q8-k-xl-start.sh launch script into scripts/
+    - name: Render qwen36-35b-ud-q8-k-xl-start.sh launch script into ansible/rendered/scripts/
       ansible.builtin.template:
         src: templates/qwen36-35b-ud-q8-k-xl-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/qwen36-35b-ud-q8-k-xl-start.sh"
+        dest: "{{ playbook_dir }}/rendered/scripts/qwen36-35b-ud-q8-k-xl-start.sh"
         mode: "0755"
       delegate_to: localhost
       tags: [launch, qwen36-35b-ud-q8-k-xl]
 
-    - name: Render pi agent config for Qwen3.6 (pi-qwen36-35b-ud-q8-k-xl.json) into pi-configs/
+    - name: Render pi agent config for Qwen3.6 (pi-qwen36-35b-ud-q8-k-xl.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
         src: templates/pi-qwen36-35b-ud-q8-k-xl.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-qwen36-35b-ud-q8-k-xl.json"
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen36-35b-ud-q8-k-xl.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch, qwen36-35b-ud-q8-k-xl]
