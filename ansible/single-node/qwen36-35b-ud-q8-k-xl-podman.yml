@@ -213,14 +213,14 @@
 
     - name: Render qwen36-35b-vulkan-start.sh into ~/scripts/
       ansible.builtin.template:
-        src: templates/qwen36-35b-vulkan-start.sh.j2
+        src: templates/scripts/qwen36-35b-vulkan-start.sh.j2
         dest: "{{ _user_home }}/scripts/qwen36-35b-vulkan-start.sh"
         mode: "0755"
       tags: [podman, launch]
 
     - name: Render pi agent config for Qwen3.6-35B (pi-qwen36-35b-ud-q8-k-xl-podman.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
-        src: templates/pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
+        src: templates/pi-configs/pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
         dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen36-35b-ud-q8-k-xl-podman.json"
         mode: "0644"
       delegate_to: localhost
