@@ -247,28 +247,23 @@ A track file can be run standalone (no need to go through the orchestrator).
 ./scripts/ds4-setup.sh          # GRUB/TTM(args), ds4 distrobox, model downloads
 ```
 
-## Model downloads (aria2c — much faster)
+## Model downloads (hf CLI)
 
-The bootstrap downloads GGUF weights via **aria2c** with 16 parallel
-connections (`-x 16 -s 16`), which saturates a fast link far better than
-the single-stream `curl` or `hf download` (HF's Xet client also silently
-hangs on this system). The llama track **skips a download when its GGUF is
-already present** (`stat` check + `when:` guard), so re-running the play or
-`--tags model` won't re-fetch an existing model. The same commands work
-manually if you want to re-fetch a model outside ansible:
+The bootstrap downloads GGUF weights via **hf** (the Hugging Face CLI), which
+handles caching, resumption, and authentication natively. The llama track
+**skips a download when its GGUF is already present** (`stat` check + `when:`
+guard), so re-running the play or `--tags model` won't re-fetch an existing
+model. The same commands work manually if you want to re-fetch a model outside
+ansible:
 
 ```bash
 # Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
-cd ~/.local/share/llama-models && \
-  aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false --continue=true \
-    -o Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
-    "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
+hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
+  --local-dir ~/.local/share/llama-models
 
 # DS4-C-IQ2XXS single-node IQ2XXS (~80.8 GB) into ~/ds4-c-iq2xxs
-cd ~/ds4-c-iq2xxs && \
-  aria2c -x 16 -s 16 --file-allocation=none --auto-file-renaming=false --continue=true \
-    -o DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
-    "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/main/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
+hf download antirez/deepseek-v4-gguf DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
+  --local-dir ~/ds4-c-iq2xxs
 ```
 
 Verify integrity after download (HF publishes sha256, not md5):

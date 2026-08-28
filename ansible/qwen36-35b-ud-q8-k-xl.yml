@@ -91,12 +91,9 @@
     - name: Download Qwen3.6-35B-A3B UD-Q8_K_XL ({{ qwen36_35b_ud_q8_k_xl_model }}) [skip if present]
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ qwen36_35b_ud_q8_k_xl_model }}
-          {{ qwen36_35b_ud_q8_k_xl_url }}
-      args:
-        chdir: "{{ llama_common_models_dir }}"
+          hf download {{ qwen36_35b_ud_q8_k_xl_hf_repo }} {{ qwen36_35b_ud_q8_k_xl_model }}
+          --local-dir {{ llama_common_models_dir }}
+          --token {{ lookup('file', '/home/jdella/Desktop/scripts/rocm-install-z1a-g2/hf_token.txt') }}
       become: no
       changed_when: false
       when: not qwen36_35b_ud_q8_k_xl_model_stat.stat.exists

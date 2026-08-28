@@ -136,18 +136,13 @@
       become: no
 
     # 3-part GGUF (~87 GB total) lives in the UD-IQ4_XS/ subfolder of the HF
-    # repo. No stat-skip: aria2c --continue resumes interrupted parts, and
-    # completed parts finish instantly (server size check), so re-runs are
-    # safe and cheap.
-    - name: Download Qwen3.8-Flash-Next UD-IQ4_XS ({{ qwen38_flash_next_ud_iq4_xs_parts | length }} parts, ~87 GB) [resume-safe]
+    # repo. No stat-skip: hf download is idempotent and safe to re-run.
+    - name: Download Qwen3.8-Flash-Next UD-IQ4_XS ({{ qwen38_flash_next_ud_iq4_xs_parts | length }} parts, ~87 GB)
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ item }}
-          {{ qwen38_flash_next_ud_iq4_xs_base_url }}{{ qwen38_flash_next_ud_iq4_xs_hf_path }}/{{ item }}
-      args:
-        chdir: "{{ llama_common_models_dir }}"
+          hf download {{ qwen38_flash_next_ud_iq4_xs_hf_repo }} {{ qwen38_flash_next_ud_iq4_xs_hf_path }}/{{ item }}
+          --local-dir {{ llama_common_models_dir }}
+          --token {{ lookup('file', '/home/jdella/Desktop/scripts/rocm-install-z1a-g2/hf_token.txt') }}
       become: no
       changed_when: false
       loop: "{{ qwen38_flash_next_ud_iq4_xs_parts }}"

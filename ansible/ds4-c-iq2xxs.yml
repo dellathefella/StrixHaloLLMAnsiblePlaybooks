@@ -45,18 +45,11 @@
       tags: [toolbox]
 
     - name: Download single-node IQ2_XXS imatrix model
-      # aria2c 16-connection (saturates a fast link; single-stream curl / hf
-      # download's Xet client both hang/underperform on this system).
-      # chdir puts aria2c in the models dir; -o names the file (aria2c would
-      # otherwise use the hash ID from the HF URL path as the filename).
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ ds4_c_iq2xxs_single_model }}
-          {{ ds4_c_iq2xxs_single_url }}
-      args:
-        chdir: "{{ ds4_c_iq2xxs_models_dir }}"
+          hf download antirez/deepseek-v4-gguf {{ ds4_c_iq2xxs_single_model }}
+          --local-dir {{ ds4_c_iq2xxs_models_dir }}
+          --token {{ lookup('file', '/home/jdella/Desktop/scripts/rocm-install-z1a-g2/hf_token.txt') }}
       become: no
       changed_when: false
       when: ds4_c_iq2xxs_download_single | int == 1
@@ -65,12 +58,9 @@
     - name: Download multi-node Q4KExperts imatrix model
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ ds4_c_iq2xxs_multi_model }}
-          {{ ds4_c_iq2xxs_multi_url }}
-      args:
-        chdir: "{{ ds4_c_iq2xxs_models_dir }}"
+          hf download antirez/deepseek-v4-gguf {{ ds4_c_iq2xxs_multi_model }}
+          --local-dir {{ ds4_c_iq2xxs_models_dir }}
+          --token {{ lookup('file', '/home/jdella/Desktop/scripts/rocm-install-z1a-g2/hf_token.txt') }}
       become: no
       changed_when: false
       when: ds4_c_iq2xxs_download_multi | int == 1
@@ -79,12 +69,9 @@
     - name: Download MTP speculative-decoding weights (optional, off by default)
       ansible.builtin.command:
         cmd: >-
-          aria2c -x 16 -s 16 --file-allocation=none
-          --continue=true --allow-overwrite=true
-          -o {{ ds4_c_iq2xxs_mtp_model }}
-          {{ ds4_c_iq2xxs_mtp_url }}
-      args:
-        chdir: "{{ ds4_c_iq2xxs_models_dir }}"
+          hf download antirez/deepseek-v4-gguf {{ ds4_c_iq2xxs_mtp_model }}
+          --local-dir {{ ds4_c_iq2xxs_models_dir }}
+          --token {{ lookup('file', '/home/jdella/Desktop/scripts/rocm-install-z1a-g2/hf_token.txt') }}
       become: no
       changed_when: false
       when: ds4_c_iq2xxs_download_mtp | int == 1
