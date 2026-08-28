@@ -4,8 +4,14 @@
 #
 # Multi-node cluster tracks:
 #   base.yml                                   base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
+#   ../shared/install-podman.yml               podman installation (Fedora/Debian/Arch)                  [install-podman]
+#   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
+#   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (idempotent — base.yml already sets the same args) [grub-ttm]
 #   qwen35-397b-gptq-rccl.yml                  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4)      [qwen35-397b]
 #   summary.yml                                final per-host completion summary                         [summary]
+#
+# ../shared/set-limine-ttm.yml is intentionally NOT imported here: multi-node hosts
+# use GRUB (Ubuntu), and the Limine play fails when /etc/default/limine is absent.
 #
 # Run from repo root:
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
@@ -15,5 +21,8 @@
 # =============================================================================
 
 - import_playbook: base.yml
+- import_playbook: ../shared/install-podman.yml
+- import_playbook: ../shared/install-hf-cli.yml
+- import_playbook: ../shared/set-grub-ttm.yml
 - import_playbook: qwen35-397b-gptq-rccl.yml
 - import_playbook: summary.yml

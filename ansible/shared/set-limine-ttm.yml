@@ -11,12 +11,14 @@
 #   ttm.pages_limit=32505856        — TTM page limit
 #   ttm.page_pool_size=32505856     — TTM page pool size
 #
+# Shared playbook: works with either track's inventory (single-node or multi-node).
 # Usage:
-#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/set-limine-ttm.yml
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/shared/set-limine-ttm.yml
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/set-limine-ttm.yml
 # =============================================================================
 
 - name: "set-limine-ttm — configure TTM kernel args in Limine and reboot"
-  hosts: aiservers
+  hosts: all
   gather_facts: yes
   become: yes
   tags: [limine, ttm]

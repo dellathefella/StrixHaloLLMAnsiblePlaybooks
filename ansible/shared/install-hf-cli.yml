@@ -5,8 +5,10 @@
 #
 # https://huggingface.co/docs/huggingyn-cli/installation#install
 #
+# Shared playbook: works with either track's inventory (single-node or multi-node).
 # Usage:
-#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/install-hf-cli.yml
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/shared/install-hf-cli.yml
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/install-hf-cli.yml
 # =============================================================================
 
 - name: "install-hf-cli — install HuggingFace CLI"

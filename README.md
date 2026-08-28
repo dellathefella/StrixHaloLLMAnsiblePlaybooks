@@ -24,6 +24,14 @@ Cluster-based inference across multiple machines:
 - **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
   vLLM + Ray + RCCL.
 
+### Shared Setup Playbooks (`ansible/shared/`)
+Host-level setup shared by both tracks (imported by each track's bootstrap):
+
+- `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
+- `install-hf-cli.yml` — HuggingFace CLI installation
+- `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size
+- `set-limine-ttm.yml` — Limine bootloader TTM kernel args (Limine hosts only)
+
 ## Quick Start
 
 ### Single-Node (recommended for this host)
@@ -62,14 +70,16 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 ├── ansible/
 │   ├── bootstrap.yml              ROOT: imports single-node/ and multi-node/ bootstraps
 │   │
+│   ├── shared/                    Shared setup playbooks (imported by both tracks)
+│   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)
+│   │   ├── install-hf-cli.yml     HuggingFace CLI installation
+│   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
+│   │   └── set-limine-ttm.yml     Limine bootloader TTM settings
+│   │
 │   ├── single-node/               Single-node tracks (all run on localhost)
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── install-podman.yml     Podman installation (Arch Linux + Debian)
-│   │   ├── install-hf-cli.yml     HuggingFace CLI installation
-│   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
-│   │   ├── set-limine-ttm.yml     Limine bootloader TTM settings
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── inventory/
@@ -88,7 +98,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │       └── pi-configs/        Rendered pi agent configs
 │   │
 │   ├── multi-node/                Multi-node cluster tracks
-│   │   ├── bootstrap.yml          ORCHESTRATOR: multi-node playbooks
+│   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster [qwen35-397b]
