@@ -1,22 +1,35 @@
-# ROCm / DS4-C-IQ2XXS + Qwen36-35B-UD-Q8-K-XL + Qwen35-397B-GPTQ-RCCL install — Ryzen AI Max (HP Z2 G1a)
+# StrixHalo LLM Ansible Playbooks — Ryzen AI Max (HP Z2 G1a)
 
-Organized workspace for bootstrapping AMD ROCm inference on the Ryzen AI Max
-"Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs — no 10Gbps
-requirement). Ubuntu/Debian only. Tracks organized by **deployment topology**
-(single-node vs multi-node) with separate bootstrap orchestrators:
+Organized workspace for bootstrapping AMD ROCm / Vulkan LLM inference on the
+Ryzen AI Max "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs —
+no 10Gbps requirement). Ubuntu/Debian only. Tracks organized by **deployment
+topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 
 ## Deployment Topology
 
 ### Single-Node Tracks (`ansible/single-node/`)
 All llama.cpp tracks run locally on a single machine:
-- **DS4-C-IQ2XXS** — DeepSeek V4 Flash via the `ds4.c` engine (ROCm-optimized). Default mode is single-node: IQ2XXS imatrix quant (~80.8 GB) at **126k context** on one 128 GB node.
-- **Qwen36-35B-UD-Q8-K-XL** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, 38.5 GB) via llama.cpp ROCm/HIP.
-- **Qwen38-27B-UD-Q4-K-XL** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via llama.cpp ROCm/HIP (KyaniteLabs Strix Halo profile).
-- **Qwen38-Flash-Next-UD-IQ4-XS** — Qwen3.8-Flash-Next (125B/6B MoE, 3-part GGUF ~87 GB) via llama.cpp Vulkan.
+
+- **DS4-C-IQ2XXS** — DeepSeek V4 Flash via the `ds4.c` engine (ROCm-optimized).
+  Default mode is single-node: IQ2XXS imatrix quant (~80.8 GB) at **126k
+  context** on one 128 GB node.
+
+- **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
+  via Podman Vulkan container (`ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`).
+  Port 8080, ctx 262144.
+
+- **Qwen38-27B (UD-Q8_K_XL)** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via Podman
+  Vulkan container with **KyaniteLabs Strix Halo MTP speculation profile**
+  (`draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache). Port 8084, ctx 262144.
+
+- **Qwen38-Flash-Next (UD-IQ4_XS)** — Qwen3.8-Flash-Next (125B/6B MoE, 3-part
+  GGUF ~87 GB) via llama.cpp Vulkan (ROCm bootstrap + independent build). Port 8085.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
-- **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via vLLM + Ray + RCCL.
+
+- **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
+  vLLM + Ray + RCCL.
 
 ## Quick Start
 
@@ -25,8 +38,9 @@ Cluster-based inference across multiple machines:
 # Full single-node bootstrap:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
 
-# Run a single track:
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl.yml
+# Run a single Podman track:
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags base
@@ -48,10 +62,10 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 
 ```
 ├── README.md                      this file
-├── hf_token.txt                   HuggingFace token (gated model downloads)
+├── SYSTEM.md                      hardware spec & design rules
 ├── reference/
-│   ├── playbook.txt               AMD ds4 playbook (text extract)
-│   └── notes.md                   pi local-server / DS4 config snippets
+│   ├── cachyos-notes.md           CachyOS installation notes
+│   └── playbook.txt               AMD ds4 playbook (text extract)
 ├── ansible/
 │   ├── bootstrap.yml              ROOT: imports single-node/ and multi-node/ bootstraps
 │   │
@@ -59,27 +73,27 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── ds4-c-iq2xxs.yml       DS4-C-IQ2XXS: single-node IQ2XXS default [ds4-c-iq2xxs]
-│   │   ├── qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP) [qwen36-35b]
-│   │   ├── qwen38-27b-ud-q8-k-xl.yml  Qwen3.8-27B (llama.cpp ROCm/HIP) [qwen38-27b]
-│   │   ├── qwen38-flash-next-ud-iq4-xs.yml  Qwen3.8-Flash-Next (llama.cpp Vulkan) [qwen38-flash-next]
+│   │   ├── install-podman.yml     Podman installation (Arch Linux + Debian)
+│   │   ├── install-hf-cli.yml     HuggingFace CLI installation
+│   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
+│   │   ├── set-limine-ttm.yml     Limine bootloader TTM settings
+│   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
+│   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (localhost)
 │   │   │   └── group_vars/
 │   │   │       └── all.yml        shared vars for single-node tracks
 │   │   ├── templates/             Jinja templates (rendered by each track)
-│   │   │   ├── ds4-c-iq2xxs-start.sh.j2          DS4-C-IQ2XXS launch template
-│   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B-A3B launch
-│   │   │   ├── qwen38-27b-ud-q8-k-xl-start.sh.j2   Qwen3.8-27B launch
-│   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch
+│   │   │   ├── scripts/           Launch script templates
+│   │   │   │   ├── qwen36-35b-vulkan-start.sh.j2   Qwen3.6-35B Vulkan launch
+│   │   │   │   └── qwen38-27b-vulkan-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   ├── pi-configs/        PI agent JSON config templates
+│   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   └── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+│   │   │   ├── ds4-c-iq2xxs-start.sh.j2          DS4-C-IQ2XXS launch (ROCm)
+│   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch (Vulkan)
 │   │   │   ├── pi-ds4-c-iq2xxs.json.j2          pi agent config (DS4-C-IQ2XXS)
-│   │   │   ├── pi-qwen36-35b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.6-35B)
-│   │   │   ├── pi-qwen38-27b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.8-27B)
-│   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash)
-│   │   │   └── pi-ds4-c-iq2xxs.json.j2              pi agent config (DS4-C-IQ2XXS)
-│   │   ├── tasks/                 shared task files
-│   │   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages
-│   │   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages
+│   │   │   └── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -96,28 +110,12 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── templates/             Jinja templates
 │   │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch
 │   │   │   └── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
-│   │   ├── tasks/                 shared task files
-│   │   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages
-│   │   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
 │   │
-│   ├── tasks/                     (legacy root tasks — not used, keep for reference)
-│   │   ├── rocm-build-deps.yml
-│   │   └── vulkan-build-deps.yml
-│   ├── templates/                 (legacy root templates — not used, keep for reference)
-│   └── inventory/                 (legacy root inventory — not used, keep for reference)
-│       ├── hosts
-│       └── hosts.example
-│
-├── scripts/                       Rendered launch scripts (from ansible/rendered/)
-│   ├── ds4-setup.sh               DS4-C-IQ2XXS host bootstrap (DS4 itself only)
-│   ├── install-pi.sh              local pi install (pi + plugins on this system)
-│   └── ds4-c-iq2xxs-start.sh      rendered DS4-C-IQ2XXS launch
-└── pi-configs/                    Rendered pi agent configs (from ansible/rendered/)
-    ├── pi-ds4-c-iq2xxs.json
-    └── pi-qwen36-35b-ud-q8-k-xl.json
+│   └── secrets/                   Secret files (gitignored)
+│       └── hf_token.txt           HuggingFace token for gated model downloads
 ```
 
 ## Track Details
@@ -129,22 +127,23 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Port**: 8000
 - **Backend**: ROCm
 
-### Qwen36-35B-UD-Q8-K-XL
-- **Engine**: llama.cpp ROCm/HIP (independent clone in `~/llama-cpp-qwen36`)
+### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
-- **Port**: 8081
-- **Backend**: ROCm/HIP with MoE batching
+- **Port**: 8080
+- **Backend**: Vulkan/RADV
 
-### Qwen38-27B-UD-Q4-K-XL
-- **Engine**: llama.cpp ROCm/HIP (independent clone in `~/llama-cpp-qwen38-27b`)
+### Qwen38-27B (UD-Q8_K_XL) — Podman Vulkan + MTP
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
 - **Model**: Qwen3.8-27B UD-Q8_K_XL (~27 GB)
 - **Context**: 262k (native ceiling)
 - **Port**: 8084
-- **Backend**: ROCm/HIP + MTP speculation
+- **Backend**: Vulkan/RADV + KyaniteLabs MTP speculation
+- **MTP Profile**: `draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache
 
-### Qwen38-Flash-Next-UD-IQ4-XS
-- **Engine**: llama.cpp Vulkan (PR #27742, independent clone in `~/llama-cpp-flash`)
+### Qwen38-Flash-Next (UD-IQ4_XS)
+- **Engine**: llama.cpp Vulkan (independent clone in `~/llama-cpp-flash`)
 - **Model**: Qwen3.8-Flash-Next UD-IQ4_XS (3-part GGUF ~87 GB)
 - **Context**: 131k
 - **Port**: 8085
@@ -167,32 +166,28 @@ model. The same commands work manually if you want to re-fetch a model outside
 ansible:
 
 ```bash
-# Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
+# Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB)
 hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
-  --local-dir ~/.local/share/llama-models
+  --local-dir ~/models
 
-# DS4-C-IQ2XXS single-node IQ2XXS (~80.8 GB) into ~/ds4-c-iq2xxs
-hf download antirez/deepseek-v4-gguf DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
-  --local-dir ~/ds4-c-iq2xxs
-```
-
-Verify integrity after download (HF publishes sha256, not md5):
-```bash
-sha256sum <file>.gguf   # compare against the repo's file listing
+# Qwen3.8-27B (UD-Q8_K_XL, ~27 GB)
+hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf \
+  --local-dir ~/models
 ```
 
 ## Launch Scripts
 
-After the bootstrap + REBOOT (if GRUB changed), the rendered launch scripts
-are in `ansible/rendered/scripts/`. Copy them to each node and run:
+After the bootstrap, the rendered launch scripts are in `~/scripts/` on the
+target host. The bootstrap also drops PI agent configs into
+`ansible/rendered/pi-configs/` (rendered on the controller).
 
 ### Single-Node Launch Example
 ```bash
-# Qwen3.6-35B-A3B
-./ansible/rendered/scripts/qwen36-35b-ud-q8-k-xl-start.sh
+# Qwen3.6-35B-A3B (Podman Vulkan)
+~/scripts/qwen36-35b-vulkan-start.sh
 
-# DS4-C-IQ2XXS (single-node mode)
-./ansible/rendered/scripts/ds4-c-iq2xxs-start.sh
+# Qwen3.8-27B (Podman Vulkan + MTP)
+~/scripts/qwen38-27b-vulkan-start.sh
 ```
 
 ### Multi-Node Launch Example (Qwen3.5-397B)
@@ -206,11 +201,16 @@ QWEN35_397B_GPTQ_RCCL_ROLE=worker ./ansible/rendered/scripts/qwen35-397b-gptq-rc
 ## Pi Agent Config
 
 The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
-- `pi-ds4-c-iq2xxs.json` — `ds4-c-iq2xxs` provider → `http://127.0.0.1:8000/v1`, model `deepseek-v4-flash` (single-node IQ2XXS).
-- `pi-qwen36-35b-ud-q8-k-xl.json` — `qwen36-35b-ud-q8-k-xl` provider → `http://127.0.0.1:8081/v1`, model `qwen3.6-35b-ud-q8-k-xl`.
-- `pi-qwen38-27b-ud-q8-k-xl.json` — `qwen38-27b-ud-q8-k-xl` provider → `http://127.0.0.1:8084/v1`, model `qwen3.8-27b-ud-q4-k-xl`.
-- `pi-qwen38-flash-next-ud-iq4-xs.json` — `qwen38-flash-next-ud-iq4-xs` provider → `http://127.0.0.1:8085/v1`, model `qwen3.8-flash-next-ud-iq4-xs`.
-- `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`, model `Qwen3.5-397B-A10B-GPTQ-Int4`.
+
+- **Podman tracks (new):**
+  - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://0.0.0.0:8080/v1`
+  - `pi-qwen38-27b-ud-q8-k-xl-podman.json` — provider `qwen38-27b-ud-q8-k-xl` → `http://0.0.0.0:8084/v1`
+
+- **ROCm tracks (legacy):**
+  - `pi-ds4-c-iq2xxs.json` — `ds4-c-iq2xxs` provider → `http://127.0.0.1:8000/v1`
+  - `pi-qwen38-flash-next-ud-iq4-xs.json` — `qwen38-flash-next-ud-iq4-xs` provider → `http://127.0.0.1:8085/v1`
+
+- `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
 you open `/model`; no restart needed). `scripts/install-pi.sh` installs pi + the pi
@@ -222,8 +222,8 @@ the pi provider configs.
 
 ### Single-Node Tracks
 - DS4-C-IQ2XXS: `ds4_c_iq2xxs_mode` (single default), `ds4_c_iq2xxs_ctx_single` (126000), `ds4_c_iq2xxs_port` (8000), `ds4_c_iq2xxs_host` (127.0.0.1)
-- Qwen36-35B: `qwen36_35b_ud_q8_k_xl_ctx` (262144), `qwen36_35b_ud_q8_k_xl_port` (8081), `qwen36_35b_ud_q8_k_xl_host/device/threads`
-- Qwen38-27B: `qwen38_27b_ud_q8_k_xl_ctx` (262144), `qwen38_27b_ud_q8_k_xl_port` (8084), `qwen38_27b_ud_q8_k_xl_host/device/threads`
+- Qwen36-35B (Podman): `ctx`, `port`, `batch`, `model`, `hf_repo`, `n_gpu` (inline vars, no group_vars)
+- Qwen38-27B (Podman + MTP): `ctx`, `port`, `batch`, `model`, `hf_repo`, `spec_type`, `spec_draft_n_max`, `spec_ngram_mod_n_min`, `cache_type_k`, `cache_type_v`
 - Qwen38-Flash-Next: `qwen38_flash_next_ud_iq4_xs_ctx` (131072), `qwen38_flash_next_ud_iq4_xs_port` (8085), `qwen38_flash_next_ud_iq4_xs_host/device`
 
 ### Multi-Node Tracks
@@ -231,8 +231,8 @@ the pi provider configs.
 
 ### Scripts
 - `DS4_C_IQ2XXS_ROLE` (single|coordinator|worker), `DS4_C_IQ2XXS_USE_MTP`, `DS4_C_IQ2XXS_CTX_SINGLE`
-- `QWEN36_35B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
-- `QWEN38_27B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
+- `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
+- `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
 - `QWEN38_FLASH_NEXT_UD_IQ4_XS_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
@@ -262,7 +262,13 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
 (noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, and qwen38-27b tracks. Vulkan is needed for the qwen38-flash-next track.
+package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, and qwen38-27b tracks. Vulkan is needed for the qwen38-flash-next track and the new Podman tracks.
+
+**Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
+vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
+local llama.cpp build step, and use the official `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
+Vulkan container instead. MTP speculation args are baked into both the container
+`run` command and the rendered launch script.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
