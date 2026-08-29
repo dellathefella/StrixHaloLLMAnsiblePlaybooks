@@ -15,8 +15,11 @@ All llama.cpp tracks run locally on a single machine:
   Port 8080, ctx 262144.
 
 - **Qwen38-27B (UD-Q8_K_XL)** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via Podman
-  Vulkan container with **KyaniteLabs Strix Halo MTP speculation profile**
-  (`draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache). Port 8084, ctx 262144.
+  Vulkan container with **KyaniteLabs Strix Halo ngram-mod speculation profile**
+  (n-match 24, n-min 16, n-max 48, q4_0 KV cache). Port 8084, ctx 262144.
+
+- **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
+  Vulkan container. Port 8088, ctx 262144.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
@@ -27,6 +30,7 @@ Cluster-based inference across multiple machines:
 ### Shared Setup Playbooks (`ansible/shared/`)
 Host-level setup shared by both tracks (imported by each track's bootstrap):
 
+- `install-amdgpu.yml` — Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated)
 - `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
 - `install-hf-cli.yml` — HuggingFace CLI installation
 - `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size
@@ -41,10 +45,11 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q8-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
 
 # Skip base (already provisioned):
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags base
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags install-amdgpu
 ```
 
 ### Multi-Node (cluster)
@@ -71,6 +76,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   ├── bootstrap.yml              ROOT: imports single-node/ and multi-node/ bootstraps
 │   │
 │   ├── shared/                    Shared setup playbooks (imported by both tracks)
+│   │   ├── install-amdgpu.yml     Ubuntu base: apt upgrade + ROCm (Ubuntu-gated)
 │   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)
 │   │   ├── install-hf-cli.yml     HuggingFace CLI installation
 │   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
@@ -78,7 +84,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │
 │   ├── single-node/               Single-node tracks (all run on localhost)
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
-│   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
@@ -99,7 +104,6 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
-│   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster [qwen35-397b]
 │   │   ├── inventory/
@@ -132,7 +136,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Context**: 262k (native ceiling)
 - **Port**: 8084
 - **Backend**: Vulkan/RADV + KyaniteLabs MTP speculation
-- **MTP Profile**: `draft-mtp,ngram-mod`, n-max 12, n-min 24, q4_0 KV cache
+- **Speculation**: `ngram-mod` (n-match 24, n-min 16, n-max 48), q4_0 KV cache
 
 ### Qwen35-397B-GPTQ-RCCL (Multi-Node)
 - **Engine**: vLLM + RCCL
@@ -189,7 +193,8 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-27b-ud-q8-k-xl-podman.json` — provider `qwen38-27b-ud-q8-k-xl` → `http://<node_ip>:8084/v1`
+  - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
+  - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8088/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
 
@@ -207,6 +212,7 @@ you open `/model`; no restart needed).
 ### Scripts
 - `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
+- `QWEN38_FLASH_NEXT_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
 ## Strix Halo Optimization Notes
@@ -233,9 +239,10 @@ treats 2.5Gbe as acceptable — there is no 10Gbps requirement.
 `amd-ttm --set` is used** anywhere in the ansible — set BIOS UMA VRAM to
 Auto/minimum, append the GRUB args, reboot.
 
-**ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
-(noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman track.
+**ROCm version:** the shared `install-amdgpu.yml` track installs ROCm via
+AMD's `repo.radeon.com` `amdgpu-install` deb (currently 7.2.1, noble) with
+`--usecase=rocm --no-dkms` — *not* the Ubuntu `rocm` package (7.1.0). ROCm is
+needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman track.
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the

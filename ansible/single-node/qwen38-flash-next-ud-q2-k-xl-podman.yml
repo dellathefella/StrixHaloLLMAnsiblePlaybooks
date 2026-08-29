@@ -1,32 +1,33 @@
 ---
 # =============================================================================
-# qwen36-35b-ud-q8-k-xl-podman.yml
-# Qwen3.6-35B-A3B (UD-Q8_K_XL quantization, ~38.5 GB) — llama.cpp via Podman Vulkan container
+# qwen38-flash-next-ud-q2-k-xl-podman.yml
+# Qwen3.8-Flash-Next (UD-Q2_K_XL quantization, ~89 GB) — llama.cpp via Podman Vulkan container
 #
 # Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp Vulkan container (UD-Q8_K_XL)"
-  hosts: qwen36-35b-ud-q8-k-xl
+- name: "podman — setup + deploy llama.cpp Vulkan container (UD-Q2_K_XL)"
+  hosts: qwen38-flash-next-ud-q2-k-xl
   gather_facts: yes
   become: yes
-  tags: [qwen36-35b-ud-q8-k-xl-podman]
+  tags: [qwen38-flash-next-ud-q2-k-xl-podman]
 
   vars:
     # =====================================================================
-    # Qwen36-35B-A3B (UD-Q8_K_XL) track vars — self-contained, no group_vars
+    # Qwen3.8-Flash-Next (UD-Q2_K_XL) track vars — self-contained, no group_vars
     # =====================================================================
 
     # Container settings
     docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666"
-    docker_container_name: "qwen36-35b-vulkan"
+    docker_container_name: "qwen38-flash-next-vulkan"
 
     # Model settings
     ctx: 262144
-    port: 8080
+    port: 8088
     batch: 256
-    model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
-    hf_repo: "unsloth/Qwen3.6-35B-A3B-GGUF"
+    ubatch: 512
+    model: "Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf"
+    hf_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"
     n_gpu: 999
 
     # Directories — when become: yes is set, ansible_env.HOME becomes /root.
@@ -96,39 +97,20 @@
       changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
       tags: [podman, model]
 
-    # -----------------------------------------------------------------------
-    # 3. Check podman and deploy container
-    # -----------------------------------------------------------------------
-    - name: Check if podman is available
-      ansible.builtin.command:
-        cmd: which podman
-      register: podman_binary
-      changed_when: false
-      failed_when: false
-      tags: [podman, deploy]
+    - name: Print model download result
+      ansible.builtin.debug:
+        msg: "Download result: {{ hf_download_result }}"
+      when: hf_download_result is defined
+      tags: [podman, model]
 
-    - name: Stop existing container if running
-      ansible.builtin.command:
-        cmd: "podman stop {{ docker_container_name }}"
-      ignore_errors: yes
-      changed_when: false
-      when: podman_binary.rc == 0
-      tags: [podman, deploy]
-
-    - name: Remove existing container
+    # -----------------------------------------------------------------------
+    # 3. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container with the same name
       ansible.builtin.command:
         cmd: "podman rm -f {{ docker_container_name }}"
       ignore_errors: yes
       changed_when: false
-      when: podman_binary.rc == 0
-      tags: [podman, deploy]
-
-    - name: Kill anything using the target port
-      ansible.builtin.shell: |
-        fuser -k {{ port }}/tcp 2>/dev/null || true
-      register: port_kill_result
-      changed_when: "'no process' not in port_kill_result.stderr"
-      failed_when: false
       tags: [podman, deploy]
 
     - name: Run llama.cpp Vulkan container
@@ -148,28 +130,22 @@
           --ctx-size {{ _docker_ctx_len }}
           --n-gpu-layers {{ n_gpu | d(999) }}
           --batch-size {{ batch | d(256) }}
-      when: podman_binary.rc == 0
-      register: container_run_result
-      changed_when: "'already exists' not in container_run_result.stdout | lower"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
       tags: [podman, deploy]
 
-    # -----------------------------------------------------------------------
-    # 4. Verify
-    # -----------------------------------------------------------------------
-    - name: Check container status after start
-      ansible.builtin.command:
-        cmd: "podman ps -a --filter name={{ docker_container_name }} --format \"{{ '{{' }}.Names{{ '}}' }} {{ '{{' }}.Status{{ '}}' }}\""
-      register: container_status
-      changed_when: false
-      ignore_errors: yes
+    - name: Print container start result
+      ansible.builtin.debug:
+        msg: "Container started: {{ podman_run_result.stdout | default('unknown') }}"
+      when: podman_run_result is defined
       tags: [podman, deploy]
 
-    - name: Show container logs if failed
+    - name: Check if container is running
       ansible.builtin.command:
-        cmd: "podman logs {{ docker_container_name }} --tail 50"
-      register: container_failure_logs
+        cmd: "podman ps --format '{{\"{.Names}}}' --filter name={{ docker_container_name }}"
+      register: container_check
       changed_when: false
-      ignore_errors: yes
+      failed_when: false
       tags: [podman, deploy]
 
     - name: Print container failure info
@@ -211,10 +187,10 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render qwen36-35b-vulkan-start.sh into ~/scripts/
+    - name: Render qwen38-flash-next-vulkan-start.sh into ~/scripts/
       ansible.builtin.template:
-        src: templates/scripts/qwen36-35b-vulkan-start.sh.j2
-        dest: "{{ _user_home }}/scripts/qwen36-35b-vulkan-start.sh"
+        src: templates/scripts/qwen38-flash-next-vulkan-start.sh.j2
+        dest: "{{ _user_home }}/scripts/qwen38-flash-next-vulkan-start.sh"
         mode: "0755"
       tags: [podman, launch]
 
@@ -227,10 +203,10 @@
       become: no
       tags: [podman, launch]
 
-    - name: Render pi agent config for Qwen3.6-35B (pi-qwen36-35b-ud-q8-k-xl-podman.json) into ansible/rendered/pi-configs/
+    - name: Render pi agent config for Qwen3.8-Flash-Next (pi-qwen38-flash-next-ud-q2-k-xl-podman.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
-        src: templates/pi-configs/pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
-        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen36-35b-ud-q8-k-xl-podman.json"
+        src: templates/pi-configs/pi-qwen38-flash-next-ud-q2-k-xl-podman.json.j2
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-flash-next-ud-q2-k-xl-podman.json"
         mode: "0644"
       delegate_to: localhost
       become: no
@@ -246,7 +222,7 @@
           Model: {{ _models_dir }}/{{ model }}
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
-          Launch script: ~/scripts/qwen36-35b-vulkan-start.sh
+          Launch script: ~/scripts/qwen38-flash-next-vulkan-start.sh
 
           === Container log commands ===
           View logs:  podman logs -f {{ docker_container_name }}

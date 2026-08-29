@@ -3,10 +3,10 @@
 # bootstrap.yml — MULTI-NODE ORCHESTRATOR
 #
 # Multi-node cluster tracks:
-#   base.yml                                   base preflight, packages, toolchain (ROCm 7.2.4+), GRUB   [base]
+#   ../shared/install-amdgpu.yml               Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated) [install-amdgpu]
 #   ../shared/install-podman.yml               podman installation (Fedora/Debian/Arch)                  [install-podman]
 #   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
-#   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (idempotent — base.yml already sets the same args) [grub-ttm]
+#   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size                    [grub-ttm]
 #   qwen35-397b-gptq-rccl.yml                  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4)      [qwen35-397b]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
@@ -20,7 +20,7 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/qwen35-397b-gptq-rccl.yml
 # =============================================================================
 
-- import_playbook: base.yml
+- import_playbook: ../shared/install-amdgpu.yml
 - import_playbook: ../shared/install-podman.yml
 - import_playbook: ../shared/install-hf-cli.yml
 - import_playbook: ../shared/set-grub-ttm.yml

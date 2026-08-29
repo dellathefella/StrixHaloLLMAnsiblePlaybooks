@@ -5,7 +5,7 @@
 #
 # Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644
 # KyaniteLabs Strix Halo optimized profile:
-#   spec: draft-mtp + ngram-mod, n-max 12, n-min 24
+#   spec: ngram-mod (n-match 24, n-min 16, n-max 48)
 #   KV cache: q4_0 (K+V)
 # =============================================================================
 
@@ -17,26 +17,27 @@
 
   vars:
     # =====================================================================
-    # Qwen3.8-27B (UD-q4_K_XL quantization) track vars — self-contained, no group_vars
+    # Qwen3.8-27B (UD-Q4_K_XL quantization) track vars — self-contained, no group_vars
     # =====================================================================
 
     # Container settings
-    docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644"
+    docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666"
     docker_container_name: "qwen38-27b-vulkan"
 
     # Model settings
     ctx: 262144
     port: 8080
-    batch: 2048
-    ubatch: 1024
+    batch: 1024
+    ubatch: 512
     model: "Qwen3.8-27B-UD-Q4_K_XL.gguf"
     hf_repo: "unsloth/Qwen3.8-27B-GGUF"
     n_gpu: 999
 
-    # KyaniteLabs Strix Halo MTP speculation profile
-    spec_type: "draft-mtp,ngram-mod"
-    spec_draft_n_max: 5
-    spec_ngram_mod_n_min: 24
+    # KyaniteLabs Strix Halo ngram-mod speculation profile
+    spec_type: "ngram-mod"
+    spec_ngram_mod_n_match: 24
+    spec_ngram_mod_n_min: 16
+    spec_ngram_mod_n_max: 48
     cache_type_k: "q4_0"
     cache_type_v: "q4_0"
 
@@ -158,13 +159,14 @@
           --port {{ port }}
           --ctx-size {{ _docker_ctx_len }}
           --n-gpu-layers {{ n_gpu | d(999) }}
-          --batch-size {{ batch | d(2048) }}
-          --ubatch-size {{ ubatch_size | d(512)}}
+          --batch-size {{ batch | d(1024) }}
+          --ubatch-size {{ ubatch | d(512) }}
           --cache-type-k {{ cache_type_k }}
           --cache-type-v {{ cache_type_v }}
           --spec-type {{ spec_type }}
-          --spec-draft-n-max {{ spec_draft_n_max }}
+          --spec-ngram-mod-n-match {{ spec_ngram_mod_n_match }}
           --spec-ngram-mod-n-min {{ spec_ngram_mod_n_min }}
+          --spec-ngram-mod-n-max {{ spec_ngram_mod_n_max }}
       when: podman_binary.rc == 0
       register: container_run_result
       changed_when: "'already exists' not in container_run_result.stdout | lower"
@@ -195,7 +197,7 @@
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
           
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --spec-type {{ spec_type }} --spec-draft-n-max {{ spec_draft_n_max }} --spec-ngram-mod-n-min {{ spec_ngram_mod_n_min }}
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --spec-type {{ spec_type }} --spec-ngram-mod-n-match {{ spec_ngram_mod_n_match }} --spec-ngram-mod-n-min {{ spec_ngram_mod_n_min }} --spec-ngram-mod-n-max {{ spec_ngram_mod_n_max }}
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
           Check Vulkan: vulkaninfo --summary

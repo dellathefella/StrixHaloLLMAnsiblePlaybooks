@@ -9,7 +9,7 @@
 # Model: {{ _models_dir }}/{{ model }}
 #
 # KyaniteLabs Strix Halo profile:
-#   spec: draft-mtp + ngram-mod, n-max 12, n-min 24
+#   spec: ngram-mod (n-match 24, n-min 16, n-max 48)
 #   KV cache: q4_0 (K+V)
 # =============================================================================
 set -euo pipefail
@@ -25,8 +25,9 @@ QWEN38_27B_VULKAN_GPU_LAYERS="${QWEN38_27B_VULKAN_GPU_LAYERS:-{{ n_gpu | d(999) 
 QWEN38_27B_VULKAN_CACHE_K="${QWEN38_27B_VULKAN_CACHE_K:-{{ cache_type_k }}}"
 QWEN38_27B_VULKAN_CACHE_V="${QWEN38_27B_VULKAN_CACHE_V:-{{ cache_type_v }}}"
 QWEN38_27B_VULKAN_SPEC_TYPE="${QWEN38_27B_VULKAN_SPEC_TYPE:-{{ spec_type }}}"
-QWEN38_27B_VULKAN_SPEC_N_MAX="${QWEN38_27B_VULKAN_SPEC_N_MAX:-{{ spec_draft_n_max }}}"
+QWEN38_27B_VULKAN_SPEC_N_MATCH="${QWEN38_27B_VULKAN_SPEC_N_MATCH:-{{ spec_ngram_mod_n_match }}}"
 QWEN38_27B_VULKAN_SPEC_N_MIN="${QWEN38_27B_VULKAN_SPEC_N_MIN:-{{ spec_ngram_mod_n_min }}}"
+QWEN38_27B_VULKAN_SPEC_N_MAX="${QWEN38_27B_VULKAN_SPEC_N_MAX:-{{ spec_ngram_mod_n_max }}}"
 
 # --- helper functions ---
 start_container() {
@@ -48,8 +49,9 @@ start_container() {
     --cache-type-k "$QWEN38_27B_VULKAN_CACHE_K" \
     --cache-type-v "$QWEN38_27B_VULKAN_CACHE_V" \
     --spec-type "$QWEN38_27B_VULKAN_SPEC_TYPE" \
-    --spec-draft-n-max "$QWEN38_27B_VULKAN_SPEC_N_MAX" \
-    --spec-ngram-mod-n-min "$QWEN38_27B_VULKAN_SPEC_N_MIN"
+    --spec-ngram-mod-n-match "$QWEN38_27B_VULKAN_SPEC_N_MATCH" \
+    --spec-ngram-mod-n-min "$QWEN38_27B_VULKAN_SPEC_N_MIN" \
+    --spec-ngram-mod-n-max "$QWEN38_27B_VULKAN_SPEC_N_MAX"
 }
 
 stop_container() {

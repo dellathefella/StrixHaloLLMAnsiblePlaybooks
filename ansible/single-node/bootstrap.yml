@@ -3,13 +3,14 @@
 # bootstrap.yml — SINGLE-NODE ORCHESTRATOR
 #
 # Tracks (all run on localhost unless noted):
-#   base.yml                                   base preflight, packages, toolchain (ROCm 7.2.4+)       [base]
+#   ../shared/install-amdgpu.yml               Ubuntu base: apt upgrade + ROCm via amdgpu-install          [install-amdgpu]
 #   ../shared/install-podman.yml               podman installation (Fedora/Debian/Arch)                  [install-podman]
 #   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
 #   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size                     [grub-ttm]
 #   ../shared/set-limine-ttm.yml               Limine kernel args: TTM, IOMMU, GTT size                   [limine-ttm]
 #   qwen36-35b-ud-q8-k-xl-podman.yml          Qwen3.6-35B-A3B (Podman Vulkan)                             [qwen36-35b-ud-q8-k-xl-podman]
 #   qwen38-27b-ud-q8-k-xl-podman.yml          Qwen3.8-27B (Podman Vulkan + MTP)                          [qwen38-27b-ud-q8-k-xl-podman]
+#   qwen38-flash-next-ud-q2-k-xl-podman.yml   Qwen3.8-Flash-Next (Podman Vulkan)                          [qwen38-flash-next-ud-q2-k-xl-podman]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
 # Run from repo root:
@@ -18,19 +19,19 @@
 # Run a single track:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 #
-# Run only base + podman install:
+# Run only amdgpu install + podman install:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml \
-#     --tags base,install-podman
+#     --tags install-amdgpu,install-podman
 #
 # Run only TTM args for GRUB:
 #   ansible-playbook -i ansible/single-node/inventory/hosts ansible/shared/set-grub-ttm.yml
 #
 # Tags select tracks: --tags qwen38-27b-ud-q8-k-xl-podman runs only that track.
-# --skip-tags base skips the base play on an already-provisioned host.
+# --skip-tags install-amdgpu skips the amdgpu/base play on an already-provisioned host.
 # =============================================================================
 
-- import_playbook: base.yml
-  tags: base
+- import_playbook: ../shared/install-amdgpu.yml
+  tags: install-amdgpu
 
 - import_playbook: ../shared/install-podman.yml
   tags: install-podman
@@ -49,6 +50,9 @@
 
 - import_playbook: qwen38-27b-ud-q8-k-xl-podman.yml
   tags: [qwen38-27b-ud-q8-k-xl-podman]
+
+- import_playbook: qwen38-flash-next-ud-q2-k-xl-podman.yml
+  tags: [qwen38-flash-next-ud-q2-k-xl-podman]
 
 - import_playbook: summary.yml
   tags: summary

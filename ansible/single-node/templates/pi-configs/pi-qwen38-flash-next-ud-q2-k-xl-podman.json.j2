@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen38-flash-next-ud-q2-k-xl": {
+      "name": "Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB)",
+      "baseUrl": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen38-flash-next-local",
+      "models": [
+        {
+          "id": "qwen3.8-flash-next-ud-q2-k-xl",
+          "name": "Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB)",
+          "input": ["text"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

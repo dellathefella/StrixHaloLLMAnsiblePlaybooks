@@ -9,7 +9,8 @@
 ```
 ansible/
   bootstrap.yml                orchestrator — static import_playbook of all tracks
-  base.yml                     preflight: packages, ROCm 7.2.4+, GRUB ttm.args
+  shared/                      shared setup playbooks: install-amdgpu (ROCm), install-podman,
+                               install-hf-cli, set-grub-ttm, set-limine-ttm (imported by both tracks)
   summary.yml                  final per-host completion summary
   <track>.yml                  per-track playbook (see track naming below)
   tasks/
