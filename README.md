@@ -23,6 +23,13 @@ All llama.cpp tracks run locally on a single machine:
 - **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
   Vulkan container. Port 8080, ctx 262144.
 
+- **Qwen38-Flash-Next IQ4 (UD-IQ4_XS)** — Qwen3.8-Flash-Next 125B-A6B (UD-IQ4_XS,
+  3 shards, ~87 GiB on disk) via Podman Vulkan container. Second Flash-Next
+  profile: ctx 131072 (~91 GB resident), `--load-mode none`, KV cache f16
+  (quantized KV asserts on the `qwen4exp` arch), `--jinja`, `--reasoning on`,
+  single slot, sampler defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0.
+  Port 8080. Measured on a 128 GB Strix Halo: ~23 t/s decode, ~390 t/s pp512.
+
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
   projector is downloaded and passed as `--mmproj`, so `/v1/chat/completions`
