@@ -1,53 +1,52 @@
 ---
 # =============================================================================
-# qwen38-27b-ud-q4-k-xl-podman.yml
-# Qwen3.8-27B (UD-Q4_K_XL quantization) — llama.cpp via Podman Vulkan container
+# gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
+# Gemma 4 26B A4B it (UD-Q8_K_XL quantization, ~27.6 GB) — llama.cpp via Podman
+# Vulkan container, WITH IMAGE INPUT (vision) enabled.
 #
 # Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666
-# Speculation profile: MTP drafter (unsloth MTP/mtp-Qwen3.8-27B-Q4_0.gguf)
-#   --spec-type draft-mtp --spec-draft-n-max 3 --model-draft <MTP drafter>
-#   KV cache: f16 (K+V), batch 2048 / ubatch 512, flash-attn on, mmap loading,
-#   1 server slot, all layers on the GPU.
 #
-# MTP landed in llama.cpp on 2026-06-07 (PR #23398); the container tag above is
-# newer, so the drafter loads. draft-mtp needs a drafter file — it is only
-# auto-discovered with -hf, so with a local --model we pass --model-draft.
+# Almost identical to the qwen36-35b-ud-q8-k-xl track (port 8080, ctx 262144,
+# batch 256, n-gpu-layers 999) with one addition: the vision projector
+# (mmproj) unsloth ships alongside the quant. llama.cpp needs it via --mmproj
+# to accept images through the OpenAI-compatible /v1/chat/completions API;
+# Gemma 4 26B A4B is on llama.cpp's supported vision list (docs/multimodal.md).
+#
+# KV cache memory scales with ctx. If the container dies while loading weights
+# (128 GB unified pool), lower ctx (e.g. -e ctx=131072) or add
+# --cache-type-k/--cache-type-v q8_0 the way the qwen38-27b track does.
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp Vulkan container (UD-q4_K_XL)"
-  hosts: qwen38-27b-ud-q4-k-xl
+- name: "podman — setup + deploy llama.cpp Vulkan container with vision (UD-Q8_K_XL)"
+  hosts: gemma-4-26b-a4b-ud-q8-k-xl
   gather_facts: yes
   become: yes
-  tags: [qwen38-27b-ud-q4-k-xl-podman]
+  tags: [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 
   vars:
     # =====================================================================
-    # Qwen3.8-27B (UD-Q4_K_XL quantization) track vars — self-contained, no group_vars
+    # Gemma 4 26B A4B (UD-Q8_K_XL) track vars — self-contained, no group_vars
     # =====================================================================
 
     # Container settings
     docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666"
-    docker_container_name: "qwen38-27b-vulkan"
+    docker_container_name: "gemma-4-26b-a4b-vulkan"
 
-    # Model settings
+    # Model settings — single GGUF at the repo root, native ctx 262144
     ctx: 262144
     port: 8080
-    parallel: 1
-    batch: 2048
-    ubatch: 512
-    model: "Qwen3.8-27B-UD-Q4_K_XL.gguf"
-    hf_repo: "unsloth/Qwen3.8-27B-GGUF"
+    batch: 256
+    model: "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf"
+    hf_repo: "unsloth/gemma-4-26B-A4B-it-GGUF"
     n_gpu: 999
-    flash_attn: "on"
-    load_mode: "mmap"
 
-    # MTP speculation: drafter lives in the repo's MTP/ subdir and lands in
-    # <models>/MTP/..., which keeps it out of the way of other tracks.
-    spec_type: "draft-mtp"
-    spec_draft_n_max: 3
-    mtp_draft_file: "MTP/mtp-Qwen3.8-27B-Q4_0.gguf"
-    cache_type_k: "f16"
-    cache_type_v: "f16"
+    # Vision projector — enables image recognition. The repo ships three
+    # (mmproj-BF16/F16/F32); F16 is the smallest 16-bit one (~1.19 GB) and
+    # matches the quant's precision class. It is stored in the repo under a
+    # generic name, so we rename it on disk to keep it from ever colliding
+    # with another vision track's projector dropped into the same ~/models.
+    mmproj_file: "mmproj-F16.gguf"
+    mmproj_local: "gemma-4-26B-A4B-it-mmproj-F16.gguf"
 
     # Directories — when become: yes is set, ansible_env.HOME becomes /root.
     # Use ansible_user (original login user) to compute the correct home dir.
@@ -55,7 +54,8 @@
     _models_dir: "{{ _user_home }}/models"
     _docker_ctx_len: "{{ ctx | d('8192') }}"
 
-    # Model download settings — read token on controller
+    # Model download settings — read token on controller (repo is public,
+    # so the no-token path is what normally runs)
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
 
   tasks:
@@ -80,7 +80,7 @@
       tags: [podman, model]
 
     # -----------------------------------------------------------------------
-    # 2. Download model if not present
+    # 2. Download model + vision projector if not present
     # -----------------------------------------------------------------------
     - name: Check if model file already exists
       ansible.builtin.stat:
@@ -88,11 +88,16 @@
       register: model_file_stat
       tags: [podman, model]
 
-    - name: Print model download status
-      ansible.builtin.debug:
-        msg: "Checking for model at: {{ _models_dir }}/{{ model }} | Found: {{ model_file_stat.stat.exists | default('unknown') }} | stat: {{ model_file_stat.stat }}"
+    - name: Check if vision projector already exists
+      ansible.builtin.stat:
+        path: "{{ _models_dir }}/{{ mmproj_local }}"
+      register: mmproj_local_stat
       tags: [podman, model]
 
+    - name: Print model download status
+      ansible.builtin.debug:
+        msg: "Checking for model at: {{ _models_dir }}/{{ model }} | Found: {{ model_file_stat.stat.exists | default('unknown') }} | projector {{ mmproj_local }} found: {{ mmproj_local_stat.stat.exists | default('unknown') }}"
+      tags: [podman, model]
 
     - name: Download model from HuggingFace (with token)
       ansible.builtin.command:
@@ -116,37 +121,52 @@
       changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
       tags: [podman, model]
 
-    # -----------------------------------------------------------------------
-    # 2b. Fetch the MTP drafter — draft-mtp requires it; llama.cpp only
-    # auto-discovers a sibling drafter when loading with -hf, not from a
-    # local --model, so we pass it explicitly via --model-draft.
-    # -----------------------------------------------------------------------
-    - name: Check if MTP drafter already exists
-      ansible.builtin.stat:
-        path: "{{ _models_dir }}/{{ mtp_draft_file }}"
-      register: mtp_draft_stat
-      tags: [podman, model]
-
-    - name: Download MTP drafter from HuggingFace (with token)
+    - name: Download vision projector from HuggingFace (with token)
       ansible.builtin.command:
         cmd: >-
-          hf download {{ hf_repo }} {{ mtp_draft_file }} --token "{{ hf_token_lookup }}" --local-dir {{ _models_dir }}
+          hf download {{ hf_repo }} {{ mmproj_file }} --token "{{ hf_token_lookup }}" --local-dir {{ _models_dir }}
       when:
-        - not mtp_draft_stat.stat.exists
+        - not mmproj_local_stat.stat.exists
         - hf_token_lookup | length > 0
-      register: mtp_download_result
-      changed_when: "'Downloaded' in mtp_download_result.stdout or 'Updated' in mtp_download_result.stdout"
+      register: hf_mmproj_download_result
+      changed_when: "'Downloaded' in hf_mmproj_download_result.stdout or 'Updated' in hf_mmproj_download_result.stdout"
       tags: [podman, model]
 
-    - name: Download MTP drafter without token (public repo)
+    - name: Download vision projector without token (public repo)
       ansible.builtin.command:
         cmd: >-
-          hf download {{ hf_repo }} {{ mtp_draft_file }} --local-dir {{ _models_dir }}
+          hf download {{ hf_repo }} {{ mmproj_file }} --local-dir {{ _models_dir }}
       when:
-        - not mtp_draft_stat.stat.exists
+        - not mmproj_local_stat.stat.exists
         - hf_token_lookup | length == 0
-      register: mtp_download_result
-      changed_when: "'Downloaded' in mtp_download_result.stdout or 'Updated' in mtp_download_result.stdout"
+      register: hf_mmproj_download_result
+      changed_when: "'Downloaded' in hf_mmproj_download_result.stdout or 'Updated' in hf_mmproj_download_result.stdout"
+      tags: [podman, model]
+
+    # hf writes the projector under its generic repo name; give it a model
+    # specific name so a later vision track can never overwrite it.
+    - name: Stat downloaded vision projector
+      ansible.builtin.stat:
+        path: "{{ _models_dir }}/{{ mmproj_file }}"
+      register: mmproj_downloaded_stat
+      tags: [podman, model]
+
+    - name: Rename vision projector to model-specific name
+      ansible.builtin.command:
+        cmd: "mv {{ _models_dir }}/{{ mmproj_file }} {{ _models_dir }}/{{ mmproj_local }}"
+      when:
+        - mmproj_downloaded_stat.stat.exists
+        - not mmproj_local_stat.stat.exists
+      tags: [podman, model]
+
+    - name: Fail if vision projector is missing
+      ansible.builtin.fail:
+        msg: >-
+          Image input needs the projector {{ _models_dir }}/{{ mmproj_local }}.
+          Download failed — check `hf download {{ hf_repo }} {{ mmproj_file }} --local-dir {{ _models_dir }}`.
+      when:
+        - not mmproj_local_stat.stat.exists
+        - not mmproj_downloaded_stat.stat.exists
       tags: [podman, model]
 
     # -----------------------------------------------------------------------
@@ -196,20 +216,12 @@
           -p {{ port }}:{{ port }}
           {{ docker_image }}
           --model {{ _models_dir }}/{{ model }}
-          --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
+          --mmproj {{ _models_dir }}/{{ mmproj_local }}
           --host 0.0.0.0
           --port {{ port }}
           --ctx-size {{ _docker_ctx_len }}
-          --parallel {{ parallel | d(1) }}
           --n-gpu-layers {{ n_gpu | d(999) }}
-          --batch-size {{ batch | d(2048) }}
-          --ubatch-size {{ ubatch | d(512) }}
-          --cache-type-k {{ cache_type_k }}
-          --cache-type-v {{ cache_type_v }}
-          --flash-attn {{ flash_attn | d('on') }}
-          --load-mode {{ load_mode | d('mmap') }}
-          --spec-type {{ spec_type }}
-          --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
+          --batch-size {{ batch | d(256) }}
       when: podman_binary.rc == 0
       register: container_run_result
       changed_when: "'already exists' not in container_run_result.stdout | lower"
@@ -226,6 +238,14 @@
       ignore_errors: yes
       tags: [podman, deploy]
 
+    - name: Check vision projector lines in container log
+      ansible.builtin.shell: >-
+        podman logs {{ docker_container_name }} 2>&1 | grep -iE 'mmproj|mtmd|error' | tail -n 10 || true
+      register: mmproj_log_lines
+      changed_when: false
+      failed_when: false
+      tags: [podman, deploy]
+
     - name: Show container logs if failed
       ansible.builtin.command:
         cmd: "podman logs {{ docker_container_name }} --tail 50"
@@ -240,7 +260,11 @@
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
           
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --model-draft {{ _models_dir }}/{{ mtp_draft_file }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --parallel {{ parallel | d(1) }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(2048) }} --ubatch-size {{ ubatch | d(512) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --flash-attn {{ flash_attn | d('on') }} --load-mode {{ load_mode | d('mmap') }} --spec-type {{ spec_type }} --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --mmproj {{ _models_dir }}/{{ mmproj_local }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
+          
+          Image input also needs the projector to load — look for "mmproj"/"mtmd"
+          lines above. If the load was killed out of memory, try a smaller ctx
+          (e.g. -e ctx=131072) before blaming the model.
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
           Check Vulkan: vulkaninfo --summary
@@ -273,10 +297,10 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render qwen38-27b-vulkan-start.sh into ~/scripts/
+    - name: Render gemma-4-26b-a4b-vulkan-start.sh into ~/scripts/
       ansible.builtin.template:
-        src: templates/scripts/qwen38-27b-vulkan-start.sh.j2
-        dest: "{{ _user_home }}/scripts/qwen38-27b-vulkan-start.sh"
+        src: templates/scripts/gemma-4-26b-a4b-vulkan-start.sh.j2
+        dest: "{{ _user_home }}/scripts/gemma-4-26b-a4b-vulkan-start.sh"
         mode: "0755"
       tags: [podman, launch]
 
@@ -289,10 +313,10 @@
       become: no
       tags: [podman, launch]
 
-    - name: Render pi agent config for Qwen3.8-27B (pi-qwen38-27b-ud-q4-k-xl-podman.json) into ansible/rendered/pi-configs/
+    - name: Render pi agent config for Gemma 4 26B A4B (pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json) into ansible/rendered/pi-configs/
       ansible.builtin.template:
-        src: templates/pi-configs/pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
-        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-27b-ud-q4-k-xl-podman.json"
+        src: templates/pi-configs/pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json"
         mode: "0644"
       delegate_to: localhost
       become: no
@@ -306,11 +330,15 @@
           Container: {{ docker_container_name }}
           API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
           Model: {{ _models_dir }}/{{ model }}
-          Drafter: {{ _models_dir }}/{{ mtp_draft_file }} ({{ spec_type }}, n-max {{ spec_draft_n_max | d(3) }})
-          KV cache: {{ cache_type_k }} (K) / {{ cache_type_v }} (V) | Batch {{ batch | d(2048) }} / ubatch {{ ubatch | d(512) }} | FA {{ flash_attn | d('on') }} | load {{ load_mode | d('mmap') }}
+          Vision projector: {{ _models_dir }}/{{ mmproj_local }} (image input ON)
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
-          Launch script: ~/scripts/qwen38-27b-vulkan-start.sh
+          Projector log lines: {{ mmproj_log_lines.stdout | default('none') }}
+          Launch script: ~/scripts/gemma-4-26b-a4b-vulkan-start.sh
+
+          === Image smoke test ===
+          curl -s http://localhost:{{ port }}/v1/models | grep -o multimodal
+          Send an image through /v1/chat/completions with an "image_url" content part.
 
           === Container log commands ===
           View logs:  podman logs -f {{ docker_container_name }}

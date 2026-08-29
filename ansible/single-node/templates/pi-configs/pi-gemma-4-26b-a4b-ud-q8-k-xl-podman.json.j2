@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "gemma-4-26b-a4b-ud-q8-k-xl": {
+      "name": "Gemma 4 26B A4B (UD-Q8_K_XL, vision)",
+      "baseUrl": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "gemma-4-26b-a4b-local",
+      "models": [
+        {
+          "id": "gemma-4-26b-a4b-it-ud-q8-k-xl",
+          "name": "Gemma 4 26B A4B (UD-Q8_K_XL, ~27.6 GB)",
+          "input": ["text", "image"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

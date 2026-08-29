@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen38-flash-next-ud-iq4-xs": {
+      "name": "Qwen3.8-Flash-Next 125B-A6B (UD-IQ4_XS, ~87 GiB)",
+      "baseUrl": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen38-flash-next-ud-iq4-xs-local",
+      "models": [
+        {
+          "id": "qwen3.8-flash-next-ud-iq4-xs",
+          "name": "Qwen3.8-Flash-Next 125B-A6B (UD-IQ4_XS, ~87 GiB)",
+          "input": ["text"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

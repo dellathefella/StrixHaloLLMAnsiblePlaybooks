@@ -14,12 +14,20 @@ All llama.cpp tracks run locally on a single machine:
   via Podman Vulkan container (`ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`).
   Port 8080, ctx 262144.
 
-- **Qwen38-27B (UD-Q8_K_XL)** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via Podman
-  Vulkan container with **KyaniteLabs Strix Halo ngram-mod speculation profile**
-  (n-match 24, n-min 16, n-max 48, q4_0 KV cache). Port 8084, ctx 262144.
+- **Qwen38-27B (UD-Q4_K_XL)** — Qwen3.8-27B (UD-Q4_K_XL) via Podman Vulkan
+  container with **MTP speculative decoding** via the repo drafter
+  `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` (`draft-mtp`, draft n-max 3, f16 KV cache,
+  batch 2048 / ubatch 512, flash-attn on, mmap loading, single slot).
+  Port 8084, ctx 262144.
 
 - **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
   Vulkan container. Port 8080, ctx 262144.
+
+- **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
+  Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
+  projector is downloaded and passed as `--mmproj`, so `/v1/chat/completions`
+  accepts `image_url` content parts. Port 8080, ctx 262144 — same profile as
+  Qwen36-35B-A3B.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
@@ -47,6 +55,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags install-amdgpu
@@ -87,6 +96,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
+│   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (localhost)
 │   │   │   └── group_vars/
@@ -94,10 +104,12 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-vulkan-start.sh.j2   Qwen3.6-35B Vulkan launch
-│   │   │   │   └── qwen38-27b-vulkan-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   ├── qwen38-27b-vulkan-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   └── gemma-4-26b-a4b-vulkan-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   └── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   └── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -130,13 +142,28 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Port**: 8080
 - **Backend**: Vulkan/RADV
 
-### Qwen38-27B (UD-Q8_K_XL) — Podman Vulkan + MTP
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
-- **Model**: Qwen3.8-27B UD-Q8_K_XL (~27 GB)
-- **Context**: 262k (native ceiling)
+### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
+- **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
+  (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
+- **Context**: 262144 (native ceiling), `--parallel 1` (single slot)
 - **Port**: 8084
-- **Backend**: Vulkan/RADV + KyaniteLabs MTP speculation
-- **Speculation**: `ngram-mod` (n-match 24, n-min 16, n-max 48), q4_0 KV cache
+- **Backend**: Vulkan/RADV
+- **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
+- **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
+
+### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
+- **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
+  `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
+  `libmtmd`; the projector is GPU-offloaded by default)
+- **Context**: 262144 (native ceiling)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV
+- **Note**: no MTP speculation wired up, although `MTP/mtp-gemma-4-26B-A4B-it-*.gguf`
+  exists in the repo and could follow the qwen38-27b pattern later.
 
 ### Qwen35-397B-GPTQ-RCCL (Multi-Node)
 - **Engine**: vLLM + RCCL
@@ -159,9 +186,18 @@ ansible:
 hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
   --local-dir ~/models
 
-# Qwen3.8-27B (UD-Q8_K_XL, ~27 GB)
-hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q8_K_XL-unsloth.gguf \
+# Qwen3.8-27B (UD-Q4_K_XL) + MTP drafter
+hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q4_K_XL.gguf \
   --local-dir ~/models
+hf download unsloth/Qwen3.8-27B-GGUF MTP/mtp-Qwen3.8-27B-Q4_0.gguf \
+  --local-dir ~/models    # lands as ~/models/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
+
+# Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) + vision projector
+hf download unsloth/gemma-4-26B-A4B-it-GGUF gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf \
+  --local-dir ~/models
+hf download unsloth/gemma-4-26B-A4B-it-GGUF mmproj-F16.gguf \
+  --local-dir ~/models       # lands as ~/models/mmproj-F16.gguf,
+                             # renamed to gemma-4-26B-A4B-it-mmproj-F16.gguf
 ```
 
 ## Launch Scripts
@@ -177,6 +213,9 @@ target host. The bootstrap also drops PI agent configs into
 
 # Qwen3.8-27B (Podman Vulkan + MTP)
 ~/scripts/qwen38-27b-vulkan-start.sh
+
+# Gemma 4 26B A4B (Podman Vulkan, image input)
+~/scripts/gemma-4-26b-a4b-vulkan-start.sh
 ```
 
 ### Multi-Node Launch Example (Qwen3.5-397B)
@@ -195,6 +234,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
   - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
 
@@ -211,8 +251,9 @@ you open `/model`; no restart needed).
 
 ### Scripts
 - `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS/CACHE_K/CACHE_V/SPEC_TYPE/SPEC_N_MAX/SPEC_N_MIN)
+- `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `QWEN38_FLASH_NEXT_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `GEMMA4_26B_VULKAN_*` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
 ## Strix Halo Optimization Notes
