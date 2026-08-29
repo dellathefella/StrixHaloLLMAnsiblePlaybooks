@@ -19,7 +19,7 @@ All llama.cpp tracks run locally on a single machine:
   (n-match 24, n-min 16, n-max 48, q4_0 KV cache). Port 8084, ctx 262144.
 
 - **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
-  Vulkan container. Port 8088, ctx 262144.
+  Vulkan container. Port 8080, ctx 262144.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
@@ -194,7 +194,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
-  - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8088/v1`
+  - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
 
