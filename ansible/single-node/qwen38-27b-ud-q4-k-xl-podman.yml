@@ -1,9 +1,12 @@
 ---
 # =============================================================================
 # qwen38-27b-ud-q4-k-xl-podman.yml
-# Qwen3.8-27B (UD-Q4_K_XL quantization) — llama.cpp via Podman Vulkan container
+# Qwen3.8-27B (UD-Q4_K_XL quantization) — llama.cpp via Podman, deployable on
+# either GPU backend (llm_backend=vulkan|rocm, image tag server-<backend>-b10680).
+# A launch script is rendered per backend:
+#   ~/scripts/qwen38-27b-ud-q4-k-xl-vulkan-start.sh
+#   ~/scripts/qwen38-27b-ud-q4-k-xl-rocm-start.sh
 #
-# Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666
 # Speculation profile: MTP drafter (unsloth MTP/mtp-Qwen3.8-27B-Q4_0.gguf)
 #   --spec-type draft-mtp --spec-draft-n-max 3 --model-draft <MTP drafter>
 #   KV cache: f16 (K+V), batch 2048 / ubatch 512, flash-attn on, mmap loading,
@@ -14,7 +17,7 @@
 # auto-discovered with -hf, so with a local --model we pass --model-draft.
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp Vulkan container (UD-q4_K_XL)"
+- name: "podman — setup + deploy llama.cpp container (UD-Q4_K_XL, {{ llm_backend }})"
   hosts: qwen38-27b-ud-q4-k-xl
   gather_facts: yes
   become: yes
@@ -25,9 +28,16 @@
     # Qwen3.8-27B (UD-Q4_K_XL quantization) track vars — self-contained, no group_vars
     # =====================================================================
 
-    # Container settings
-    docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666"
-    docker_container_name: "qwen38-27b-vulkan"
+    # Container settings — backend is selectable (see the header).
+    #   llm_backend      → image + container name this play deploys
+    #   launch_backends  → one launch script rendered per entry (both by default)
+    llm_backend: "vulkan"
+    launch_backends: [vulkan, rocm]
+    track_stem: "qwen38-27b-ud-q4-k-xl"
+    image_repo: "ghcr.io/ggml-org/llama.cpp"
+    image_tag: "b10680"
+    docker_image: "{{ image_repo }}:server-{{ llm_backend }}-{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}-{{ llm_backend }}"
 
     # Model settings
     ctx: 262144
@@ -59,6 +69,18 @@
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
 
   tasks:
+    # -----------------------------------------------------------------------
+    # 0. Backend guard — fail fast on a bad -e llm_backend=...
+    # -----------------------------------------------------------------------
+    - name: Validate the requested backend
+      ansible.builtin.assert:
+        that:
+          - llm_backend in launch_backends
+        fail_msg: "llm_backend='{{ llm_backend }}' is not one of {{ launch_backends }}"
+        quiet: yes
+      run_once: yes
+      tags: [podman, deploy]
+
     # -----------------------------------------------------------------------
     # 1. Ensure models directory exists
     # -----------------------------------------------------------------------
@@ -184,7 +206,7 @@
       failed_when: false
       tags: [podman, deploy]
 
-    - name: Run llama.cpp Vulkan container
+    - name: Run llama.cpp {{ llm_backend }} container
       ansible.builtin.command:
         cmd: >-
           podman run -d --name {{ docker_container_name }}
@@ -243,7 +265,7 @@
             podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --model-draft {{ _models_dir }}/{{ mtp_draft_file }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --parallel {{ parallel | d(1) }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(2048) }} --ubatch-size {{ ubatch | d(512) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --flash-attn {{ flash_attn | d('on') }} --load-mode {{ load_mode | d('mmap') }} --spec-type {{ spec_type }} --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
-          Check Vulkan: vulkaninfo --summary
+          Check {{ llm_backend }}: {{ 'vulkaninfo --summary' if llm_backend == 'vulkan' else 'rocminfo --summary' }}
       tags: [podman, deploy]
 
     - name: Sleep 10s to let container initialize
@@ -273,11 +295,16 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render qwen38-27b-vulkan-start.sh into ~/scripts/
+    - name: Render one launch script per backend ({{ track_stem }}-<backend>-start.sh) into ~/scripts/
       ansible.builtin.template:
-        src: templates/scripts/qwen38-27b-vulkan-start.sh.j2
-        dest: "{{ _user_home }}/scripts/qwen38-27b-vulkan-start.sh"
+        src: "templates/scripts/{{ track_stem }}-start.sh.j2"
+        dest: "{{ _user_home }}/scripts/{{ track_stem }}-{{ item }}-start.sh"
         mode: "0755"
+      vars:
+        script_backend: "{{ item }}"
+      loop: "{{ launch_backends }}"
+      loop_control:
+        label: "{{ track_stem }}-{{ item }}-start.sh"
       tags: [podman, launch]
 
     - name: Ensure pi-configs output directory exists on controller
@@ -301,7 +328,8 @@
     - name: Print deployment summary
       ansible.builtin.debug:
         msg: |
-          ==== llama.cpp Vulkan (Podman) deployed on {{ inventory_hostname }} ====
+          ==== llama.cpp {{ llm_backend }} (Podman) deployed on {{ inventory_hostname }} ====
+          Backend: {{ llm_backend }} — scripts rendered for: {{ launch_backends | join(', ') }}
           Image: {{ docker_image }}
           Container: {{ docker_container_name }}
           API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
@@ -310,7 +338,11 @@
           KV cache: {{ cache_type_k }} (K) / {{ cache_type_v }} (V) | Batch {{ batch | d(2048) }} / ubatch {{ ubatch | d(512) }} | FA {{ flash_attn | d('on') }} | load {{ load_mode | d('mmap') }}
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
-          Launch script: ~/scripts/qwen38-27b-vulkan-start.sh
+          Launch scripts:
+            ~/scripts/{{ track_stem }}-{{ launch_backends | first }}-start.sh
+            ~/scripts/{{ track_stem }}-{{ launch_backends | last }}-start.sh
+          Both bind port {{ port }} — stop the running container before starting
+          the other backend: podman stop {{ docker_container_name }}
 
           === Container log commands ===
           View logs:  podman logs -f {{ docker_container_name }}

@@ -1,10 +1,13 @@
 ---
 # =============================================================================
 # gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
-# Gemma 4 26B A4B it (UD-Q8_K_XL quantization, ~27.6 GB) — llama.cpp via Podman
-# Vulkan container, WITH IMAGE INPUT (vision) enabled.
+# Gemma 4 26B A4B it (UD-Q8_K_XL quantization, ~27.6 GB) — llama.cpp via Podman,
+# deployable on either GPU backend (llm_backend=vulkan|rocm) WITH IMAGE INPUT
+# (vision) enabled. A launch script is rendered per backend:
+#   ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-vulkan-start.sh
+#   ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-rocm-start.sh
 #
-# Uses: ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666
+# Uses: ghcr.io/ggml-org/llama.cpp:server-<llm_backend>-b10680
 #
 # Almost identical to the qwen36-35b-ud-q8-k-xl track (port 8080, ctx 262144,
 # batch 256, n-gpu-layers 999) with one addition: the vision projector
@@ -17,7 +20,7 @@
 # --cache-type-k/--cache-type-v q8_0 the way the qwen38-27b track does.
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp Vulkan container with vision (UD-Q8_K_XL)"
+- name: "podman — setup + deploy llama.cpp container with vision (UD-Q8_K_XL, {{ llm_backend }})"
   hosts: gemma-4-26b-a4b-ud-q8-k-xl
   gather_facts: yes
   become: yes
@@ -28,9 +31,16 @@
     # Gemma 4 26B A4B (UD-Q8_K_XL) track vars — self-contained, no group_vars
     # =====================================================================
 
-    # Container settings
-    docker_image: "ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666"
-    docker_container_name: "gemma-4-26b-a4b-vulkan"
+    # Container settings — backend is selectable (see the header).
+    #   llm_backend      → image + container name this play deploys
+    #   launch_backends  → one launch script rendered per entry (both by default)
+    llm_backend: "vulkan"
+    launch_backends: [vulkan, rocm]
+    track_stem: "gemma-4-26b-a4b-ud-q8-k-xl"
+    image_repo: "ghcr.io/ggml-org/llama.cpp"
+    image_tag: "b10680"
+    docker_image: "{{ image_repo }}:server-{{ llm_backend }}-{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}-{{ llm_backend }}"
 
     # Model settings — single GGUF at the repo root, native ctx 262144
     ctx: 262144
@@ -59,6 +69,18 @@
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
 
   tasks:
+    # -----------------------------------------------------------------------
+    # 0. Backend guard — fail fast on a bad -e llm_backend=...
+    # -----------------------------------------------------------------------
+    - name: Validate the requested backend
+      ansible.builtin.assert:
+        that:
+          - llm_backend in launch_backends
+        fail_msg: "llm_backend='{{ llm_backend }}' is not one of {{ launch_backends }}"
+        quiet: yes
+      run_once: yes
+      tags: [podman, deploy]
+
     # -----------------------------------------------------------------------
     # 1. Ensure models directory exists
     # -----------------------------------------------------------------------
@@ -204,7 +226,7 @@
       failed_when: false
       tags: [podman, deploy]
 
-    - name: Run llama.cpp Vulkan container
+    - name: Run llama.cpp {{ llm_backend }} container
       ansible.builtin.command:
         cmd: >-
           podman run -d --name {{ docker_container_name }}
@@ -267,7 +289,7 @@
           (e.g. -e ctx=131072) before blaming the model.
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
-          Check Vulkan: vulkaninfo --summary
+          Check {{ llm_backend }}: {{ 'vulkaninfo --summary' if llm_backend == 'vulkan' else 'rocminfo --summary' }}
       tags: [podman, deploy]
 
     - name: Sleep 10s to let container initialize
@@ -297,11 +319,16 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render gemma-4-26b-a4b-vulkan-start.sh into ~/scripts/
+    - name: Render one launch script per backend ({{ track_stem }}-<backend>-start.sh) into ~/scripts/
       ansible.builtin.template:
-        src: templates/scripts/gemma-4-26b-a4b-vulkan-start.sh.j2
-        dest: "{{ _user_home }}/scripts/gemma-4-26b-a4b-vulkan-start.sh"
+        src: "templates/scripts/{{ track_stem }}-start.sh.j2"
+        dest: "{{ _user_home }}/scripts/{{ track_stem }}-{{ item }}-start.sh"
         mode: "0755"
+      vars:
+        script_backend: "{{ item }}"
+      loop: "{{ launch_backends }}"
+      loop_control:
+        label: "{{ track_stem }}-{{ item }}-start.sh"
       tags: [podman, launch]
 
     - name: Ensure pi-configs output directory exists on controller
@@ -325,7 +352,8 @@
     - name: Print deployment summary
       ansible.builtin.debug:
         msg: |
-          ==== llama.cpp Vulkan (Podman) deployed on {{ inventory_hostname }} ====
+          ==== llama.cpp {{ llm_backend }} (Podman) deployed on {{ inventory_hostname }} ====
+          Backend: {{ llm_backend }} — scripts rendered for: {{ launch_backends | join(', ') }}
           Image: {{ docker_image }}
           Container: {{ docker_container_name }}
           API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
@@ -334,7 +362,11 @@
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
           Projector log lines: {{ mmproj_log_lines.stdout | default('none') }}
-          Launch script: ~/scripts/gemma-4-26b-a4b-vulkan-start.sh
+          Launch scripts:
+            ~/scripts/{{ track_stem }}-{{ launch_backends | first }}-start.sh
+            ~/scripts/{{ track_stem }}-{{ launch_backends | last }}-start.sh
+          Both bind port {{ port }} — stop the running container before starting
+          the other backend: podman stop {{ docker_container_name }}
 
           === Image smoke test ===
           curl -s http://localhost:{{ port }}/v1/models | grep -o multimodal

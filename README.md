@@ -157,7 +157,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Backend**: Vulkan/RADV
 
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
   (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
@@ -168,7 +168,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
 
 ### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-Q2_K_XL (~89 GB), 3 shards under
   `UD-Q2_K_XL/`, renamed locally to `Qwen3.8-Flash-Next-UD-Q2_K_XL/`
 - **Context**: 262144 (native ceiling)
@@ -176,7 +176,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Backend**: Vulkan/RADV (`qwen4exp` arch)
 
 ### Qwen38-Flash-Next IQ4 (UD-IQ4_XS) — Podman Vulkan
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-IQ4_XS (~87 GiB on disk), 3 shards
   under `UD-IQ4_XS/`, renamed locally to `Qwen3.8-Flash-Next-UD-IQ4_XS/`.
   llama.cpp loads the set from part 1, so the shard directory is mounted.
@@ -196,7 +196,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
   pp4096 ~357 t/s, tg128 ~23 t/s.
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
 - **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
   `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
