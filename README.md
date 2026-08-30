@@ -113,11 +113,11 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   │       └── all.yml        shared vars for single-node tracks
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
-│   │   │   │   ├── qwen36-35b-vulkan-start.sh.j2   Qwen3.6-35B Vulkan launch
-│   │   │   │   ├── qwen38-27b-vulkan-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
-│   │   │   │   ├── qwen38-flash-next-vulkan-start.sh.j2   Flash-Next Q2 launch (3 shards)
-│   │   │   │   ├── qwen38-flash-next-iq4-xs-vulkan-start.sh.j2   Flash-Next IQ4 launch (3 shards)
-│   │   │   │   └── gemma-4-26b-a4b-vulkan-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
+│   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
+│   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   ├── qwen38-flash-next-ud-q2-k-xl-start.sh.j2   Flash-Next Q2 launch (3 shards)
+│   │   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Flash-Next IQ4 launch (3 shards)
+│   │   │   │   └── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
@@ -258,19 +258,19 @@ target host. The bootstrap also drops PI agent configs into
 ### Single-Node Launch Example
 ```bash
 # Qwen3.6-35B-A3B (Podman Vulkan)
-~/scripts/qwen36-35b-vulkan-start.sh
+~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
 
 # Qwen3.8-27B (Podman Vulkan + MTP)
-~/scripts/qwen38-27b-vulkan-start.sh
+~/scripts/qwen38-27b-ud-q4-k-xl-start.sh
 
 # Qwen3.8-Flash-Next (UD-Q2_K_XL, Podman Vulkan)
-~/scripts/qwen38-flash-next-vulkan-start.sh
+~/scripts/qwen38-flash-next-ud-q2-k-xl-start.sh
 
 # Qwen3.8-Flash-Next IQ4 (UD-IQ4_XS, Podman Vulkan)
-~/scripts/qwen38-flash-next-iq4-xs-vulkan-start.sh
+~/scripts/qwen38-flash-next-ud-iq4-xs-start.sh
 
 # Gemma 4 26B A4B (Podman Vulkan, image input)
-~/scripts/gemma-4-26b-a4b-vulkan-start.sh
+~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
 ```
 
 ### Multi-Node Launch Example (Qwen3.5-397B)
@@ -306,12 +306,16 @@ you open `/model`; no restart needed).
 - Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
 
 ### Scripts
-- `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
-- `QWEN38_FLASH_NEXT_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `QWEN38_FLASH_NEXT_IQ4XS_VULKAN_*` (CONTAINER/PORT/MODEL/SHARDS/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
-- `GEMMA4_26B_VULKAN_*` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
+Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.
+The settings below are baked into the rendered script as plain shell variables
+(`CONTAINER`, `PORT`, `MODEL`, `IMAGE`, `CTX`, ...); edit the file in place and
+re-run it to change them.
+- `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
+- `qwen38-flash-next-ud-q2-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `qwen38-flash-next-ud-iq4-xs-start.sh` (CONTAINER/PORT/MODEL/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
+- `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker) — multi-node only, still env-set
 
 ## Strix Halo Optimization Notes
 

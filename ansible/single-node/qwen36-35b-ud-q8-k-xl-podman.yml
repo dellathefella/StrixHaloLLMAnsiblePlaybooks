@@ -2,22 +2,14 @@
 # =============================================================================
 # qwen36-35b-ud-q8-k-xl-podman.yml
 # Qwen3.6-35B-A3B (UD-Q8_K_XL quantization, ~38.5 GB) — llama.cpp via Podman,
-# deployable on either GPU backend.
+# using Nathanw1014's Strix Halo tuned image (Vulkan backend, gfx1151
+# Flash-Attention + MoE-prefill fixes).
 #
-# Backend selection:
-#   llm_backend     vulkan (default) | rocm — picks the image, the container
-#                   name and the container this play creates.
-#                   Switch with:  -e llm_backend=rocm
-#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:<llm_backend>-<image_tag>
-#                   (both vulkan-v0.7.2 and rocm-v0.7.2 are
-#                   published by Nathanw1014)
-#   launch scripts  one per backend is ALWAYS rendered, so the model can be
-#                   restarted on the other backend without re-running ansible:
-#                     ~/scripts/qwen36-35b-ud-q8-k-xl-vulkan-start.sh
-#                     ~/scripts/qwen36-35b-ud-q8-k-xl-rocm-start.sh
+#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2
+#   launch script   ~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp container (UD-Q8_K_XL, {{ llm_backend }})"
+- name: "podman — setup + deploy llama.cpp container (UD-Q8_K_XL)"
   hosts: qwen36-35b-ud-q8-k-xl
   gather_facts: yes
   become: yes
@@ -28,16 +20,14 @@
     # Qwen36-35B-A3B (UD-Q8_K_XL) track vars — self-contained, no group_vars
     # =====================================================================
 
-    # Container settings — backend is selectable (see the header).
-    #   llm_backend      → image + container name this play deploys
-    #   launch_backends  → one launch script rendered per entry (both by default)
-    llm_backend: "vulkan"
-    launch_backends: [vulkan, rocm]
+    # Container settings — uses Nathanw1014's pre-built Strix Halo tuned image
+    # (Vulkan backend, gfx1151 Flash-Attention + MoE-prefill fixes).
+    #   track_stem       → stem used for container name, script names
     track_stem: "qwen36-35b-ud-q8-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "v0.7.2"
-    docker_image: "{{ image_repo }}:{{ llm_backend }}-{{ image_tag }}"
-    docker_container_name: "{{ track_stem }}-{{ llm_backend }}"
+    image_tag: "vulkan-v0.7.2"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}"
 
     # Model settings
     ctx: 262144
@@ -57,19 +47,6 @@
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
 
   tasks:
-    # -----------------------------------------------------------------------
-    # 0. Backend guard — a typo in -e llm_backend=... should fail here rather
-    # than on the first podman pull.
-    # -----------------------------------------------------------------------
-    - name: Validate the requested backend
-      ansible.builtin.assert:
-        that:
-          - llm_backend in launch_backends
-        fail_msg: "llm_backend='{{ llm_backend }}' is not one of {{ launch_backends }}"
-        quiet: yes
-      run_once: yes
-      tags: [podman, deploy]
-
     # -----------------------------------------------------------------------
     # 1. Ensure models directory exists
     # -----------------------------------------------------------------------
@@ -128,41 +105,16 @@
       tags: [podman, model]
 
     # -----------------------------------------------------------------------
-    # 3. Check podman and deploy container
+    # 3. Create and run the Podman container
     # -----------------------------------------------------------------------
-    - name: Check if podman is available
-      ansible.builtin.command:
-        cmd: which podman
-      register: podman_binary
-      changed_when: false
-      failed_when: false
-      tags: [podman, deploy]
-
-    - name: Stop existing container if running
-      ansible.builtin.command:
-        cmd: "podman stop {{ docker_container_name }}"
-      ignore_errors: yes
-      changed_when: false
-      when: podman_binary.rc == 0
-      tags: [podman, deploy]
-
-    - name: Remove existing container
+    - name: Remove any existing container with the same name
       ansible.builtin.command:
         cmd: "podman rm -f {{ docker_container_name }}"
       ignore_errors: yes
       changed_when: false
-      when: podman_binary.rc == 0
       tags: [podman, deploy]
 
-    - name: Kill anything using the target port
-      ansible.builtin.shell: |
-        fuser -k {{ port }}/tcp 2>/dev/null || true
-      register: port_kill_result
-      changed_when: "'no process' not in port_kill_result.stderr"
-      failed_when: false
-      tags: [podman, deploy]
-
-    - name: Run llama.cpp {{ llm_backend }} container
+    - name: Run llama.cpp container (Podman, single Vulkan)
       ansible.builtin.command:
         cmd: >-
           podman run -d --name {{ docker_container_name }}
@@ -180,28 +132,22 @@
           --ctx-size {{ _docker_ctx_len }}
           --n-gpu-layers {{ n_gpu | d(999) }}
           --batch-size {{ batch | d(256) }}
-      when: podman_binary.rc == 0
-      register: container_run_result
-      changed_when: "'already exists' not in container_run_result.stdout | lower"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
       tags: [podman, deploy]
 
-    # -----------------------------------------------------------------------
-    # 4. Verify
-    # -----------------------------------------------------------------------
-    - name: Check container status after start
-      ansible.builtin.command:
-        cmd: "podman ps -a --filter name={{ docker_container_name }} --format \"{{ '{{' }}.Names{{ '}}' }} {{ '{{' }}.Status{{ '}}' }}\""
-      register: container_status
-      changed_when: false
-      ignore_errors: yes
+    - name: Print container start result
+      ansible.builtin.debug:
+        msg: "Container started: {{ podman_run_result.stdout | default('unknown') }}"
+      when: podman_run_result is defined
       tags: [podman, deploy]
 
-    - name: Show container logs if failed
+    - name: Check if container is running
       ansible.builtin.command:
-        cmd: "podman logs {{ docker_container_name }} --tail 50"
-      register: container_failure_logs
+        cmd: "podman ps --filter name={{ docker_container_name }} --format json"
+      register: container_check
       changed_when: false
-      ignore_errors: yes
+      failed_when: false
       tags: [podman, deploy]
 
     - name: Print container failure info
@@ -213,7 +159,6 @@
             podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged --entrypoint llama-server -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
           
           Check GPU access: ls -la /dev/dri/ /dev/kfd
-          Check {{ llm_backend }}: {{ 'vulkaninfo --summary' if llm_backend == 'vulkan' else 'rocminfo --summary' }}
       tags: [podman, deploy]
 
     - name: Sleep 10s to let container initialize
@@ -243,16 +188,11 @@
         mode: "0755"
       tags: [podman, launch]
 
-    - name: Render one launch script per backend ({{ track_stem }}-<backend>-start.sh) into ~/scripts/
+    - name: Render launch script ({{ track_stem }}-start.sh) into ~/scripts/
       ansible.builtin.template:
         src: "templates/scripts/{{ track_stem }}-start.sh.j2"
-        dest: "{{ _user_home }}/scripts/{{ track_stem }}-{{ item }}-start.sh"
+        dest: "{{ _user_home }}/scripts/{{ track_stem }}-start.sh"
         mode: "0755"
-      vars:
-        script_backend: "{{ item }}"
-      loop: "{{ launch_backends }}"
-      loop_control:
-        label: "{{ track_stem }}-{{ item }}-start.sh"
       tags: [podman, launch]
 
     - name: Ensure pi-configs output directory exists on controller
@@ -276,19 +216,14 @@
     - name: Print deployment summary
       ansible.builtin.debug:
         msg: |
-          ==== llama.cpp {{ llm_backend }} (Podman) deployed on {{ inventory_hostname }} ====
-          Backend: {{ llm_backend }} — scripts rendered for: {{ launch_backends | join(', ') }}
+          ==== llama.cpp (Podman) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }}
           Container: {{ docker_container_name }}
           API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
           Model: {{ _models_dir }}/{{ model }}
           GPU layers: {{ n_gpu | d(999) }}
           Context: {{ _docker_ctx_len }}
-          Launch scripts:
-            ~/scripts/{{ track_stem }}-{{ launch_backends | first }}-start.sh
-            ~/scripts/{{ track_stem }}-{{ launch_backends | last }}-start.sh
-          Both bind port {{ port }} — stop the running container before starting
-          the other backend: podman stop {{ docker_container_name }}
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
 
           === Container log commands ===
           View logs:  podman logs -f {{ docker_container_name }}
