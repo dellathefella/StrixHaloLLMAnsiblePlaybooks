@@ -36,7 +36,8 @@ Playbooks, templates, and host groups use the **descriptive model + quant name**
 |---|---|---|
 | `qwen36-35b-ud-q8-k-xl.yml` | `[qwen36-35b-ud-q8-k-xl]` | `qwen36_35b_ud_q8_k_xl_` |
 | `qwen38-27b-ud-q8-k-xl.yml` | `[qwen38-27b]` | `qwen38_27b_ud_q8_k_xl_` |
-| `qwen38-flash-next-ud-iq4-xs.yml` | `[qwen38-flash-next]` | `qwen38_flash_next_ud_iq4_xs_` |
+| `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `[qwen38-flash-next-ud-q2-k-xl]` | `qwen38_flash_next_ud_q2_k_xl_` |
+| `qwen38-flash-next-ud-iq4-xs-podman.yml` | `[qwen38-flash-next-ud-iq4-xs]` | `qwen38_flash_next_ud_iq4_xs_` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `[gemma-4-26b-a4b-ud-q8-k-xl]` | `gemma_4_26b_a4b_ud_q8_k_xl_` |
 | `qwen35-397b-gptq-rccl.yml` | `[qwen35-397b-gptq-rccl]` | `qwen35_397b_gptq_rccl_` |
 
@@ -227,6 +228,15 @@ For PR-based builds:
     force: yes
   become: no
 ```
+
+### Merged PRs need no PR build
+Before writing a PR-clone task, check whether the PR has since **merged**. The
+`qwen38-flash-next-*` tracks originally needed PR #27742 (`qwen4exp`) built from
+`refs/pull/27742/head` plus a hand-patch to `graph_max_nodes()`; that PR merged
+into master on 2026-08-27, and the container tag pinned here (b10666, built
+2026-08-28) already contains the arch and the patch. Track playbooks therefore
+use the plain image. Verify against the merge commit (or the pinned build's
+`target_commitish`) before assuming a source build is required.
 
 ## Adding a new track
 

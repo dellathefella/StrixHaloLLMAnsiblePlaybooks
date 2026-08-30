@@ -62,6 +62,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-iq4-xs-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
@@ -103,6 +104,8 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
+│   │   ├── qwen38-flash-next-ud-q2-k-xl-podman.yml  Qwen3.8-Flash-Next (Podman Vulkan)
+│   │   ├── qwen38-flash-next-ud-iq4-xs-podman.yml  Qwen3.8-Flash-Next IQ4 (Podman Vulkan)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (localhost)
@@ -112,10 +115,14 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-vulkan-start.sh.j2   Qwen3.6-35B Vulkan launch
 │   │   │   │   ├── qwen38-27b-vulkan-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   ├── qwen38-flash-next-vulkan-start.sh.j2   Flash-Next Q2 launch (3 shards)
+│   │   │   │   ├── qwen38-flash-next-iq4-xs-vulkan-start.sh.j2   Flash-Next IQ4 launch (3 shards)
 │   │   │   │   └── gemma-4-26b-a4b-vulkan-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-flash-next-ud-q2-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs-podman.json.j2
 │   │   │   │   └── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
@@ -159,6 +166,34 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Backend**: Vulkan/RADV
 - **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
+
+### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Model**: Qwen3.8-Flash-Next 125B-A6B UD-Q2_K_XL (~89 GB), 3 shards under
+  `UD-Q2_K_XL/`, renamed locally to `Qwen3.8-Flash-Next-UD-Q2_K_XL/`
+- **Context**: 262144 (native ceiling)
+- **Port**: 8080
+- **Backend**: Vulkan/RADV (`qwen4exp` arch)
+
+### Qwen38-Flash-Next IQ4 (UD-IQ4_XS) — Podman Vulkan
+- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
+- **Model**: Qwen3.8-Flash-Next 125B-A6B UD-IQ4_XS (~87 GiB on disk), 3 shards
+  under `UD-IQ4_XS/`, renamed locally to `Qwen3.8-Flash-Next-UD-IQ4_XS/`.
+  llama.cpp loads the set from part 1, so the shard directory is mounted.
+- **Context**: 131072 (~91 GB resident — the native 262144 does not fit
+  alongside an f16 KV cache in 128 GB)
+- **Port**: 8080
+- **Backend**: Vulkan/RADV — `qwen4exp` is Gated DeltaNet + sparse attention
+  (QSA), 125B total / 6B active plus a 51B n-gram embedding table
+- **Loading**: `--load-mode none` (no mmap); KV cache stays **f16** (`-ctk/-ctv`)
+  because quantized KV asserts and dies on this arch
+- **Sampling**: `--jinja`, `--reasoning on`, defaults temp 1.0 / top-p 0.95 /
+  top-k 20 / min-p 0.0, `--parallel 1` (single slot), `-ngl 999`, `-fa on`
+- **Engine**: `qwen4exp` landed in llama.cpp via PR #27742 (merged 2026-08-27)
+  together with the `LLM_ARCH_QWEN4EXP` entry in `graph_max_nodes()`; the pinned
+  b10666 image already contains both, so no PR-branch build or local patch.
+- **Measured** on a 128 GB Strix Halo (llama-bench, fa on): pp512 ~390 t/s,
+  pp4096 ~357 t/s, tg128 ~23 t/s.
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 - **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10666`
@@ -205,6 +240,13 @@ hf download unsloth/gemma-4-26B-A4B-it-GGUF gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf \
 hf download unsloth/gemma-4-26B-A4B-it-GGUF mmproj-F16.gguf \
   --local-dir ~/models       # lands as ~/models/mmproj-F16.gguf,
                              # renamed to gemma-4-26B-A4B-it-mmproj-F16.gguf
+
+# Qwen3.8-Flash-Next (UD-IQ4_XS, 3 shards, ~87 GiB)
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf --local-dir ~/models
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf --local-dir ~/models
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf --local-dir ~/models
+                             # land in ~/models/UD-IQ4_XS/, renamed by the
+                             # playbook to ~/models/Qwen3.8-Flash-Next-UD-IQ4_XS/
 ```
 
 ## Launch Scripts
@@ -220,6 +262,12 @@ target host. The bootstrap also drops PI agent configs into
 
 # Qwen3.8-27B (Podman Vulkan + MTP)
 ~/scripts/qwen38-27b-vulkan-start.sh
+
+# Qwen3.8-Flash-Next (UD-Q2_K_XL, Podman Vulkan)
+~/scripts/qwen38-flash-next-vulkan-start.sh
+
+# Qwen3.8-Flash-Next IQ4 (UD-IQ4_XS, Podman Vulkan)
+~/scripts/qwen38-flash-next-iq4-xs-vulkan-start.sh
 
 # Gemma 4 26B A4B (Podman Vulkan, image input)
 ~/scripts/gemma-4-26b-a4b-vulkan-start.sh
@@ -241,6 +289,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
   - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-flash-next-ud-iq4-xs-podman.json` — provider `qwen38-flash-next-ud-iq4-xs` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
@@ -260,6 +309,7 @@ you open `/model`; no restart needed).
 - `QWEN36_35B_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN38_27B_VULKAN_*` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `QWEN38_FLASH_NEXT_VULKAN_*` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `QWEN38_FLASH_NEXT_IQ4XS_VULKAN_*` (CONTAINER/PORT/MODEL/SHARDS/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
 - `GEMMA4_26B_VULKAN_*` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
 
@@ -275,6 +325,10 @@ nightlies, latest llama.cpp from source):
 - **MoE models need 2^n batching** — `batch=256` for qwen36-35b-ud-q8-k-xl (38.5 GB, fits KV cache).
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
+- **`qwen4exp` (Qwen3.8-Flash-Next) must keep an f16 KV cache** — quantized KV
+  asserts and dies on that arch. The UD-IQ4_XS profile therefore pins
+  `-ctk/-ctv f16`, `--load-mode none` and ctx 131072 (~91 GB resident); the
+  native 262144 does not fit next to the weights in 128 GB.
 - **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
   ≈ 3 GB/token ≈ 65-70 t/s at 8-bit UD-Q8_K_XL.
 

@@ -61,6 +61,7 @@ For each task, score these dimensions:
 |---|---|---|---|---|---|
 | Qwen3.6-35B-A3B | | | | | UD-Q8_K_XL, ~65 t/s |
 | Gemma 4 26B-A4B | | | | | UD-Q8_K_XL, ~45 t/s |
+| Qwen3.8-Flash-Next 125B-A6B | | | | | UD-IQ4_XS, ~23 t/s decode, ~390 t/s pp512 |
 | gpt-oss-120B | | | | | MXFP4, ~55 t/s |
 | | | | | | |
 
