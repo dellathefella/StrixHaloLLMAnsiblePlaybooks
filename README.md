@@ -1,4 +1,4 @@
-# StrixHalo LLM Ansible Playbooks — Ryzen AI Max (HP Z2 G1a)
+﻿# StrixHalo LLM Ansible Playbooks — Ryzen AI Max (HP Z2 G1a)
 
 Organized workspace for bootstrapping AMD ROCm / Vulkan LLM inference on the
 Ryzen AI Max "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs —
@@ -11,7 +11,7 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 All llama.cpp tracks run locally on a single machine:
 
 - **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
-  via Podman Vulkan container (`ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`).
+  via Podman Vulkan container (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`).
   Port 8080, ctx 262144.
 
 - **Qwen38-27B (UD-Q4_K_XL)** — Qwen3.8-27B (UD-Q4_K_XL) via Podman Vulkan
@@ -150,14 +150,14 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 ## Track Details
 
 ### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
 - **Port**: 8080
 - **Backend**: Vulkan/RADV
 
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
   (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
@@ -168,7 +168,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
 
 ### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-Q2_K_XL (~89 GB), 3 shards under
   `UD-Q2_K_XL/`, renamed locally to `Qwen3.8-Flash-Next-UD-Q2_K_XL/`
 - **Context**: 262144 (native ceiling)
@@ -176,7 +176,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Backend**: Vulkan/RADV (`qwen4exp` arch)
 
 ### Qwen38-Flash-Next IQ4 (UD-IQ4_XS) — Podman Vulkan
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-IQ4_XS (~87 GiB on disk), 3 shards
   under `UD-IQ4_XS/`, renamed locally to `Qwen3.8-Flash-Next-UD-IQ4_XS/`.
   llama.cpp loads the set from part 1, so the shard directory is mounted.
@@ -196,7 +196,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
   pp4096 ~357 t/s, tg128 ~23 t/s.
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
-- **Container**: `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10680`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
 - **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
   `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
@@ -348,7 +348,7 @@ needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman trac
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
-local llama.cpp build step, and use the official `ghcr.io/ggml-org/llama.cpp:server-vulkan-b10644`
+local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 Vulkan container instead. MTP speculation args are baked into both the container
 `run` command and the rendered launch script.
 

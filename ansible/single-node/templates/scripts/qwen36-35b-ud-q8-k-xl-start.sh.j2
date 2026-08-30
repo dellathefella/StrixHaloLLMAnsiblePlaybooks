@@ -1,6 +1,6 @@
-{%- set backend = script_backend | default(llm_backend) -%}
+﻿{%- set backend = script_backend | default(llm_backend) -%}
 {%- set other_backend = 'rocm' if backend == 'vulkan' else 'vulkan' -%}
-{%- set image = image_repo ~ ':server-' ~ backend ~ '-' ~ image_tag -%}
+{%- set image = image_repo ~ ':' ~ backend ~ '-' ~ image_tag -%}
 {%- set container = track_stem ~ '-' ~ backend -%}
 {%- set pfx = (track_stem ~ '-' ~ backend) | upper | replace('-', '_') -%}
 {%- macro ref(name) -%}{{ '$' }}{{ '{' }}{{ pfx }}_{{ name }}{{ '}' }}{%- endmacro -%}
@@ -45,6 +45,7 @@ start_container() {
     --device=/dev/dri/renderD128 \
     --device=/dev/kfd \
     --privileged \
+    --entrypoint llama-server \
     -v {{ ref('MODEL') }}:{{ ref('MODEL') }}:ro \
     -p {{ ref('PORT') }}:{{ ref('PORT') }} \
     {{ ref('IMAGE') }} \

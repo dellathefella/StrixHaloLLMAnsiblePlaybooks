@@ -1,4 +1,4 @@
----
+﻿---
 # =============================================================================
 # gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 # Gemma 4 26B A4B it (UD-Q8_K_XL quantization, ~27.6 GB) — llama.cpp via Podman,
@@ -7,7 +7,7 @@
 #   ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-vulkan-start.sh
 #   ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-rocm-start.sh
 #
-# Uses: ghcr.io/ggml-org/llama.cpp:server-<llm_backend>-b10680
+# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:<llm_backend>-v0.7.2
 #
 # Almost identical to the qwen36-35b-ud-q8-k-xl track (port 8080, ctx 262144,
 # batch 256, n-gpu-layers 999) with one addition: the vision projector
@@ -37,9 +37,9 @@
     llm_backend: "vulkan"
     launch_backends: [vulkan, rocm]
     track_stem: "gemma-4-26b-a4b-ud-q8-k-xl"
-    image_repo: "ghcr.io/ggml-org/llama.cpp"
-    image_tag: "b10680"
-    docker_image: "{{ image_repo }}:server-{{ llm_backend }}-{{ image_tag }}"
+    image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
+    image_tag: "v0.7.2"
+    docker_image: "{{ image_repo }}:{{ llm_backend }}-{{ image_tag }}"
     docker_container_name: "{{ track_stem }}-{{ llm_backend }}"
 
     # Model settings — single GGUF at the repo root, native ctx 262144
@@ -234,6 +234,7 @@
           --device=/dev/dri/renderD128
           --device=/dev/kfd
           --privileged
+          --entrypoint llama-server
           -v {{ _models_dir }}:{{ _models_dir }}:ro
           -p {{ port }}:{{ port }}
           {{ docker_image }}
@@ -282,7 +283,7 @@
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
           
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --mmproj {{ _models_dir }}/{{ mmproj_local }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged --entrypoint llama-server -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --mmproj {{ _models_dir }}/{{ mmproj_local }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(256) }}
           
           Image input also needs the projector to load — look for "mmproj"/"mtmd"
           lines above. If the load was killed out of memory, try a smaller ctx
