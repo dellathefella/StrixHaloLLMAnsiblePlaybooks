@@ -36,6 +36,7 @@ Playbooks, templates, and host groups use the **descriptive model + quant name**
 |---|---|---|
 | `qwen36-35b-ud-q8-k-xl.yml` | `[qwen36-35b-ud-q8-k-xl]` | `qwen36_35b_ud_q8_k_xl_` |
 | `qwen38-27b-ud-q8-k-xl.yml` | `[qwen38-27b]` | `qwen38_27b_ud_q8_k_xl_` |
+| `qwen38-27b-rocmfp4-podman.yml` | `[qwen38-27b-rocmfp4]` | `qwen38_27b_rocmfp4_` |
 | `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `[qwen38-flash-next-ud-q2-k-xl]` | `qwen38_flash_next_ud_q2_k_xl_` |
 | `qwen38-flash-next-ud-iq4-xs-podman.yml` | `[qwen38-flash-next-ud-iq4-xs]` | `qwen38_flash_next_ud_iq4_xs_` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `[gemma-4-26b-a4b-ud-q8-k-xl]` | `gemma_4_26b_a4b_ud_q8_k_xl_` |

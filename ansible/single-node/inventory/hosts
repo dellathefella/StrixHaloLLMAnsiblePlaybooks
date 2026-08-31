@@ -30,9 +30,16 @@ halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
 # halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
 
+[qwen38-27b-rocmfp4]
+# Qwen3.8-27B via ROCmFPX Podman (ROCmFP4_FAST quant, custom julianmb engine, built-in MTP)
+# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+
+
 [aiservers:children]
 qwen38-27b-ud-q4-k-xl
 qwen36-35b-ud-q8-k-xl
 qwen38-flash-next-ud-q2-k-xl
 qwen38-flash-next-ud-iq4-xs
 gemma-4-26b-a4b-ud-q8-k-xl
+qwen38-27b-rocmfp4

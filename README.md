@@ -20,6 +20,13 @@ All llama.cpp tracks run locally on a single machine:
   batch 2048 / ubatch 512, flash-attn on, mmap loading, single slot).
   Port 8084, ctx 262144.
 
+- **Qwen38-27B (ROCmFP4_FAST, ROCmFPX engine)** — Qwen3.8-27B (ROCmFP4_FAST,
+  ~13.5 GB) on the custom `julianmb/q38rocm` ROCmFPX llama.cpp fork — PULLED
+  from `ghcr.io/julianmb/q38rocm:1.5.3` (never built). MTP is **built into the
+  model** (no separate drafter file). The image's `run_server.sh` entrypoint
+  builds the full "speed" profile command (ctx 131072, MTP draft-n 4, KV
+  K=q8_0/V=turbo4, 128K prompt cache, auto Vulkan0/ROCm0). Port 8085, ctx 131072.
+
 - **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
   Vulkan container. Port 8080, ctx 262144.
 
@@ -61,6 +68,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-rocmfp4-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-iq4-xs-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
@@ -103,7 +111,8 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
-│   │   ├── qwen38-27b-ud-q8-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
+│   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
+│   │   ├── qwen38-27b-rocmfp4-podman.yml  Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, built-in MTP)
 │   │   ├── qwen38-flash-next-ud-q2-k-xl-podman.yml  Qwen3.8-Flash-Next (Podman Vulkan)
 │   │   ├── qwen38-flash-next-ud-iq4-xs-podman.yml  Qwen3.8-Flash-Next IQ4 (Podman Vulkan)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
@@ -115,12 +124,14 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   ├── qwen38-27b-rocmfp4-start.sh.j2   Qwen3.8-27B ROCmFPX launch (prebuilt image)
 │   │   │   │   ├── qwen38-flash-next-ud-q2-k-xl-start.sh.j2   Flash-Next Q2 launch (3 shards)
 │   │   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Flash-Next IQ4 launch (3 shards)
 │   │   │   │   └── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   ├── pi-qwen38-27b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-27b-rocmfp4-podman.json.j2
 │   │   │   │   ├── pi-qwen38-flash-next-ud-q2-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs-podman.json.j2
 │   │   │   │   └── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
@@ -166,6 +177,22 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Backend**: Vulkan/RADV
 - **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
+
+### Qwen38-27B (ROCmFP4_FAST) — ROCmFPX engine (julianmb/q38rocm)
+- **Container**: `ghcr.io/julianmb/q38rocm:1.5.3` — custom ROCmFPX llama.cpp
+  fork, **pulled from GHCR (never built)**. The only track that does not use the
+  Nathanw1014 image; its `run_server.sh` entrypoint builds the full server
+  command, so no raw `llama-server` flags are passed.
+- **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` (ROCmFP4_FAST, ~13.5 GB) from
+  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF`; SHA256-verified after download.
+- **MTP**: **built into the model** — `--spec-type draft-mtp` with no separate
+  `--model-draft` drafter file (unlike the UD-Q4_K_XL track).
+- **Speed profile defaults**: ctx 131072, MTP draft-n 4, KV K=q8_0/V=turbo4,
+  batch 2048 / ubatch 1024, temperature 0, 128K prompt cache (32 GiB / 64 ckpts).
+- **Port**: 8085 (host) → 8000 (container; fixed by the image)
+- **GPU**: `/dev/kfd` + `/dev/dri/renderD128`, auto Vulkan0→ROCm0; Strix Halo
+  env (HSA_OVERRIDE_GFX_VERSION=11.5.1, unified memory) set inside the image.
+- **Slots**: 1 (override with the `parallel` playbook var).
 
 ### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
@@ -263,6 +290,9 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.8-27B (Podman Vulkan + MTP)
 ~/scripts/qwen38-27b-ud-q4-k-xl-start.sh
 
+# Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, prebuilt julianmb/q38rocm image)
+~/scripts/qwen38-27b-rocmfp4-start.sh
+
 # Qwen3.8-Flash-Next (UD-Q2_K_XL, Podman Vulkan)
 ~/scripts/qwen38-flash-next-ud-q2-k-xl-start.sh
 
@@ -288,6 +318,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
+  - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8085/v1`
   - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ud-iq4-xs-podman.json` — provider `qwen38-flash-next-ud-iq4-xs` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
@@ -312,6 +343,7 @@ The settings below are baked into the rendered script as plain shell variables
 re-run it to change them.
 - `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
+- `qwen38-27b-rocmfp4-start.sh` (CONTAINER/HOST_PORT/CONTAINER_PORT/IMAGE/CTX/SLOTS — prebuilt julianmb/q38rocm image)
 - `qwen38-flash-next-ud-q2-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-flash-next-ud-iq4-xs-start.sh` (CONTAINER/PORT/MODEL/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)

@@ -24,12 +24,19 @@
   gather_facts: yes
   become: yes
   tags: [install-amdgpu]
-  when: ansible_facts['distribution'] | lower == "ubuntu"
 
   vars:
     amdgpu_install_url: "https://repo.radeon.com/amdgpu-install/7.2.1/ubuntu/noble/amdgpu-install_7.2.1.70201-1_all.deb"
 
   tasks:
+    # --- 0. Ubuntu-only gate. Play-level `when` is not valid in Ansible, so
+    #        the play is gated with a first-task meta: end_host. Tagged so the
+    #        gate still applies under `--tags install-amdgpu`. ---
+    - name: Skip non-Ubuntu hosts (this play is Ubuntu-only)
+      ansible.builtin.meta: end_host
+      when: ansible_facts['distribution'] | default('') | lower != "ubuntu"
+      tags: [install-amdgpu]
+
     # --- 1. System upgrade ---
     - name: Upgrade all packages
       ansible.builtin.apt:
