@@ -20,7 +20,7 @@
 # =============================================================================
 
 - name: "install-amdgpu — Ubuntu base: system upgrade + ROCm on Ryzen"
-  hosts: all
+  hosts: aiservers
   gather_facts: yes
   become: yes
   tags: [install-amdgpu]

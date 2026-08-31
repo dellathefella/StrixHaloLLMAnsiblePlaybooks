@@ -10,7 +10,7 @@
 # =============================================================================
 
 - name: "install-podman — detect OS and install podman"
-  hosts: all
+  hosts: aiservers
   gather_facts: yes
   become: yes
   tags: [podman]

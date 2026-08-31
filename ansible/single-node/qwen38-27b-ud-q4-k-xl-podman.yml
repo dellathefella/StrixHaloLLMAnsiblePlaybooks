@@ -17,7 +17,7 @@
 # =============================================================================
 
 - name: "podman — setup + deploy llama.cpp container (UD-Q4_K_XL)"
-  hosts: qwen38-27b-ud-q4-k-xl
+  hosts: vulkan
   gather_facts: yes
   become: yes
   tags: [qwen38-27b-ud-q4-k-xl-podman]

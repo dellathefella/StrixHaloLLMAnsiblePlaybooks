@@ -17,7 +17,7 @@
 # =============================================================================
 
 - name: "set-grub-ttm — configure TTM kernel args and reboot"
-  hosts: all
+  hosts: aiservers
   gather_facts: yes
   become: yes
   tags: [grub, ttm]

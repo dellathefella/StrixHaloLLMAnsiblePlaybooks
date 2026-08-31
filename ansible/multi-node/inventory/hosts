@@ -6,3 +6,12 @@
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 # Add additional nodes here for the cluster:
 # worker1 ansible_host=<worker1_ip> ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+
+# Capability groups — group hosts by GPU backend. The qwen35 track is a
+# vLLM/ROCm (RCCL) deployment, so it sits under `rocm`; `aiservers` is the union
+# of all inference hosts and is what the shared host-level plays target.
+[rocm:children]
+qwen35-397b-gptq-rccl
+
+[aiservers:children]
+rocm

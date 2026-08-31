@@ -1,5 +1,5 @@
 - name: "bootstrap — Qwen3.5-397B GPTQ RCCL track: vLLM container + models dir"
-  hosts: qwen35-397b-gptq-rccl
+  hosts: rocm
   gather_facts: yes
   become: yes
   tags: [qwen35-397b-gptq-rccl]
@@ -93,7 +93,7 @@
 # Launch render — drop local qwen35-397b-gptq-rccl launch script + pi config
 # -----------------------------------------------------------------------------
 - name: "bootstrap — drop local qwen35-397b-gptq-rccl launch script + pi config"
-  hosts: qwen35-397b-gptq-rccl
+  hosts: rocm
   gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
   become: no
   run_once: yes

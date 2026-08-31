@@ -25,7 +25,7 @@
 # =============================================================================
 
 - name: "podman — setup + deploy llama.cpp container (UD-IQ4_XS)"
-  hosts: qwen38-flash-next-ud-iq4-xs
+  hosts: vulkan
   gather_facts: yes
   become: yes
   tags: [qwen38-flash-next-ud-iq4-xs-podman]

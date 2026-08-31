@@ -85,8 +85,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 
 ### Root Bootstrap (imports both)
 ```bash
-# Convenience wrapper (not recommended for production use):
-ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
+# Convenience wrapper (not recommended): imports BOTH the single-node and multi-node
+# bootstraps. Each sub-bootstrap targets its OWN capability-group inventory, so run
+# the sub-bootstrap for the topology you need rather than the root wrapper:
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
 ```
 
 ## Layout
@@ -107,7 +110,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
 │   │   └── set-limine-ttm.yml     Limine bootloader TTM settings
 │   │
-│   ├── single-node/               Single-node tracks (all run on localhost)
+│   ├── single-node/               Single-node tracks (one host, one model at a time)
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
@@ -117,9 +120,9 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   │   ├── qwen38-flash-next-ud-iq4-xs-podman.yml  Qwen3.8-Flash-Next IQ4 (Podman Vulkan)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── inventory/
-│   │   │   ├── hosts              single-node inventory (localhost)
-│   │   │   └── group_vars/
-│   │   │       └── all.yml        shared vars for single-node tracks
+│   │   │   ├── hosts              single-node inventory (vulkan/rocm → aiservers)
+│   │   │   ├── hosts.example      sample multi-machine inventory
+│   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
@@ -142,11 +145,10 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster [qwen35-397b]
+│   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster (targets rocm)
 │   │   ├── inventory/
-│   │   │   ├── hosts              multi-node inventory (localhost + workers)
-│   │   │   └── group_vars/
-│   │   │       └── all.yml        shared vars for multi-node tracks
+│   │   │   ├── hosts              multi-node inventory (localhost + workers; rocm → aiservers)
+│   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
 │   │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch
 │   │   │   └── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
@@ -331,7 +333,7 @@ you open `/model`; no restart needed).
 ## Config Variables (inventory / env)
 
 ### Single-Node Tracks
-(All single-node playbooks are self-contained with inline vars — no group_vars needed.)
+(All single-node playbooks are self-contained with inline vars — no group_vars needed. The ROCmFP4 track groups its per-model knobs into a `rocm_image_profiles` dict selected by `active_profile`, deriving `docker_image`/`model`/`port`/`ctx`/`parallel` from the active profile.)
 
 ### Multi-Node Tracks
 - Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)

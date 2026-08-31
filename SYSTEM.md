@@ -19,10 +19,10 @@ ansible/
   templates/
     <track>-start.sh.j2        launch script — rendered to scripts/
     pi-<track>.json.j2         pi agent config — rendered to pi-configs/
-  inventory/
-    hosts                      real inventory (local groups + vars)
-    hosts.example              sample multi-machine inventory
-    group_vars/all.yml         single source of truth: defaults for all hosts
+  single-node/ + multi-node/   per-track playbooks, bootstrap, inventory, templates
+    inventory/hosts            real inventory — capability groups (vulkan / rocm → aiservers)
+    inventory/hosts.example    sample multi-machine inventory (single-node only)
+    inventory/group_vars/all   placeholder (empty) — tracks define their vars inline
 scripts/                       rendered launch scripts + local installers
 pi-configs/                    rendered pi provider configs
 ```
@@ -30,38 +30,50 @@ pi-configs/                    rendered pi provider configs
 ## Track naming convention
 
 ### File naming
-Playbooks, templates, and host groups use the **descriptive model + quant name**:
+Playbooks and templates use the **descriptive model + quant name**. Plays target a
+**capability group** (GPU backend) rather than one model — `aiservers` is the union of
+all inference hosts, with `vulkan` and `rocm` underneath. A host runs one model at a
+time, so hosts are placed **directly** in their backend group (`vulkan`/`rocm`); the
+model is chosen by which track playbook you run, not by group membership.
 
-| Playbook | Host group tag | Variable prefix |
+| Playbook | Play targets (`hosts:`) | Track tag (`tags:`) |
 |---|---|---|
-| `qwen36-35b-ud-q8-k-xl.yml` | `[qwen36-35b-ud-q8-k-xl]` | `qwen36_35b_ud_q8_k_xl_` |
-| `qwen38-27b-ud-q8-k-xl.yml` | `[qwen38-27b]` | `qwen38_27b_ud_q8_k_xl_` |
-| `qwen38-27b-rocmfp4-podman.yml` | `[qwen38-27b-rocmfp4]` | `qwen38_27b_rocmfp4_` |
-| `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `[qwen38-flash-next-ud-q2-k-xl]` | `qwen38_flash_next_ud_q2_k_xl_` |
-| `qwen38-flash-next-ud-iq4-xs-podman.yml` | `[qwen38-flash-next-ud-iq4-xs]` | `qwen38_flash_next_ud_iq4_xs_` |
-| `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `[gemma-4-26b-a4b-ud-q8-k-xl]` | `gemma_4_26b_a4b_ud_q8_k_xl_` |
-| `qwen35-397b-gptq-rccl.yml` | `[qwen35-397b-gptq-rccl]` | `qwen35_397b_gptq_rccl_` |
+| `qwen36-35b-ud-q8-k-xl-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-podman` |
+| `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
+| `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ud-q2-k-xl-podman` |
+| `qwen38-flash-next-ud-iq4-xs-podman.yml` | `vulkan` | `qwen38-flash-next-ud-iq4-xs-podman` |
+| `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
+| `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
+| `qwen35-397b-gptq-rccl.yml` (multi-node) | `rocm` | `qwen35-397b-gptq-rccl` |
 
 ### Template naming
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`
 - Pi config: `templates/pi-<playbook-name>.json.j2` → renders to `pi-configs/pi-<playbook-name>.json`
 
-### Variable prefix rules
-- Replace dashes with underscores in the playbook name to form the prefix.
-- `qwen36-35b-ud-q8-k-xl` → `qwen36_35b_ud_q8_k_xl_`
-- `qwen38-flash-next-ud-iq4-xs` → `qwen38_flash_next_ud_iq4_xs_`
+### Variable conventions
+Each track playbook is **self-contained** — it defines its own `vars:` block and uses
+**no `group_vars`**. Common per-track vars:
+- `track_stem` — model stem; basis for the container name and rendered script/config names
+- `image_repo` / `image_tag` — container image to pull (`docker_image: "{{ image_repo }}:{{ image_tag }}"`)
+- `model` / `model_sha256` / `hf_repo` — model file, its checksum, and the HF repo
+- `port` / `ctx` / `parallel` — host port, context window, and slot count
 
-### Variable naming for llama.cpp tracks
-Each llama.cpp track needs **separate** variable names for its engine clone and HF repo:
-
-| Purpose | Variable suffix | Example |
-|---|---|---|
-| HF repo name (URL) | `_hf_repo` | `qwen38_27b_ud_q8_k_xl_hf_repo: "unsloth/Qwen3.8-27B-GGUF"` |
-| Local engine clone path | `_engine_repo` | `qwen38_27b_ud_q8_k_xl_engine_repo: "{{ llama_common_home }}/llama-cpp-qwen38-27b"` |
-| Local engine prefix | `_engine_prefix` | `qwen38_27b_ud_q8_k_xl_engine_prefix: "{{ llama_common_home }}/llama-cpp-qwen38-27b"` |
-| Local engine binary | `_engine_bin` | `qwen38_27b_ud_q8_k_xl_engine_bin: "{{ llama_common_home }}/llama-cpp-qwen38-27b/bin/llama-server"` |
-
-**Never** use bare `_repo` or `_bin` — always use the `_engine_*` variants for local paths to avoid ambiguity with HF repo names.
+Tracks that may serve more than one model group the model-specific knobs into a
+**profile dict** selected by `active_profile` (see `qwen38-27b-rocmfp4-podman.yml`):
+```yaml
+active_profile: "qwen38-27b-rocmfp4"
+rocm_image_profiles:
+  qwen38-27b-rocmfp4:
+    image: "ghcr.io/julianmb/q38rocm:1.5.3"
+    model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+    model_sha256: "..."
+    hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
+    port: 8080
+    ctx: 131072
+    parallel: 1
+```
+Flat vars (`docker_image`, `model`, `port`, ...) are derived from
+`{{ rocm_image_profiles[active_profile] }}`, so `image_repo`/`image_tag` keep working.
 
 ## Playbook structure
 
@@ -92,7 +104,8 @@ The orchestrator tag for the whole bootstrap is the playbook's `--tags` value �
 ## Shared vs isolated directories
 
 ### Shared (common) paths
-Defined in `group_vars/all.yml` as `llama_common_*`:
+Legacy source-build tracks shared these as `llama_common_*`; the podman tracks are
+self-contained and `group_vars/all.yml` is an empty placeholder:
 - `llama_common_home`: `/home/{{ ansible_user }}`
 - `llama_common_models_dir`: `{{ llama_common_home }}/.local/share/llama-models`
 - `llama_common_repo_url`: `https://github.com/ggml-org/llama.cpp.git`
@@ -235,10 +248,10 @@ use the plain image. Verify against the merge commit (or the pinned build's
 
 ## Adding a new track
 
-1. Define vars in `group_vars/all.yml`:
-   - `_hf_repo`, `_engine_repo`, `_engine_prefix`, `_engine_bin`
-   - `_model`, `_ctx`, `_port`, `_host`, `_device`, `_n_gpu`, `_threads`
-   - Plus any track-specific flags (`_batch`, `_ubatch`, `_flash_attn`, etc.)
+1. Define the track's vars inline in its playbook `vars:` block (self-contained, no
+   `group_vars`): `track_stem`, `image_repo`/`image_tag`, `model`/`model_sha256`/`hf_repo`,
+   `port`/`ctx`/`parallel`, plus any track-specific flags. For multi-model tracks use
+   the `active_profile` + profile-dict pattern (see `qwen38-27b-rocmfp4-podman.yml`).
 
 2. Create `ansible/<track>.yml` with two plays (bootstrap + render), following the two-play pattern above.
 
@@ -246,7 +259,9 @@ use the plain image. Verify against the merge commit (or the pinned build's
    - `ansible/templates/<track>-start.sh.j2`
    - `ansible/templates/pi-<track>.json.j2`
 
-4. Add host group to `ansible/inventory/hosts` and `hosts.example`.
+4. Add the host to its capability group (`vulkan` or `rocm`, under `aiservers`) in the
+   track's `inventory/hosts`; mirror it in `hosts.example`. A host runs one model at a
+   time, so there is no per-model group to add.
 
 5. Add `import_playbook` to `ansible/bootstrap.yml`.
 

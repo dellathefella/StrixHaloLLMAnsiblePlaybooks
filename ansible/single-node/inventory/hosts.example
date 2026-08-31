@@ -1,0 +1,44 @@
+# =============================================================================
+# hosts.example — Single-Node inventory TEMPLATE
+#
+# Copy this file to `hosts` and edit the host names / ansible_host values.
+#
+# Layout — hosts are grouped by GPU BACKEND, not by model. Only ONE model runs
+# on a host at a time; the model is chosen by which track playbook you run:
+#
+#   aiservers                     <- every inference host; the shared host-level
+#   |                                 plays (podman, hf-cli, amdgpu, ...) target this
+#   +-- vulkan                    <- hosts that run the Podman Vulkan tracks
+#   |                                 (Qwen3.6-35B, Qwen3.8-27B, Qwen3.8-Flash-Next
+#   |                                  x2, Gemma 4 26B)
+#   +-- rocm                      <- hosts that run the Podman ROCmFPX track
+#                                     (Qwen3.8-27B ROCmFP4_FAST)
+#
+# A host can sit in BOTH vulkan and rocm (one machine running either backend's
+# model, one at a time). For a multi-machine setup, put each machine in the
+# backend group(s) it should run.
+#
+# Connection notes (Strix Halo, native password-fed become, no NOPASSWD):
+#   ansible_become_exe=/usr/bin/sudo.ws  -> classic C sudo (plain -p prompt).
+#   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:', which
+#   ansible's become prompt-match never detects (times out).
+# =============================================================================
+
+# --- Vulkan backend -----------------------------------------------------------
+# Podman Vulkan (llama.cpp) tracks. One box running all five Vulkan models, one
+# at a time (the common single-node setup).
+[vulkan]
+halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+
+# --- ROCm backend -------------------------------------------------------------
+# Podman ROCmFPX track. Same box as vulkan for a single-machine setup; point
+# this at a dedicated host (e.g. halo0) if you run ROCm on a separate machine.
+[rocm]
+halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+
+# --- Union group --------------------------------------------------------------
+# aiservers = every inference host (targeted by the shared host-level plays).
+[aiservers:children]
+vulkan
+rocm

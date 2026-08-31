@@ -24,7 +24,7 @@
 # =============================================================================
 
 - name: "podman — setup + deploy ROCmFPX llama.cpp container (ROCmFP4_FAST)"
-  hosts: qwen38-27b-rocmfp4
+  hosts: rocm
   gather_facts: yes
   become: yes
   tags: [qwen38-27b-rocmfp4-podman]
@@ -32,25 +32,47 @@
   vars:
     track_stem: "qwen38-27b-rocmfp4"
 
-    # Public prebuilt image — PULLED, not built (avoids the local ROCm engine
-    # build entirely).
-    image_repo: "ghcr.io/julianmb/q38rocm"
-    image_tag: "1.5.3"
-    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    # =====================================================================
+    # Model PROFILE — per-model config (no group_vars). `active_profile` selects
+    # which model this track serves; every model-specific knob lives in the
+    # profile dict, so a future ROCm track only adds an entry here.
+    #   image        → container image to pull and run (repo:tag)
+    #   model        → GGUF filename inside the HF repo
+    #   model_sha256 → sha256 of that file (verified after download)
+    #   hf_repo      → HuggingFace repo that hosts the model file
+    #   port         → host port -> container 8000 (one server at a time)
+    #   ctx          → server context window (--ctx)
+    #   parallel     → number of server slots (--slots)
+    # =====================================================================
+    active_profile: "qwen38-27b-rocmfp4"
+    rocm_image_profiles:
+      qwen38-27b-rocmfp4:
+        # Public prebuilt image — PULLED, not built (avoids the local ROCm engine
+        # build entirely).
+        image: "ghcr.io/julianmb/q38rocm:1.5.3"
+        model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+        model_sha256: "fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9"
+        hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
+        port: 8080                    # host port -> container 8000 (shared with the
+                                      # other Podman tracks - one server at a time)
+        ctx: 131072
+        parallel: 1
+
+    # Derived from the active profile — keeps `image_repo`/`image_tag` semantics for
+    # anything that still references them, plus the flat container/server settings
+    # the tasks use below.
+    profile: "{{ rocm_image_profiles[active_profile] }}"
+    image_repo: "{{ profile.image.split(':')[0] }}"
+    image_tag: "{{ profile.image.split(':')[1] }}"
+    docker_image: "{{ profile.image }}"
     docker_container_name: "{{ track_stem }}"
-    container_internal_port: 8000   # fixed by the image (run_server.sh + HEALTHCHECK)
-
-    # Model — single file. MTP head is built in (no separate drafter).
-    model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
-    model_sha256: "fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9"
-    hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
-
-    # Server settings — the image's speed profile is the default; these two are
-    # the only knobs we override. parallel == number of server slots (--slots).
-    ctx: 131072
-    parallel: 1
-    port: 8080                      # host port -> container 8000 (shared with the other
-                                    # Podman tracks - one server at a time)
+    container_internal_port: 8000    # fixed by the image (run_server.sh + HEALTHCHECK)
+    model: "{{ profile.model }}"
+    model_sha256: "{{ profile.model_sha256 }}"
+    hf_repo: "{{ profile.hf_repo }}"
+    port: "{{ profile.port }}"
+    ctx: "{{ profile.ctx }}"
+    parallel: "{{ profile.parallel }}"
 
     # The model is mounted at /app/models (read-only). The image's prompt-cache
     # checkpoints go to /app/cache/slots (writable container fs), NOT here.

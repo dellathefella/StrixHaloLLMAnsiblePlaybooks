@@ -18,7 +18,7 @@
 # =============================================================================
 
 - name: "set-limine-ttm — configure TTM kernel args in Limine and reboot"
-  hosts: all
+  hosts: aiservers
   gather_facts: yes
   become: yes
   tags: [limine, ttm]

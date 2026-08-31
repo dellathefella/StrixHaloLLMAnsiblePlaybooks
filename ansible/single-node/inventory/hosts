@@ -1,45 +1,32 @@
 # Single-node inventory for ansible/bootstrap.yml.
-# This HP Z2 G1a runs all single-node tracks (Qwen3 Podman tracks).
+#
+# halo1 runs ONE model at a time. It is both a Vulkan and a ROCm host, so it is
+# listed in both capability groups below; the model you launch is chosen by
+# which track playbook you run (one at a time), not by group membership.
+#
 # Local connection + password-fed become (native, no NOPASSWD):
 #   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:'
 #   which ansible's become prompt-match never detects (times out).
 
-[qwen36-35b-ud-q8-k-xl]
-# Qwen3.6-35B-A3B via llama.cpp Podman Vulkan (UD-Q8_K_XL quant)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella  
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
+# Capability groups — hosts are grouped by GPU BACKEND so playbooks target a
+# backend (vulkan / rocm) instead of one model. `aiservers` is the union of all
+# inference hosts and is what the shared host-level plays target.
 
-[qwen38-27b-ud-q4-k-xl]
-# Qwen3.8-27B via llama.cpp Podman Vulkan (UD-Q4_K_XL quant, MTP speculation)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella  
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
-
-[qwen38-flash-next-ud-q2-k-xl]
-# Qwen3.8-Flash-Next via llama.cpp Podman Vulkan (UD-Q2_K_XL quant)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella  
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
-
-[gemma-4-26b-a4b-ud-q8-k-xl]
-# Gemma 4 26B A4B it via llama.cpp Podman Vulkan (UD-Q8_K_XL quant, image input via mmproj)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
-
-[qwen38-flash-next-ud-iq4-xs]
-# Qwen3.8-Flash-Next 125B-A6B via llama.cpp Podman Vulkan (UD-IQ4_XS quant, ctx 131072)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella  
-
-[qwen38-27b-rocmfp4]
-# Qwen3.8-27B via ROCmFPX Podman (ROCmFP4_FAST quant, custom julianmb engine, built-in MTP)
-# halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+# Vulkan backend — Podman Vulkan (llama.cpp) tracks:
+#   qwen36-35b-ud-q8-k-xl, qwen38-27b-ud-q4-k-xl, qwen38-flash-next-ud-q2-k-xl,
+#   qwen38-flash-next-ud-iq4-xs, gemma-4-26b-a4b-ud-q8-k-xl
+[vulkan]
 halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
+# ROCm backend — Podman ROCmFPX track: qwen38-27b-rocmfp4
+# (Same box as vulkan for a single-machine setup; use a dedicated host if you
+# run ROCm on a separate machine.)
+[rocm]
+halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
 [aiservers:children]
-qwen38-27b-ud-q4-k-xl
-qwen36-35b-ud-q8-k-xl
-qwen38-flash-next-ud-q2-k-xl
-qwen38-flash-next-ud-iq4-xs
-gemma-4-26b-a4b-ud-q8-k-xl
-qwen38-27b-rocmfp4
+vulkan
+rocm

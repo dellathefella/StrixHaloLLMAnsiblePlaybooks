@@ -21,7 +21,7 @@
 # =============================================================================
 
 - name: "podman — setup + deploy llama.cpp container with vision (UD-Q8_K_XL)"
-  hosts: gemma-4-26b-a4b-ud-q8-k-xl
+  hosts: vulkan
   gather_facts: yes
   become: yes
   tags: [gemma-4-26b-a4b-ud-q8-k-xl-podman]

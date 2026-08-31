@@ -1,5 +1,5 @@
 - name: "bootstrap — final summary"
-  hosts: all
+  hosts: aiservers
   gather_facts: no   # local/controller runs skip facts; uses inventory_hostname/groups
   become: yes
   tags: [summary]
@@ -9,8 +9,8 @@
       ansible.builtin.debug:
         msg: |
           ==== bootstrap complete on {{ inventory_hostname }} ====
-          tracks: {{ ['qwen-rccl' if 'qwen_rccl' in groups and inventory_hostname in groups['qwen_rccl'] else '',
-                      'llama' if 'llama' in groups and inventory_hostname in groups['llama'] else ''] | select('string') | join(', ') }}
+          backends: {{ ['vulkan' if 'vulkan' in groups and inventory_hostname in groups['vulkan'] else '',
+                        'rocm' if 'rocm' in groups and inventory_hostname in groups['rocm'] else ''] | select('string') | join(', ') }}
           Fix any [kernel|firmware|grub|memory|device|reboot|link|build|model|container]
           warnings above before serving. Launch scripts + pi configs are dropped
           locally in scripts/ and pi-configs/. REBOOT if GRUB args were appended.

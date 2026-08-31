@@ -12,7 +12,7 @@
 # =============================================================================
 
 - name: "install-hf-cli — install HuggingFace CLI"
-  hosts: all
+  hosts: aiservers
   gather_facts: yes
   become: yes
   tags: [hf-cli]
