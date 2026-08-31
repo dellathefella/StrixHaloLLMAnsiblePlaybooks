@@ -37,6 +37,16 @@ All llama.cpp tracks run locally on a single machine:
   single slot, sampler defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0.
   Port 8080. Measured on a 128 GB Strix Halo: ~23 t/s decode, ~390 t/s pp512.
 
+- **Qwen38-Flash-Next AP (Q5_K_XL)** — Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL,
+  single ~112 GiB GGUF from `agentionai`) via Podman Vulkan container, with
+  **image recognition** (the `unsloth` `mmproj-F16.gguf` projector is downloaded
+  and passed as `--mmproj`). Third Flash-Next profile, chosen because the Q4/IQ4
+  quants had quality issues: `-ngl 99`, `--n-cpu-moe 0`, `-fa on`, `--load-mode
+  mmap` (112 GiB pages from disk so the KV cache fits), `--no-op-offload`,
+  `--override-tensor per_layer_token_embd=CPU`, `--jinja`, `--parallel 1`, sampler
+  defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0. Port 8080. Reported on a
+  128 GB Strix Halo: ~450 pp @ 2048 ctx, ~240 pp @ ~100k ctx, 12–20 t/s decode, no MTP.
+
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
   projector is downloaded and passed as `--mmproj`, so `/v1/chat/completions`
@@ -71,6 +81,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-rocmfp4-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-iq4-xs-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ap-q5-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
@@ -118,6 +129,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   │   ├── qwen38-27b-rocmfp4-podman.yml  Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, built-in MTP)
 │   │   ├── qwen38-flash-next-ud-q2-k-xl-podman.yml  Qwen3.8-Flash-Next (Podman Vulkan)
 │   │   ├── qwen38-flash-next-ud-iq4-xs-podman.yml  Qwen3.8-Flash-Next IQ4 (Podman Vulkan)
+│   │   ├── qwen38-flash-next-ap-q5-k-xl-podman.yml  Qwen3.8-Flash-Next AP Q5_K_XL (Podman Vulkan + vision)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (vulkan/rocm → aiservers)
@@ -130,14 +142,16 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   │   │   │   ├── qwen38-27b-rocmfp4-start.sh.j2   Qwen3.8-27B ROCmFPX launch (prebuilt image)
 │   │   │   │   ├── qwen38-flash-next-ud-q2-k-xl-start.sh.j2   Flash-Next Q2 launch (3 shards)
 │   │   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Flash-Next IQ4 launch (3 shards)
-│   │   │   │   └── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
+│   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
+│   │   │   │   └── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-rocmfp4-podman.json.j2
 │   │   │   │   ├── pi-qwen38-flash-next-ud-q2-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs-podman.json.j2
-│   │   │   │   └── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   └── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -224,6 +238,28 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **Measured** on a 128 GB Strix Halo (llama-bench, fa on): pp512 ~390 t/s,
   pp4096 ~357 t/s, tg128 ~23 t/s.
 
+### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
+  `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
+  (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/Q5_K_XL/...`)
+- **Vision projector**: `mmproj-F16.gguf` from `unsloth/Qwen3.8-Flash-Next-GGUF`
+  → `~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf`, passed as `--mmproj`
+  (image input ON)
+- **Why Q5_K_XL**: the Q4/IQ4 quants had quality issues — this is the agentionai
+  "AP" fine-tune at a higher quant
+- **Context**: 131072 (the one knob the profile leaves free — tune with `-e ctx=...`)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV (`qwen4exp` arch — same pinned-image requirement as the
+  other Flash-Next profiles; no MTP)
+- **Loading**: `--load-mode mmap` (112 GiB pages from disk so the KV cache fits),
+  `--n-cpu-moe 0` (all MoE experts on GPU), `--no-op-offload`,
+  `--override-tensor per_layer_token_embd=CPU` (token embedding pinned to CPU)
+- **Sampling**: `--jinja`, defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0,
+  `--parallel 1` (single slot), `-ngl 99` (not 999), `-fa on`
+- **Reported** on a 128 GB Strix Halo (v0.7.2, mmap): ~450 pp @ 2048 ctx,
+  ~240 pp @ ~100k ctx, 12–20 t/s decode.
+
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
@@ -276,6 +312,14 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_
 hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf --local-dir ~/models
                              # land in ~/models/UD-IQ4_XS/, renamed by the
                              # playbook to ~/models/Qwen3.8-Flash-Next-UD-IQ4_XS/
+
+# Qwen3.8-Flash-Next-AP (Q5_K_XL, single ~112 GiB GGUF) + vision projector
+hf download agentionai/Qwen3.8-Flash-Next-AP-GGUF Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf \
+  --local-dir ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF
+                             # lands under the repo name: ~/models/agentionai/.../Q5_K_XL/...
+hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
+  --local-dir ~/models/unsloth/Qwen3.8-Flash-Next-GGUF
+                             # lands under the repo name: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
 ```
 
 ## Launch Scripts
@@ -301,6 +345,9 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.8-Flash-Next IQ4 (UD-IQ4_XS, Podman Vulkan)
 ~/scripts/qwen38-flash-next-ud-iq4-xs-start.sh
 
+# Qwen3.8-Flash-Next AP (Q5_K_XL, Podman Vulkan, image input)
+~/scripts/qwen38-flash-next-ap-q5-k-xl-start.sh
+
 # Gemma 4 26B A4B (Podman Vulkan, image input)
 ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
 ```
@@ -323,6 +370,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
   - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ud-iq4-xs-podman.json` — provider `qwen38-flash-next-ud-iq4-xs` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`

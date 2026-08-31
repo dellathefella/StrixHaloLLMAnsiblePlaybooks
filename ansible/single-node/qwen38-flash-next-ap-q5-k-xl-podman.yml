@@ -1,0 +1,385 @@
+---
+# =============================================================================
+# qwen38-flash-next-ap-q5-k-xl-podman.yml
+# Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL quantization, single ~112 GiB GGUF)
+# — llama.cpp via Podman, using Nathanw1014's Strix Halo tuned image
+# (ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2). This image bundles
+# Flash-Attention and MoE-prefill fixes for gfx1151 plus a tested Mesa driver
+# stack.
+#
+# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2
+#
+# Third Flash-Next profile (qwen38-flash-next-ud-q2-k-xl-podman is the first,
+# qwen38-flash-next-ud-iq4-xs-podman is the second). Q5_K_XL is chosen because
+# the Q4/IQ4 quants had quality issues. This is the agentionai "AP" fine-tune,
+# run with the unsloth vision projector for image input:
+#   --n-gpu-layers 99 (NOT 999 — token embedding is pinned to CPU), --n-cpu-moe 0,
+#   --flash-attn on, --load-mode mmap (112 GiB pages from disk so the KV cache
+#   still fits), --no-op-offload, --override-tensor per_layer_token_embd=CPU,
+#   --parallel 1, --jinja, sampler temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0.
+#
+# Reported throughput (v0.7.2, mmap): ~450 pp @ 2048 ctx, ~240 pp @ ~100k ctx,
+# 12-20 t/s decode, no MTP. Context is the tunable knob (--ctx-size).
+#
+# Why the already-pinned image works: the qwen4exp arch landed in llama.cpp
+# master with PR #27742 (merged 2026-08-27) and b10666 (2026-08-28, commit
+# 4e97ac86) already carries the crash fix (the LLM_ARCH_QWEN4EXP entry in
+# llama_context::graph_max_nodes(), src/llama-context.cpp). Builds older than
+# the merge cannot load this arch.
+#
+# Files (repo names preserved on disk so the two projectors can never collide):
+#   Model:     ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf
+#   Projector: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
+# =============================================================================
+- name: "podman — setup + deploy llama.cpp container (Qwen3.8-Flash-Next-AP Q5_K_XL)"
+  hosts: vulkan
+  gather_facts: yes
+  become: yes
+  tags: [qwen38-flash-next-ap-q5-k-xl-podman]
+
+  vars:
+    # =====================================================================
+    # Qwen3.8-Flash-Next-AP (Q5_K_XL) track vars — self-contained, no group_vars
+    # =====================================================================
+
+    # Container settings — uses Nathanw1014's pre-built Strix Halo tuned image
+    # (Vulkan backend, gfx1151 Flash-Attention + MoE-prefill fixes).
+    #   track_stem       → stem used for container name, script names
+    track_stem: "qwen38-flash-next-ap-q5-k-xl"
+    image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
+    image_tag: "vulkan-v0.7.2"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}"
+
+    # Model settings — 112 GiB single GGUF. --load-mode mmap pages weights from
+    # disk so a large KV context still fits the 128 GB unified pool. ctx is the
+    # tunable knob (reported ~450 pp @ 2048, ~240 pp @ ~100k).
+    ctx: 131072
+    port: 8080
+    parallel: 1
+    n_gpu: 99             # NOT 999: token embedding stays on CPU (see override_tensor)
+    n_cpu_moe: 0          # all MoE experts on GPU
+    flash_attn: "on"
+    load_mode: "mmap"
+    no_op_offload: true
+    override_tensor: "per_layer_token_embd=CPU"
+    temp: "1.0"
+    top_p: "0.95"
+    top_k: 20
+    min_p: "0.0"
+
+    # Model — single GGUF from agentionai, kept under the repo name on disk
+    hf_repo: "agentionai/Qwen3.8-Flash-Next-AP-GGUF"
+    model_file: "Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf"
+
+    # Vision projector — from unsloth (same family), also under its repo name
+    mmproj_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"
+    mmproj_file: "mmproj-F16.gguf"
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/models"
+    _docker_ctx_len: "{{ ctx | d('8192') }}"
+    # --local-dir keeps the repo name as the top-level subdir, so the on-disk
+    # path is ~/models/<org>/<repo>/<in-repo path> and never collides.
+    _model_local_dir: "{{ _models_dir }}/{{ hf_repo }}"
+    _mmproj_local_dir: "{{ _models_dir }}/{{ mmproj_repo }}"
+    _model_path: "{{ _model_local_dir }}/{{ model_file }}"
+    _mmproj_path: "{{ _mmproj_local_dir }}/{{ mmproj_file }}"
+
+    # Model download settings — read token on controller (repos are public,
+    # so the no-token path is what normally runs)
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 0. Ensure models directory exists
+    # -----------------------------------------------------------------------
+    - name: Ensure models directory exists
+      ansible.builtin.file:
+        path: "{{ _models_dir }}"
+        state: directory
+        mode: "0755"
+      tags: [podman, model]
+
+    - name: Ensure proper ownership of models directory
+      ansible.builtin.file:
+        path: "{{ _models_dir }}"
+        state: directory
+        owner: "{{ ansible_env.USER | default('root') }}"
+        group: "{{ ansible_env.USER | default('root') }}"
+        mode: "0755"
+      become: yes
+      tags: [podman, model]
+
+    - name: Ensure model + projector directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ _model_local_dir }}"
+        - "{{ _mmproj_local_dir }}"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 1. Check whether model + projector are already present
+    # -----------------------------------------------------------------------
+    - name: Check if model file already exists
+      ansible.builtin.stat:
+        path: "{{ _model_path }}"
+      register: model_file_stat
+      tags: [podman, model]
+
+    - name: Check if vision projector already exists
+      ansible.builtin.stat:
+        path: "{{ _mmproj_path }}"
+      register: mmproj_file_stat
+      tags: [podman, model]
+
+    - name: Print model download status
+      ansible.builtin.debug:
+        msg: "Model: {{ _model_path }} | Found: {{ model_file_stat.stat.exists | default('unknown') }} | Projector: {{ _mmproj_path }} | Found: {{ mmproj_file_stat.stat.exists | default('unknown') }}"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 2. Download the model (single ~112 GiB GGUF) if not present
+    # -----------------------------------------------------------------------
+    - name: Download model from HuggingFace (with token)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }} {{ model_file }} --token "{{ hf_token_lookup }}" --local-dir {{ _model_local_dir }}
+      when:
+        - not model_file_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: hf_download_result
+      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
+      tags: [podman, model]
+
+    - name: Download model without token (public repo)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }} {{ model_file }} --local-dir {{ _model_local_dir }}
+      when:
+        - not model_file_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: hf_download_result
+      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 2b. Download the vision projector if not present
+    # -----------------------------------------------------------------------
+    - name: Download vision projector from HuggingFace (with token)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ mmproj_repo }} {{ mmproj_file }} --token "{{ hf_token_lookup }}" --local-dir {{ _mmproj_local_dir }}
+      when:
+        - not mmproj_file_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: hf_mmproj_download_result
+      changed_when: "'Downloaded' in hf_mmproj_download_result.stdout or 'Updated' in hf_mmproj_download_result.stdout"
+      tags: [podman, model]
+
+    - name: Download vision projector without token (public repo)
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ mmproj_repo }} {{ mmproj_file }} --local-dir {{ _mmproj_local_dir }}
+      when:
+        - not mmproj_file_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: hf_mmproj_download_result
+      changed_when: "'Downloaded' in hf_mmproj_download_result.stdout or 'Updated' in hf_mmproj_download_result.stdout"
+      tags: [podman, model]
+
+    - name: Stat downloaded model
+      ansible.builtin.stat:
+        path: "{{ _model_path }}"
+      register: model_downloaded_stat
+      tags: [podman, model]
+
+    - name: Stat downloaded vision projector
+      ansible.builtin.stat:
+        path: "{{ _mmproj_path }}"
+      register: mmproj_downloaded_stat
+      tags: [podman, model]
+
+    - name: Fail if model is missing after download
+      ansible.builtin.fail:
+        msg: >-
+          Model not found at {{ _model_path }} after download —
+          check `hf download {{ hf_repo }} {{ model_file }} --local-dir {{ _model_local_dir }}`
+          and free disk space (~112 GiB).
+      when:
+        - not model_file_stat.stat.exists
+        - not model_downloaded_stat.stat.exists
+      tags: [podman, model]
+
+    - name: Fail if vision projector is missing after download
+      ansible.builtin.fail:
+        msg: >-
+          Image input needs the projector {{ _mmproj_path }} —
+          check `hf download {{ mmproj_repo }} {{ mmproj_file }} --local-dir {{ _mmproj_local_dir }}`.
+      when:
+        - not mmproj_file_stat.stat.exists
+        - not mmproj_downloaded_stat.stat.exists
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 3. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container with the same name
+      ansible.builtin.command:
+        cmd: "podman rm -f {{ docker_container_name }}"
+      ignore_errors: yes
+      changed_when: false
+      tags: [podman, deploy]
+
+    - name: Run llama.cpp container (Podman, single Vulkan)
+      ansible.builtin.command:
+        cmd: >-
+          podman run -d --name {{ docker_container_name }}
+          --rm --pull=newer
+          --device=/dev/dri/renderD128
+          --device=/dev/kfd
+          --privileged
+          --entrypoint llama-server
+          -v {{ _models_dir }}:{{ _models_dir }}:ro
+          -p {{ port }}:{{ port }}
+          {{ docker_image }}
+          --model {{ _model_path }}
+          --mmproj {{ _mmproj_path }}
+          --host 0.0.0.0
+          --port {{ port }}
+          --ctx-size {{ _docker_ctx_len }}
+          --n-gpu-layers {{ n_gpu | d(99) }}
+          --n-cpu-moe {{ n_cpu_moe | d(0) }}
+          --flash-attn {{ flash_attn | d('on') }}
+          --load-mode {{ load_mode | d('mmap') }}
+          --no-op-offload
+          --override-tensor {{ override_tensor | d('per_layer_token_embd=CPU') }}
+          --temp {{ temp }}
+          --top-p {{ top_p }}
+          --top-k {{ top_k }}
+          --min-p {{ min_p }}
+          --jinja
+          --parallel {{ parallel | d(1) }}
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Print container start result
+      ansible.builtin.debug:
+        msg: "Container started: {{ podman_run_result.stdout | default('unknown') }}"
+      when: podman_run_result is defined
+      tags: [podman, deploy]
+
+    - name: Check if container is running
+      ansible.builtin.command:
+        cmd: "podman ps --filter name={{ docker_container_name }} --format json"
+      register: container_check
+      changed_when: false
+      failed_when: false
+      tags: [podman, deploy]
+
+    - name: Check vision projector lines in container log
+      ansible.builtin.shell: >-
+        podman logs {{ docker_container_name }} 2>&1 | grep -iE 'mmproj|mtmd|error' | tail -n 10 || true
+      register: mmproj_log_lines
+      changed_when: false
+      failed_when: false
+      tags: [podman, deploy]
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          The 112 GiB load with --load-mode mmap is not instant — give it a few
+          minutes, then check the log. To debug, run manually:
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged --entrypoint llama-server -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _model_path }} --mmproj {{ _mmproj_path }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --n-gpu-layers {{ n_gpu | d(99) }} --n-cpu-moe {{ n_cpu_moe | d(0) }} --flash-attn {{ flash_attn | d('on') }} --load-mode {{ load_mode | d('mmap') }} --no-op-offload --override-tensor {{ override_tensor | d('per_layer_token_embd=CPU') }} --temp {{ temp }} --top-p {{ top_p }} --top-k {{ top_k }} --min-p {{ min_p }} --jinja --parallel {{ parallel | d(1) }}
+
+          Check GPU access: ls -la /dev/dri/ /dev/kfd
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 4. Wait for the server
+    # -----------------------------------------------------------------------
+    - name: Sleep 10s to let container initialize
+      ansible.builtin.command:
+        cmd: "sleep 10"
+      changed_when: false
+      tags: [podman, deploy]
+
+    - name: Wait for llama-server API to respond
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health"
+        return_content: yes
+        status_code: 200
+      register: health_check
+      retries: 180
+      delay: 5
+      until: health_check is succeeded
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 5. Write launch script to remote host
+    # -----------------------------------------------------------------------
+    - name: Ensure scripts directory exists on host
+      ansible.builtin.file:
+        path: "{{ _user_home }}/scripts"
+        state: directory
+        mode: "0755"
+      tags: [podman, launch]
+
+    - name: Render launch script ({{ track_stem }}-start.sh) into ~/scripts/
+      ansible.builtin.template:
+        src: "templates/scripts/{{ track_stem }}-start.sh.j2"
+        dest: "{{ _user_home }}/scripts/{{ track_stem }}-start.sh"
+        mode: "0755"
+      tags: [podman, launch]
+
+    - name: Ensure pi-configs output directory exists on controller
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/rendered/pi-configs"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: no
+      tags: [podman, launch]
+
+    - name: Render pi agent config for Qwen3.8-Flash-Next-AP Q5_K_XL (pi-qwen38-flash-next-ap-q5-k-xl-podman.json) into rendered/pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-configs/pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
+        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-flash-next-ap-q5-k-xl-podman.json"
+        mode: "0644"
+      delegate_to: localhost
+      become: no
+      tags: [podman, launch]
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp (Podman) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }}
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          Model: {{ _model_path }} (single GGUF, ~112 GiB)
+          Vision projector: {{ _mmproj_path }} (image input ON)
+          GPU layers: {{ n_gpu | d(99) }} (token embedding pinned to CPU via --override-tensor)
+          Loading: --load-mode {{ load_mode | d('mmap') }} --n-cpu-moe {{ n_cpu_moe | d(0) }} --no-op-offload
+          Context: {{ _docker_ctx_len }} (tunable — ~450 pp @ 2048, ~240 pp @ ~100k)
+          Sampling defaults: temp {{ temp }} / top-p {{ top_p }} / top-k {{ top_k }} / min-p {{ min_p }}
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Image smoke test ===
+          curl -s http://localhost:{{ port }}/v1/models | grep -o multimodal
+          Send an image through /v1/chat/completions with an "image_url" content part.
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]

@@ -62,6 +62,7 @@ For each task, score these dimensions:
 | Qwen3.6-35B-A3B | | | | | UD-Q8_K_XL, ~65 t/s |
 | Gemma 4 26B-A4B | | | | | UD-Q8_K_XL, ~45 t/s |
 | Qwen3.8-Flash-Next 125B-A6B | | | | | UD-IQ4_XS, ~23 t/s decode, ~390 t/s pp512 |
+| Qwen3.8-Flash-Next-AP 125B-A6B | | | | | Q5_K_XL (agentionai), ~12–20 t/s decode, ~450 pp @ 2048, ~240 pp @ ~100k |
 | gpt-oss-120B | | | | | MXFP4, ~55 t/s |
 | | | | | | |
 

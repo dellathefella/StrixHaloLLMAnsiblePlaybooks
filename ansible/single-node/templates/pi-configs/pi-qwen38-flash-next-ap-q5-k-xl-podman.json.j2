@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen38-flash-next-ap-q5-k-xl": {
+      "name": "Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL, vision, ~112 GiB)",
+      "baseUrl": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen38-flash-next-ap-q5-k-xl-local",
+      "models": [
+        {
+          "id": "qwen3.8-flash-next-ap-q5-k-xl",
+          "name": "Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL, vision, ~112 GiB)",
+          "input": ["text", "image"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

@@ -63,6 +63,9 @@
 - import_playbook: qwen38-flash-next-ud-iq4-xs-podman.yml
   tags: [qwen38-flash-next-ud-iq4-xs-podman]
 
+- import_playbook: qwen38-flash-next-ap-q5-k-xl-podman.yml
+  tags: [qwen38-flash-next-ap-q5-k-xl-podman]
+
 - import_playbook: gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
   tags: [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 

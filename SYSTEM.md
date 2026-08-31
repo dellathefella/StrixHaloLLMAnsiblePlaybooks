@@ -42,6 +42,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
 | `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ud-q2-k-xl-podman` |
 | `qwen38-flash-next-ud-iq4-xs-podman.yml` | `vulkan` | `qwen38-flash-next-ud-iq4-xs-podman` |
+| `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `qwen35-397b-gptq-rccl.yml` (multi-node) | `rocm` | `qwen35-397b-gptq-rccl` |
