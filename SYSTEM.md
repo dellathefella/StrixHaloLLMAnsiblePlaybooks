@@ -70,7 +70,7 @@ Every track playbook follows a two-play structure:
 1. **Bootstrap play** (`become: yes`, runs on target host):
    - Includes task file for build deps (`rocm-build-deps.yml` or `vulkan-build-deps.yml`)
    - Clones and builds llama.cpp (or other engine) into the track-specific directory
-   - Downloads model weights from HuggingFace via `aria2c`
+   - Downloads model weights from HuggingFace via `hf`
    - Verifies binary + model files, emits summary
 
 2. **Render play** (`become: no`, `run_once: yes`, `delegate_to: localhost`):
@@ -210,12 +210,6 @@ Shared dependency tasks live in `tasks/` and are included with `ansible.builtin.
     file: tasks/rocm-build-deps.yml
   tags: [packages, rocm]
 ```
-
-### Aria2 model downloads
-- Always use `--file-allocation=none` for sparse allocation on high-bandwidth systems
-- Include `--continue=true --allow-overwrite=true` for resumable downloads
-- Wrap in `when: not <register>.stat.exists` to skip if model already present
-- `changed_when: false` — aria2 exit 0 doesn't mean "changed" if file already existed
 
 ### git clone with PR refs
 For PR-based builds:
