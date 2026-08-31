@@ -18,14 +18,14 @@ All llama.cpp tracks run locally on a single machine:
   container with **MTP speculative decoding** via the repo drafter
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` (`draft-mtp`, draft n-max 3, f16 KV cache,
   batch 2048 / ubatch 512, flash-attn on, mmap loading, single slot).
-  Port 8084, ctx 262144.
+  Port 8080, ctx 262144.
 
 - **Qwen38-27B (ROCmFP4_FAST, ROCmFPX engine)** — Qwen3.8-27B (ROCmFP4_FAST,
   ~13.5 GB) on the custom `julianmb/q38rocm` ROCmFPX llama.cpp fork — PULLED
   from `ghcr.io/julianmb/q38rocm:1.5.3` (never built). MTP is **built into the
   model** (no separate drafter file). The image's `run_server.sh` entrypoint
   builds the full "speed" profile command (ctx 131072, MTP draft-n 4, KV
-  K=q8_0/V=turbo4, 128K prompt cache, auto Vulkan0/ROCm0). Port 8085, ctx 131072.
+  K=q8_0/V=turbo4, 128K prompt cache, auto Vulkan0/ROCm0). Port 8080, ctx 131072.
 
 - **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
   Vulkan container. Port 8080, ctx 262144.
@@ -173,7 +173,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
   (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
 - **Context**: 262144 (native ceiling), `--parallel 1` (single slot)
-- **Port**: 8084
+- **Port**: 8080
 - **Backend**: Vulkan/RADV
 - **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
@@ -189,7 +189,7 @@ ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
   `--model-draft` drafter file (unlike the UD-Q4_K_XL track).
 - **Speed profile defaults**: ctx 131072, MTP draft-n 4, KV K=q8_0/V=turbo4,
   batch 2048 / ubatch 1024, temperature 0, 128K prompt cache (32 GiB / 64 ckpts).
-- **Port**: 8085 (host) → 8000 (container; fixed by the image)
+- **Port**: 8080 (host) → 8000 (container; fixed by the image)
 - **GPU**: `/dev/kfd` + `/dev/dri/renderD128`, auto Vulkan0→ROCm0; Strix Halo
   env (HSA_OVERRIDE_GFX_VERSION=11.5.1, unified memory) set inside the image.
 - **Slots**: 1 (override with the `parallel` playbook var).
@@ -317,8 +317,8 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
 
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8084/v1`
-  - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8085/v1`
+  - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ud-iq4-xs-podman.json` — provider `qwen38-flash-next-ud-iq4-xs` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`

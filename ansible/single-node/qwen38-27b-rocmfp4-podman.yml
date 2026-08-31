@@ -49,8 +49,8 @@
     # the only knobs we override. parallel == number of server slots (--slots).
     ctx: 131072
     parallel: 1
-    port: 8085                      # host port -> container 8000 (distinct from
-                                    # the 8080 tracks so they can A/B coexist)
+    port: 8080                      # host port -> container 8000 (shared with the other
+                                    # Podman tracks - one server at a time)
 
     # The model is mounted at /app/models (read-only). The image's prompt-cache
     # checkpoints go to /app/cache/slots (writable container fs), NOT here.
