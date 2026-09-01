@@ -13,9 +13,8 @@
 #
 # Link: prefers the Thunderbolt link (tb* from setup-thunderbolt-net.yml,
 # ~40 Gbps) for RCCL KV exchange; falls back to the default-route NIC
-# (2.5Gbe) with a warning. One model at a time: the vllm_cluster container
-# name is shared with qwen35-397b-gptq-rccl and re-created with --replace, so
-# switching tracks replaces the container (old NCCL/GLOO ifname is dropped).
+# (2.5Gbe) with a warning. One model at a time: re-runs re-create the
+# vllm_cluster container with --replace (old NCCL/GLOO ifname is dropped).
 #
 #   image           oci-registry.ryai.dev/ryai-vllm:latest
 #   cluster         vLLM + Ray (head/worker), TP=2 across the two nodes

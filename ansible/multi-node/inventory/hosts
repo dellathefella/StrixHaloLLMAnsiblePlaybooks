@@ -18,15 +18,6 @@
 # Both boxes sit in every multi-node track group; the track you run decides what
 # is deployed (one model at a time — vllm_cluster is reused with --replace).
 
-[qwen35-397b-gptq-rccl]
-# Qwen3.5-397B via vLLM + RCCL (GPTQ-Int4, tensor parallel). The head is the
-# `qwen35-397b-gptq-rccl_head` subgroup below; every other node is a worker.
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
-
-[qwen35-397b-gptq-rccl_head]
-halo0
-
 [vllm-rccl-moe]
 # Multi-node vLLM + Ray + RCCL MoE track — profiles: minimax-m2.7-awq-4bit
 # (default), qwen3.5-122b-awq-4bit (-e active_profile=<name>).
@@ -38,14 +29,13 @@ halo0
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=head vllm_moe_ip=10.125.0.1
 halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=worker vllm_moe_ip=10.125.0.2
 
-# Capability groups — group hosts by GPU backend. The qwen35 and vllm-rccl-moe
-# tracks are vLLM/ROCm (RCCL) deployments, so they sit under `rocm`; `aiservers`
-# is the union of all inference hosts and is what the shared host-level plays
-# target. `multinode` (the TB4-linked RCCL cluster) is what
-# setup-thunderbolt-net.yml targets — single-node inventories have no such
-# group, so TB setup can never run there.
+# Capability groups — group hosts by GPU backend. The vllm-rccl-moe track is a
+# vLLM/ROCm (RCCL) deployment, so it sits under `rocm`; `aiservers` is the union
+# of all inference hosts and is what the shared host-level plays target.
+# `multinode` (the TB4-linked RCCL cluster) is what setup-thunderbolt-net.yml
+# targets — single-node inventories have no such group, so TB setup can never
+# run there.
 [rocm:children]
-qwen35-397b-gptq-rccl
 vllm-rccl-moe
 
 [aiservers:children]

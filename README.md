@@ -57,9 +57,6 @@ All llama.cpp tracks run locally on a single machine:
 ### Multi-Node Tracks (`ansible/multi-node/`)
 Cluster-based inference across multiple machines:
 
-- **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
-  vLLM + Ray + RCCL.
-
 - **vllm-rccl-moe** — multi-model vLLM + Ray + RCCL track for MoE models across
   the two nodes (TP=2). Profiles via `-e active_profile=<name>`:
   `minimax-m2.7-awq-4bit` (default — `cyankiwi/MiniMax-M2.7-AWQ-4bit`),
@@ -188,14 +185,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster (targets rocm)
 │   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
 │   │   ├── inventory/
 │   │   │   ├── hosts              multi-node inventory (halo0 head + halo1 worker, SSH; rocm → aiservers, multinode for TB)
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
-│   │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch
-│   │   │   ├── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
 │   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
 │   │   │   └── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
 │   │   └── rendered/              Rendered output (gitignored)
@@ -313,13 +307,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **Note**: no MTP speculation wired up, although `MTP/mtp-gemma-4-26B-A4B-it-*.gguf`
   exists in the repo and could follow the qwen38-27b pattern later.
 
-### Qwen35-397B-GPTQ-RCCL (Multi-Node)
-- **Engine**: vLLM + RCCL
-- **Model**: Qwen3.5-397B-A10B-GPTQ-Int4
-- **Context**: 65536 (cluster-wide)
-- **Port**: 7000 (head node)
-- **Backend**: ROCm (tensor parallel across nodes)
-
 ### vllm-rccl-moe (Multi-Node)
 - **Engine**: vLLM + Ray + RCCL (TP=2 across the two nodes)
 - **Profiles** (`-e active_profile=<name>` — each runs at the model's native
@@ -403,12 +390,12 @@ target host. The bootstrap also drops PI agent configs into
 ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
 ```
 
-### Multi-Node Launch Example (Qwen3.5-397B)
+### Multi-Node Launch Example (vllm-rccl-moe)
 ```bash
-# Machine 1 (head — Ray head + vLLM server):
-QWEN35_397B_GPTQ_RCCL_ROLE=head   ./ansible/rendered/scripts/qwen35-397b-gptq-rccl-start.sh
-# Machine 2 (worker — joins Ray):
-QWEN35_397B_GPTQ_RCCL_ROLE=worker ./ansible/rendered/scripts/qwen35-397b-gptq-rccl-start.sh
+# halo0 (head — Ray head + vLLM server):
+VLLM_RCCL_MOE_ROLE=head   ./ansible/rendered/scripts/vllm-rccl-moe-start.sh
+# halo1 (worker — joins Ray):
+VLLM_RCCL_MOE_ROLE=worker ./ansible/rendered/scripts/vllm-rccl-moe-start.sh
 ```
 
 ## Pi Agent Config
@@ -424,7 +411,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
   - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
-- `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`
+- `pi-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
 you open `/model`; no restart needed).
@@ -435,7 +422,6 @@ you open `/model`; no restart needed).
 (All single-node playbooks are self-contained with inline vars — no group_vars needed. The ROCmFP4 track groups its per-model knobs into a `rocm_image_profiles` dict selected by `active_profile`, deriving `docker_image`/`model`/`port`/`ctx`/`parallel` from the active profile.)
 
 ### Multi-Node Tracks
-- Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
 - setup-thunderbolt-net (shared): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` (per-host override), `tb_net_peer_ip` (per-host override)
 
@@ -450,7 +436,7 @@ re-run it to change them.
 - `qwen38-flash-next-ud-q2-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-flash-next-ud-iq4-xs-start.sh` (CONTAINER/PORT/MODEL/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker) — multi-node only, still env-set
+- `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
 ## Strix Halo Optimization Notes
 

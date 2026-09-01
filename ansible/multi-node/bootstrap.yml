@@ -8,7 +8,6 @@
 #   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
 #   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (Ubuntu-gated: update-grub) [grub-ttm]
 #   ../shared/setup-thunderbolt-net.yml        TB4 node-to-node link for RCCL (modprobe + static IP, both distros)  [thunderbolt]
-#   qwen35-397b-gptq-rccl.yml                  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4)      [qwen35-397b]
 #   vllm-rccl-moe.yml                          Multi-model vLLM + Ray + RCCL MoE track (TB link preferred) [vllm-rccl-moe]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
@@ -23,7 +22,6 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
 #
 # Run a single track:
-#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/qwen35-397b-gptq-rccl.yml
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
 #     (head/worker IPs from inventory hostvars; -e vllm_moe_head_ip/... to override)
 # =============================================================================
@@ -33,6 +31,5 @@
 - import_playbook: ../shared/install-hf-cli.yml
 - import_playbook: ../shared/set-grub-ttm.yml
 - import_playbook: ../shared/setup-thunderbolt-net.yml
-- import_playbook: qwen35-397b-gptq-rccl.yml
 - import_playbook: vllm-rccl-moe.yml
 - import_playbook: summary.yml

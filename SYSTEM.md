@@ -49,7 +49,6 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
-| `qwen35-397b-gptq-rccl.yml` (multi-node) | `rocm` | `qwen35-397b-gptq-rccl` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `setup-thunderbolt-net.yml` (shared, multi-node only) | `multinode` | `thunderbolt` |
 

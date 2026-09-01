@@ -5,7 +5,7 @@
 #
 # The Z2 G1a (Ryzen AI Max "Strix Halo") exposes TB4/USB4 40 Gbps Type-C ports.
 # A direct TB4 cable between the two nodes gives ~40 Gbps for RCCL KV exchange
-# — 16x the 2.5Gbe NIC the qwen35-397b-gptq-rccl track currently rides on.
+# — 16x the 2.5Gbe NIC the cluster falls back on when the TB link is down.
 #
 # Distro-agnostic: works on CachyOS/Arch (current fleet) and Ubuntu 26.04.
 # No packages are installed — everything uses the stock kernel:
