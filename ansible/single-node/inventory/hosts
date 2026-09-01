@@ -1,13 +1,23 @@
-# Single-node inventory for ansible/bootstrap.yml.
+# =============================================================================
+# hosts — SINGLE-NODE inventory (topology: one box, one model at a time)
+#
+# No Thunderbolt link here: there is no `multinode` group, so
+# ../shared/setup-thunderbolt-net.yml can never match anything in this file.
+# The 2-node TB4 RCCL cluster (halo0 head + halo1 worker) lives in the sibling
+# file: ../multi-node/inventory/hosts
 #
 # halo1 runs ONE model at a time. It is both a Vulkan and a ROCm host, so it is
 # listed in both capability groups below; the model you launch is chosen by
 # which track playbook you run (one at a time), not by group membership.
 #
-# Local connection + password-fed become (native, no NOPASSWD):
+# Run the single-node bootstrap with this file:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
+#
+# Password-fed become (native, no NOPASSWD):
 #   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:'
 #   which ansible's become prompt-match never detects (times out).
+# =============================================================================
 
 # Capability groups — hosts are grouped by GPU BACKEND so playbooks target a
 # backend (vulkan / rocm) instead of one model. `aiservers` is the union of all

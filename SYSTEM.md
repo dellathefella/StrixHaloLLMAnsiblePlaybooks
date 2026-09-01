@@ -1,7 +1,9 @@
 # ROCm Inference Bootstrap — Conventions
 
 ## Target platform
-- **Ubuntu 26.04** (noble) or newer only — bleeding-edge AMD ROCm.
+- **CachyOS (Arch-based) first — current fleet — Ubuntu 26.04 (noble) second.**
+  Distro-gated shared plays say so in their headers (e.g. `install-amdgpu.yml`
+  is Ubuntu-gated; `setup-thunderbolt-net.yml` is distro-agnostic).
 - Primary hardware: HP Z2 G1a (Ryzen AI Max "Strix Halo", gfx1151, 128 GB UMA).
 - Local ansible runs use `ansible_connection=local` + `ansible_become_exe=/usr/bin/sudo.ws` (classic C sudo, not sudo-rs) with password-fed `become` via `-K`.
 
@@ -10,7 +12,8 @@
 ansible/
   bootstrap.yml                orchestrator — static import_playbook of all tracks
   shared/                      shared setup playbooks: install-amdgpu (ROCm), install-podman,
-                               install-hf-cli, set-grub-ttm, set-limine-ttm (imported by both tracks)
+                               install-hf-cli, set-grub-ttm, setup-thunderbolt-net (TB4 node-to-node,
+                               multi-node only — targets the `multinode` group), set-limine-ttm
   summary.yml                  final per-host completion summary
   <track>.yml                  per-track playbook (see track naming below)
   tasks/
@@ -20,7 +23,8 @@ ansible/
     <track>-start.sh.j2        launch script — rendered to scripts/
     pi-<track>.json.j2         pi agent config — rendered to pi-configs/
   single-node/ + multi-node/   per-track playbooks, bootstrap, inventory, templates
-    inventory/hosts            real inventory — capability groups (vulkan / rocm → aiservers)
+    inventory/hosts            real inventory — capability groups (vulkan / rocm → aiservers;
+                               multi-node inventory adds `multinode` for the TB link)
     inventory/hosts.example    sample multi-machine inventory (single-node only)
     inventory/group_vars/all   placeholder (empty) — tracks define their vars inline
 scripts/                       rendered launch scripts + local installers
@@ -46,6 +50,8 @@ model is chosen by which track playbook you run, not by group membership.
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `qwen35-397b-gptq-rccl.yml` (multi-node) | `rocm` | `qwen35-397b-gptq-rccl` |
+| `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
+| `setup-thunderbolt-net.yml` (shared, multi-node only) | `multinode` | `thunderbolt` |
 
 ### Template naming
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`

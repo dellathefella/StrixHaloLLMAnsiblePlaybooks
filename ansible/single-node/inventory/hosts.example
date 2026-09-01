@@ -18,6 +18,9 @@
 # model, one at a time). For a multi-machine setup, put each machine in the
 # backend group(s) it should run.
 #
+# Multi-node (2x Z2 over a TB4 link, RCCL cluster) is a different topology with
+# its own inventory: ../multi-node/inventory/hosts
+#
 # Connection notes (Strix Halo, native password-fed become, no NOPASSWD):
 #   ansible_become_exe=/usr/bin/sudo.ws  -> classic C sudo (plain -p prompt).
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:', which

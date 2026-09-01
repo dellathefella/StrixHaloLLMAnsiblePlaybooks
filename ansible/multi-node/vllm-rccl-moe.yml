@@ -1,0 +1,278 @@
+---
+# =============================================================================
+# vllm-rccl-moe.yml
+# Multi-node vLLM + Ray + RCCL track for MoE models on the 2x HP Z2 G1a pair.
+#
+# Multi-model: `active_profile` picks the model; every model-specific knob
+# lives in the profile dict (same pattern as qwen38-27b-rocmfp4-podman.yml).
+# Switch with -e active_profile=<name> — the rendered script + pi config
+# follow the active profile.
+#
+#   minimax-m2.7-awq-4bit  cyankiwi/MiniMax-M2.7-AWQ-4bit         AWQ-4bit
+#   qwen3.5-122b-awq-4bit  cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit    AWQ-4bit
+#
+# Link: prefers the Thunderbolt link (tb* from setup-thunderbolt-net.yml,
+# ~40 Gbps) for RCCL KV exchange; falls back to the default-route NIC
+# (2.5Gbe) with a warning. One model at a time: the vllm_cluster container
+# name is shared with qwen35-397b-gptq-rccl and re-created with --replace, so
+# switching tracks replaces the container (old NCCL/GLOO ifname is dropped).
+#
+#   image           oci-registry.ryai.dev/ryai-vllm:latest
+#   cluster         vLLM + Ray (head/worker), TP=2 across the two nodes
+#   launch script   scripts/vllm-rccl-moe-start.sh (VLLM_RCCL_MOE_ROLE=head|worker)
+#
+# Run from repo root (per-node container setup on BOTH nodes):
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
+#
+# Head/worker IPs come from the inventory hostvars (vllm_moe_role +
+# vllm_moe_ip / ansible_host, see inventory/hosts). Override with
+# -e vllm_moe_head_ip=... / -e vllm_moe_worker_ip=... when needed — e.g.
+# the LAN IPs of the two nodes when the Thunderbolt link is down.
+# =============================================================================
+
+- name: "vllm-rccl-moe — vLLM + Ray + RCCL MoE track (TB link preferred)"
+  hosts: rocm
+  gather_facts: yes
+  become: yes
+  tags: [vllm-rccl-moe]
+
+  vars:
+    active_profile: "minimax-m2.7-awq-4bit"
+    vllm_moe_container: "oci-registry.ryai.dev/ryai-vllm:latest"
+    vllm_moe_models_dir: "~/.local/share/vLLM/models"
+    vllm_moe_port: 8081
+    vllm_moe_tp_size: 2
+    vllm_moe_gpu_util: 0.9
+    # ------------------------------------------------------------------
+    # Head/worker IPs — resolution order (highest first):
+    #   1. -e vllm_moe_head_ip=... / -e vllm_moe_worker_ip=... (extra vars
+    #      win; e.g. LAN IPs when the TB link is down)
+    #   2. Inventory hostvars: the [vllm-rccl-moe] hosts that declare
+    #      vllm_moe_role=head|worker; IP = vllm_moe_ip (else ansible_host)
+    #   3. Group-order fallback: first host = head, second = worker
+    # ------------------------------------------------------------------
+    vllm_moe_group_hosts: "{{ groups['vllm-rccl-moe'] | default([]) }}"
+    vllm_moe_role_by_host: "{{ dict(zip(vllm_moe_group_hosts, vllm_moe_group_hosts | map('extract', hostvars, 'vllm_moe_role', default('')) | list)) }}"
+    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts | first | default(''), true) }}"
+    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
+    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
+    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    # ------------------------------------------------------------------
+    # Model profiles — add a new MoE model by adding an entry here.
+    #   hf_repo           HF repo served by `vllm serve`
+    #   display           human name (summary + pi config)
+    #   max_model_len     --max-model-len (KV cache scales cross-node)
+    #   max_tokens        pi config maxTokens
+    #   dtype             --dtype
+    #   thinking_format   pi thinkingFormat (omit key when the model has none)
+    #   extra_serve_args  appended verbatim to the vllm serve command
+    #
+    # Context sizing: max_model_len = each model's native
+    # max_position_embeddings (verified from the HF config.json). The
+    # 2x128 GB pool (0.9 gpu-mem-util, TP=2 splits weights + KV) leaves
+    # ~90-160 GB of KV cache, so the active profile runs at its full
+    # native context for the pi single-stream workload:
+    #   minimax-m2.7-awq-4bit  196608  ~248 KiB/tok (62 full-attn)     ~48 GB per 192K seq
+    #   qwen3.5-122b-awq-4bit  262144  ~24 KiB/tok (12/48 full-attn)   ~6 GiB per 256K seq
+    # ------------------------------------------------------------------
+    vllm_moe_profiles:
+      minimax-m2.7-awq-4bit:
+        hf_repo: "cyankiwi/MiniMax-M2.7-AWQ-4bit"
+        display: "MiniMax M2.7 (AWQ-4bit)"
+        max_model_len: 196608
+        max_tokens: 32768
+        dtype: "bfloat16"
+        extra_serve_args: ""
+      qwen3.5-122b-awq-4bit:
+        hf_repo: "cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit"
+        display: "Qwen3.5-122B-A10B (AWQ-4bit)"
+        max_model_len: 262144
+        max_tokens: 32768
+        dtype: "bfloat16"
+        thinking_format: "qwen"
+        extra_serve_args: "--reasoning-parser qwen3"
+
+  tasks:
+    - name: Assert active_profile is a valid profile
+      ansible.builtin.assert:
+        that: active_profile in vllm_moe_profiles
+        fail_msg: "active_profile={{ active_profile }} is not defined — valid: {{ vllm_moe_profiles.keys() | list }}"
+      tags: [vllm-rccl-moe]
+
+    # -----------------------------------------------------------------------
+    # 1. Link selection — Thunderbolt (tb*) preferred, default NIC fallback
+    # -----------------------------------------------------------------------
+    - name: Detect an up Thunderbolt interface (from setup-thunderbolt-net.yml)
+      ansible.builtin.shell:
+        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^tb[0-9]+$/ && $2 == \"UP\" {print $1; exit}'"
+      register: vllm_moe_tb_if
+      changed_when: false
+      failed_when: false
+      tags: [vllm-rccl-moe, link]
+
+    - name: Detect default-route NIC (2.5Gbe fallback)
+      ansible.builtin.shell:
+        cmd: "ip route get 1.1.1.1 2>/dev/null | grep -oP 'dev \\K\\S+' || true"
+      register: vllm_moe_def_if
+      changed_when: false
+      failed_when: false
+      tags: [vllm-rccl-moe, link]
+
+    - name: Select the RCCL interface (TB if up, else default NIC)
+      ansible.builtin.set_fact:
+        vllm_moe_rccl_if: >-
+          {{ vllm_moe_tb_if.stdout
+             if (vllm_moe_tb_if.stdout | length > 0)
+             else (vllm_moe_def_if.stdout if (vllm_moe_def_if.stdout | length > 0) else 'eth0') }}
+      tags: [vllm-rccl-moe, link]
+
+    - name: Check link speed of the selected interface
+      ansible.builtin.shell:
+        cmd: "ethtool {{ vllm_moe_rccl_if }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
+      register: vllm_moe_link
+      changed_when: false
+      failed_when: false
+      tags: [vllm-rccl-moe, link]
+
+    - name: Warn when falling back off the Thunderbolt link
+      ansible.builtin.debug:
+        msg: |
+          WARNING [link] no up tb* interface — using {{ vllm_moe_rccl_if }}
+          ({{ vllm_moe_link.stdout | default('?') }}Mb/s). On a 2.5Gbe link every
+          KV token adds cross-node RCCL sync cost. Run
+          ansible/shared/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps,
+          then re-run this track to re-bake NCCL_SOCKET_IFNAME.
+      when: (vllm_moe_tb_if.stdout | length) == 0
+      tags: [info]
+
+    - name: Warn on context/KV-memory tradeoff
+      ansible.builtin.debug:
+        msg: |
+          WARNING [context] {{ active_profile }} max_model_len={{ vllm_moe_profiles[active_profile].max_model_len }}
+          over a ~240 GB combined pool (2x 128 GB UMA, util {{ vllm_moe_gpu_util }}).
+          If OOM or cross-node KV latency, lower --max-model-len or raise
+          --gpu-memory-utilization.
+      tags: [info]
+
+    # -----------------------------------------------------------------------
+    # 2. Container — shared vllm_cluster name (one model at a time, --replace)
+    # -----------------------------------------------------------------------
+    - name: Create model download directory
+      ansible.builtin.file:
+        path: "{{ vllm_moe_models_dir }}"
+        state: directory
+        mode: "0755"
+      become: no
+      tags: [vllm-rccl-moe, container]
+
+    - name: Launch vLLM cluster container (detached bash, RCCL env on selected link)
+      ansible.builtin.command:
+        cmd: >-
+          sudo podman run -dit --name vllm_cluster --replace --pull missing
+          --network=host --device /dev/kfd --device /dev/dri
+          -v {{ vllm_moe_models_dir }}:/opt/vLLM/models
+          --env HF_HOME=/opt/vLLM/models
+          --shm-size=64g
+          -e NCCL_SOCKET_IFNAME={{ vllm_moe_rccl_if }}
+          -e GLOO_SOCKET_IFNAME={{ vllm_moe_rccl_if }}
+          --entrypoint=bin/bash {{ vllm_moe_container }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [vllm-rccl-moe, container]
+
+    - name: Verify vLLM cluster container is running
+      ansible.builtin.command:
+        cmd: "sudo podman ps --filter name=vllm_cluster --format '{{ '{{.Names}}' }}'"
+      register: vllm_moe_pod
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [vllm-rccl-moe, container]
+
+    - name: Warn if vLLM container not running
+      ansible.builtin.debug:
+        msg: "WARNING [container] vllm_cluster not running — start it before cluster launch."
+      when: vllm_moe_pod.stdout | length == 0
+      tags: [info]
+
+    - name: Print vllm-rccl-moe track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== vllm-rccl-moe track on {{ inventory_hostname }} ====
+          profile: {{ active_profile }} — {{ vllm_moe_profiles[active_profile].display }}
+          model:   {{ vllm_moe_profiles[active_profile].hf_repo }}
+          link:    {{ vllm_moe_rccl_if }} ({{ vllm_moe_link.stdout | default('?') }}Mb/s)
+          port:    {{ vllm_moe_port }} | TP: {{ vllm_moe_tp_size }} |
+                   ctx: {{ vllm_moe_profiles[active_profile].max_model_len }}
+          head:    {{ vllm_moe_head_ip | default('', true) }}
+          Launch later via scripts/vllm-rccl-moe-start.sh (VLLM_RCCL_MOE_ROLE=head|worker).
+          Docs: https://developer.amd.com/playbooks/clustering-rccl/
+      tags: [info]
+
+# -----------------------------------------------------------------------------
+# Launch render — drop local vllm-rccl-moe launch script + pi config
+# -----------------------------------------------------------------------------
+- name: "vllm-rccl-moe — drop local launch script + pi config"
+  hosts: rocm
+  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
+  become: no
+  run_once: yes
+  tags: [launch, vllm-rccl-moe]
+
+  vars:
+    # Mirror of play-1 vars — play vars do NOT carry across plays, and the
+    # templates below render from this play's scope. -e overrides apply to
+    # BOTH plays, so the rendered artifacts follow the CLI. Keep in sync.
+    active_profile: "minimax-m2.7-awq-4bit"
+    vllm_moe_port: 8081
+    vllm_moe_tp_size: 2
+    vllm_moe_gpu_util: 0.9
+    # Head/worker derivation — same expressions as play 1 (keep in sync).
+    vllm_moe_group_hosts: "{{ groups['vllm-rccl-moe'] | default([]) }}"
+    vllm_moe_role_by_host: "{{ dict(zip(vllm_moe_group_hosts, vllm_moe_group_hosts | map('extract', hostvars, 'vllm_moe_role', default('')) | list)) }}"
+    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts | first | default(''), true) }}"
+    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
+    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
+    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    vllm_moe_profiles:
+      minimax-m2.7-awq-4bit:
+        hf_repo: "cyankiwi/MiniMax-M2.7-AWQ-4bit"
+        display: "MiniMax M2.7 (AWQ-4bit)"
+        max_model_len: 196608
+        max_tokens: 32768
+        dtype: "bfloat16"
+        extra_serve_args: ""
+      qwen3.5-122b-awq-4bit:
+        hf_repo: "cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit"
+        display: "Qwen3.5-122B-A10B (AWQ-4bit)"
+        max_model_len: 262144
+        max_tokens: 32768
+        dtype: "bfloat16"
+        thinking_format: "qwen"
+        extra_serve_args: "--reasoning-parser qwen3"
+
+  tasks:
+    - name: Render vllm-rccl-moe-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/vllm-rccl-moe-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/vllm-rccl-moe-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render pi agent config (pi-vllm-rccl-moe.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-vllm-rccl-moe.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-vllm-rccl-moe.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
+      ansible.builtin.debug:
+        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 10.125.0.1/.2 when the TB link is up)."
+      delegate_to: localhost
+      when: (vllm_moe_head_ip | length == 0) or (vllm_moe_worker_ip | length == 0)
+      tags: [info]
+

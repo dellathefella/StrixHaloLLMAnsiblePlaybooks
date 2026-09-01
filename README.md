@@ -2,7 +2,8 @@
 
 Organized workspace for bootstrapping AMD ROCm / Vulkan LLM inference on the
 Ryzen AI Max "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs —
-no 10Gbps requirement). Ubuntu/Debian only. Tracks organized by **deployment
+no 10Gbps requirement; optional TB4 node-to-node link, see below).
+CachyOS (Arch-based) first, Ubuntu 26.04 second. Tracks organized by **deployment
 topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 
 ## Deployment Topology
@@ -59,6 +60,25 @@ Cluster-based inference across multiple machines:
 - **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via
   vLLM + Ray + RCCL.
 
+- **vllm-rccl-moe** — multi-model vLLM + Ray + RCCL track for MoE models across
+  the two nodes (TP=2). Profiles via `-e active_profile=<name>`:
+  `minimax-m2.7-awq-4bit` (default — `cyankiwi/MiniMax-M2.7-AWQ-4bit`),
+  and `qwen3.5-122b-awq-4bit` (`cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit`).
+  The track **prefers the Thunderbolt link** (`tb*` from `setup-thunderbolt-net.yml`,
+  ~40 Gbps) for RCCL KV exchange and falls back to the 2.5Gbe NIC with a warning.
+  Reuses the `vllm_cluster` container name (one model at a time, `--replace`).
+  Port 8081; head/worker IPs derive from the inventory hostvars
+  (`vllm_moe_role` — TB static 10.125.0.1/.2 by default); override with
+  `-e vllm_moe_head_ip=... -e vllm_moe_worker_ip=...` (e.g. LAN IPs, TB down).
+
+- **Thunderbolt networking** — `setup-thunderbolt-net.yml` (shared) sets up the
+  direct TB4 cable between the two Z2 G1a nodes: loads + persists
+  `thunderbolt-net`, assigns `10.125.0.<n>/24` (first inventory host = `.1`,
+  second = `.2`), persists via NetworkManager (`ipv4.never-default`), and
+  verifies speed (~40 Gbps) + peer ping. Distro-agnostic (CachyOS/Arch +
+  Ubuntu). **Multi-node only** — targets the `multinode` capability group, so
+  a single-node inventory (no such group) skips it entirely.
+
 ### Shared Setup Playbooks (`ansible/shared/`)
 Host-level setup shared by both tracks (imported by each track's bootstrap):
 
@@ -66,6 +86,7 @@ Host-level setup shared by both tracks (imported by each track's bootstrap):
 - `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
 - `install-hf-cli.yml` — HuggingFace CLI installation
 - `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size (+ opt-in GPU watchdog `amdgpu.lockup_timeout` via `-e lockup_timeout_enabled=true`)
+- `setup-thunderbolt-net.yml` — TB4 node-to-node link for RCCL: `thunderbolt-net` module, static `10.125.0.<n>/24`, NetworkManager persistence, speed/peer verification (distro-agnostic, multi-node only — targets the `multinode` group)
 - `set-limine-ttm.yml` — Limine bootloader kernel args, same set (Limine hosts only)
 
 ## Quick Start
@@ -92,6 +113,13 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ```bash
 # Full multi-node bootstrap:
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
+
+# Thunderbolt node-to-node link (run on both nodes, TB4 cable attached):
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/setup-thunderbolt-net.yml
+
+# vLLM + RCCL MoE track (both nodes) — head/worker IPs come from the
+# inventory hostvars (vllm_moe_role); -e overrides when TB is down:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
 ```
 
 ### Root Bootstrap (imports both)
@@ -119,6 +147,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)
 │   │   ├── install-hf-cli.yml     HuggingFace CLI installation
 │   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
+│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node link for RCCL (distro-agnostic)
 │   │   └── set-limine-ttm.yml     Limine bootloader TTM settings
 │   │
 │   ├── single-node/               Single-node tracks (one host, one model at a time)
@@ -160,12 +189,15 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster (targets rocm)
+│   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
 │   │   ├── inventory/
-│   │   │   ├── hosts              multi-node inventory (localhost + workers; rocm → aiservers)
+│   │   │   ├── hosts              multi-node inventory (halo0 head + halo1 worker, SSH; rocm → aiservers, multinode for TB)
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
 │   │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch
-│   │   │   └── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
+│   │   │   ├── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
+│   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
+│   │   │   └── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -288,6 +320,16 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **Port**: 7000 (head node)
 - **Backend**: ROCm (tensor parallel across nodes)
 
+### vllm-rccl-moe (Multi-Node)
+- **Engine**: vLLM + Ray + RCCL (TP=2 across the two nodes)
+- **Profiles** (`-e active_profile=<name>` — each runs at the model's native
+  max context, sized off the 2×128 GB KV pool):
+  - `minimax-m2.7-awq-4bit` (default) — `cyankiwi/MiniMax-M2.7-AWQ-4bit`, ctx 196608
+  - `qwen3.5-122b-awq-4bit` — `cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit`, ctx 262144
+- **Port**: 8081 (head node)
+- **Backend**: ROCm; RCCL traffic rides the Thunderbolt link (`tb*`, ~40 Gbps)
+  when up, else the 2.5Gbe NIC — see `setup-thunderbolt-net.yml`
+
 ## Model Downloads (hf CLI)
 
 The bootstrap downloads GGUF weights via **hf** (the Hugging Face CLI), which
@@ -394,6 +436,8 @@ you open `/model`; no restart needed).
 
 ### Multi-Node Tracks
 - Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
+- vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
+- setup-thunderbolt-net (shared): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` (per-host override), `tb_net_peer_ip` (per-host override)
 
 ### Scripts
 Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.

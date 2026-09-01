@@ -6,23 +6,33 @@
 #   ../shared/install-amdgpu.yml               Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated) [install-amdgpu]
 #   ../shared/install-podman.yml               podman installation (Fedora/Debian/Arch)                  [install-podman]
 #   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
-#   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size                    [grub-ttm]
+#   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (Ubuntu-gated: update-grub) [grub-ttm]
+#   ../shared/setup-thunderbolt-net.yml        TB4 node-to-node link for RCCL (modprobe + static IP, both distros)  [thunderbolt]
 #   qwen35-397b-gptq-rccl.yml                  Qwen3.5-397B RCCL cluster (vLLM + RCCL + GPTQ-Int4)      [qwen35-397b]
+#   vllm-rccl-moe.yml                          Multi-model vLLM + Ray + RCCL MoE track (TB link preferred) [vllm-rccl-moe]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
-# ../shared/set-limine-ttm.yml is intentionally NOT imported here: multi-node hosts
-# use GRUB (Ubuntu), and the Limine play fails when /etc/default/limine is absent.
+# ../shared/set-limine-ttm.yml is intentionally NOT imported here: multi-node
+# hosts use GRUB, and the Limine play fails when /etc/default/limine is absent.
+# The fleet is currently CachyOS (Arch) with Ubuntu 26.04 second — note
+# set-grub-ttm.yml is Ubuntu-gated (update-grub); on CachyOS skip it
+# (--skip-tags grub-ttm,ttm) and apply the kernel args via
+# sudo grub-mkconfig -o /boot/grub/grub.cfg.
 #
 # Run from repo root:
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
 #
 # Run a single track:
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/qwen35-397b-gptq-rccl.yml
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
+#     (head/worker IPs from inventory hostvars; -e vllm_moe_head_ip/... to override)
 # =============================================================================
 
 - import_playbook: ../shared/install-amdgpu.yml
 - import_playbook: ../shared/install-podman.yml
 - import_playbook: ../shared/install-hf-cli.yml
 - import_playbook: ../shared/set-grub-ttm.yml
+- import_playbook: ../shared/setup-thunderbolt-net.yml
 - import_playbook: qwen35-397b-gptq-rccl.yml
+- import_playbook: vllm-rccl-moe.yml
 - import_playbook: summary.yml
