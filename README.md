@@ -119,15 +119,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/setup-thun
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
 ```
 
-### Root Bootstrap (imports both)
-```bash
-# Convenience wrapper (not recommended): imports BOTH the single-node and multi-node
-# bootstraps. Each sub-bootstrap targets its OWN capability-group inventory, so run
-# the sub-bootstrap for the topology you need rather than the root wrapper:
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
-ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
-```
-
 ## Layout
 
 ```
@@ -137,8 +128,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 │   ├── cachyos-notes.md           CachyOS installation notes
 │   └── playbook.txt               AMD ds4 playbook (text extract)
 ├── ansible/
-│   ├── bootstrap.yml              ROOT: imports single-node/ and multi-node/ bootstraps
-│   │
 │   ├── shared/                    Shared setup playbooks (imported by both tracks)
 │   │   ├── install-amdgpu.yml     Ubuntu base: apt upgrade + ROCm (Ubuntu-gated)
 │   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)

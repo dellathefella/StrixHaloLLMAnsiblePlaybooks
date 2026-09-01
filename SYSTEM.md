@@ -268,7 +268,8 @@ use the plain image. Verify against the merge commit (or the pinned build's
    track's `inventory/hosts`; mirror it in `hosts.example`. A host runs one model at a
    time, so there is no per-model group to add.
 
-5. Add `import_playbook` to `ansible/bootstrap.yml`.
+5. Add `import_playbook` to the topology's bootstrap (`ansible/single-node/bootstrap.yml`
+   or `ansible/multi-node/bootstrap.yml`).
 
 6. Update `README.md` layout tree and quick-start sections.
 
