@@ -56,7 +56,7 @@ Each track playbook is **self-contained** — it defines its own `vars:` block a
 **no `group_vars`**. Common per-track vars:
 - `track_stem` — model stem; basis for the container name and rendered script/config names
 - `image_repo` / `image_tag` — container image to pull (`docker_image: "{{ image_repo }}:{{ image_tag }}"`)
-- `model` / `model_sha256` / `hf_repo` — model file, its checksum, and the HF repo
+- `model` / `hf_repo` — model file and the HF repo
 - `port` / `ctx` / `parallel` — host port, context window, and slot count
 
 Tracks that may serve more than one model group the model-specific knobs into a
@@ -67,7 +67,6 @@ rocm_image_profiles:
   qwen38-27b-rocmfp4:
     image: "ghcr.io/julianmb/q38rocm:1.5.3"
     model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
-    model_sha256: "..."
     hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
     port: 8080
     ctx: 131072
@@ -250,7 +249,7 @@ use the plain image. Verify against the merge commit (or the pinned build's
 ## Adding a new track
 
 1. Define the track's vars inline in its playbook `vars:` block (self-contained, no
-   `group_vars`): `track_stem`, `image_repo`/`image_tag`, `model`/`model_sha256`/`hf_repo`,
+   `group_vars`): `track_stem`, `image_repo`/`image_tag`, `model`/`hf_repo`,
    `port`/`ctx`/`parallel`, plus any track-specific flags. For multi-model tracks use
    the `active_profile` + profile-dict pattern (see `qwen38-27b-rocmfp4-podman.yml`).
 

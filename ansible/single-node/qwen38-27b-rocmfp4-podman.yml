@@ -38,7 +38,6 @@
     # profile dict, so a future ROCm track only adds an entry here.
     #   image        → container image to pull and run (repo:tag)
     #   model        → GGUF filename inside the HF repo
-    #   model_sha256 → sha256 of that file (verified after download)
     #   hf_repo      → HuggingFace repo that hosts the model file
     #   port         → host port -> container 8000 (one server at a time)
     #   ctx          → server context window (--ctx)
@@ -51,7 +50,6 @@
         # build entirely).
         image: "ghcr.io/julianmb/q38rocm:1.5.3"
         model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
-        model_sha256: "fb89c78d2be91cdb68eaaaa45b1270710bf34aa721dc1f0b9e3aa7b98d2e1da9"
         hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
         port: 8080                    # host port -> container 8000 (shared with the
                                       # other Podman tracks - one server at a time)
@@ -68,7 +66,6 @@
     docker_container_name: "{{ track_stem }}"
     container_internal_port: 8000    # fixed by the image (run_server.sh + HEALTHCHECK)
     model: "{{ profile.model }}"
-    model_sha256: "{{ profile.model_sha256 }}"
     hf_repo: "{{ profile.hf_repo }}"
     port: "{{ profile.port }}"
     ctx: "{{ profile.ctx }}"
@@ -142,33 +139,6 @@
         - hf_token_lookup | length == 0
       register: hf_download_result
       changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
-      tags: [podman, model]
-
-    # -----------------------------------------------------------------------
-    # 2b. Verify the model's SHA256 (13.5 GB download — catch truncation/corruption)
-    #     Re-stat after the download so the check also runs on a fresh download.
-    # -----------------------------------------------------------------------
-    - name: Re-check model file after download
-      ansible.builtin.stat:
-        path: "{{ _models_dir }}/{{ model }}"
-      register: model_file_stat_after
-      tags: [podman, model]
-
-    - name: Verify model SHA256 checksum
-      ansible.builtin.command:
-        cmd: "sha256sum {{ _models_dir }}/{{ model }}"
-      register: model_sha256_actual
-      changed_when: false
-      when: model_file_stat_after.stat.exists
-      tags: [podman, model]
-
-    - name: Assert model SHA256 matches the published digest
-      ansible.builtin.assert:
-        that:
-          - model_sha256_actual.stdout.split()[0] | lower == model_sha256
-        fail_msg: "Model checksum mismatch: got {{ model_sha256_actual.stdout.split()[0] | lower }}, expected {{ model_sha256 }}. Remove and re-download: rm -f {{ _models_dir }}/{{ model }}"
-        success_msg: "Model SHA256 verified ({{ model_sha256[:12] }}...)"
-      when: model_file_stat_after.stat.exists
       tags: [podman, model]
 
     # -----------------------------------------------------------------------

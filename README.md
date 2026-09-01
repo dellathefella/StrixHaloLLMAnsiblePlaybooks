@@ -200,7 +200,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
   Nathanw1014 image; its `run_server.sh` entrypoint builds the full server
   command, so no raw `llama-server` flags are passed.
 - **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` (ROCmFP4_FAST, ~13.5 GB) from
-  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF`; SHA256-verified after download.
+  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF`.
 - **MTP**: **built into the model** — `--spec-type draft-mtp` with no separate
   `--model-draft` drafter file (unlike the UD-Q4_K_XL track).
 - **Speed profile defaults**: ctx 131072, MTP draft-n 4, KV K=q8_0/V=turbo4,
