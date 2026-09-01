@@ -10,6 +10,17 @@
 #   amdgpu.gttsize=126976           — AMDGPU GTT size in MB
 #   ttm.pages_limit=32505856        — TTM page limit
 #   ttm.page_pool_size=32505856     — TTM page pool size
+#   amdgpu.lockup_timeout=60000,…   — OPT-IN (-e lockup_timeout_enabled=true):
+#                                     raise the GPU ring watchdog past the
+#                                     default so long Vulkan submits
+#                                     (long-prompt FLASH_ATTN / MTP prefill)
+#                                     don't trip a ring reset that surfaces as
+#                                     vk::DeviceLostError in llama-server
+#                                     (llama.cpp #21724 / #24872 / #27306).
+#                                     Off by default — the container-side
+#                                     GGML_VK_MAX_NODES_PER_SUBMIT=1 pin is
+#                                     usually enough; enable this only if long
+#                                     prompts still abort.
 #
 # Shared playbook: works with either track's inventory (single-node or multi-node).
 # Usage:
@@ -26,7 +37,18 @@
   vars:
     # Fixed TTM values for Strix Halo
     ttm_pages: 32505856
-    limine_ttm_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}"
+    # GPU ring watchdog — OPT-IN, default off. Start with the container-side
+    # GGML_VK_MAX_NODES_PER_SUBMIT=1 pin (qwen38-27b-rocmfp4-podman.yml);
+    # enable with -e lockup_timeout_enabled=true only if long prompts still
+    # trip vk::DeviceLostError. 60 s for the first 16 rings (covers the Strix
+    # Halo GFX + COMPUTE rings; unlisted rings keep the driver default). A
+    # Vulkan submit that outruns the default timeout triggers a kernel ring
+    # reset → "radv: context is lost" → vk::DeviceLostError mid-prompt
+    # (llama.cpp#21724 validated workaround: 60000 ms via sysfs).
+    lockup_timeout_enabled: false
+    lockup_timeout: "60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000"
+    lockup_arg: "{{ (' amdgpu.lockup_timeout=' ~ lockup_timeout) if lockup_timeout_enabled | bool else '' }}"
+    limine_ttm_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}{{ lockup_arg }}"
     limine_conf_path: "/etc/default/limine"
 
   tasks:
@@ -64,19 +86,27 @@
       failed_when: false
       tags: [limine, ttm]
 
+    - name: Check if amdgpu.lockup_timeout already in Limine config
+      ansible.builtin.shell:
+        cmd: "grep -q 'amdgpu.lockup_timeout=' {{ limine_conf_path }}"
+      register: lockup_already_set
+      changed_when: false
+      failed_when: false
+      tags: [limine, ttm]
+
     # -----------------------------------------------------------------------
     # 3. Append TTM args if not present
     # -----------------------------------------------------------------------
     - name: Set need_limine_ttm fact
       ansible.builtin.set_fact:
         need_limine_ttm: true
-      when: ttm_already_set.rc != 0 or pool_already_set.rc != 0
+      when: ttm_already_set.rc != 0 or pool_already_set.rc != 0 or (lockup_timeout_enabled | bool and lockup_already_set.rc != 0)
       tags: [limine, ttm]
 
     - name: Set need_limine_ttm fact to false if already present
       ansible.builtin.set_fact:
         need_limine_ttm: false
-      when: ttm_already_set.rc == 0 and pool_already_set.rc == 0
+      when: ttm_already_set.rc == 0 and pool_already_set.rc == 0 and ((not lockup_timeout_enabled | bool) or lockup_already_set.rc == 0)
       tags: [limine, ttm]
 
     - name: Print current Limine config

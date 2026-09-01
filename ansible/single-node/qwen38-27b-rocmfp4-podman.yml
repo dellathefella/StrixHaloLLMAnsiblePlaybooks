@@ -14,8 +14,15 @@
 #
 # We only: pull the public image (never build), mount the single model file at
 # /app/models (read-only), map the host port to the image's fixed port 8000,
-# and pass the model path + ctx + slots. MTP is BUILT INTO the model (no
-# separate --model-draft drafter file, unlike the qwen38-27b-ud-q4-k track).
+# and pass the model path + ctx + slots. Anything in the profile's `extra_args`
+# is appended after the image name, so run_server.sh forwards it to llama-server
+# as overrides. MTP is BUILT INTO the model (no separate --model-draft drafter
+# file, unlike the qwen38-27b-ud-q4-k track).
+#
+# DeviceLost mitigation (llama.cpp #21724 / #24872 / #27306): the container is
+# started with GGML_VK_MAX_NODES_PER_SUBMIT=1 (one graph node per vkQueueSubmit)
+# and the host needs the amdgpu ring watchdog raised — see set-grub-ttm /
+# set-limine-ttm and the README Troubleshooting section.
 #
 #   image           ghcr.io/julianmb/q38rocm:1.5.3   (pulled, NOT built)
 #   model           Qwen3.8-27B-ROCmFP4-FAST.gguf   (~13.5 GB, ROCmFP4 + MTP)
@@ -55,6 +62,20 @@
                                       # other Podman tracks - one server at a time)
         ctx: 131072
         parallel: 1
+        # ---- DeviceLost mitigation (llama.cpp #21724 / #24872 / #27306) ----
+        # GGML_VK_MAX_NODES_PER_SUBMIT caps how many graph nodes ride in one
+        # vkQueueSubmit. On Strix Halo a submit that outruns the amdgpu ring
+        # watchdog forces a GPU reset: "radv: context is lost" → mid-prompt
+        # vk::DeviceLostError. 1 = one submit per node (upstream #24872 defaults
+        # UMA to 1; pinned explicitly, no measurable throughput cost).
+        # Set "" to stop passing the env var.
+        vk_max_nodes_per_submit: "1"
+        # Extra llama-server flags appended after run_server.sh's own args.
+        # If long prompts still trip the watchdog with MTP on (#27306), try:
+        #   -e extra_args='--spec-type none'   (drops the per-ubatch draft decode)
+        #   -e extra_args='--ubatch-size 512'  (smaller flash-attn submits)
+        #   -e extra_args='--flash-attn off'   (last resort — slow prefill)
+        extra_args: ""
 
     # Derived from the active profile — keeps `image_repo`/`image_tag` semantics for
     # anything that still references them, plus the flat container/server settings
@@ -70,6 +91,10 @@
     port: "{{ profile.port }}"
     ctx: "{{ profile.ctx }}"
     parallel: "{{ profile.parallel }}"
+    vk_max_nodes_per_submit: "{{ profile.vk_max_nodes_per_submit | d('1') }}"
+    extra_args: "{{ profile.extra_args | d('') }}"
+    # Expands to "-e NAME=VAL" only when the knob is set ("" disables it).
+    vk_env: "{{ (' -e GGML_VK_MAX_NODES_PER_SUBMIT=' ~ vk_max_nodes_per_submit) if vk_max_nodes_per_submit | d('') | string | length > 0 else '' }}"
 
     # The model is mounted at /app/models (read-only). The image's prompt-cache
     # checkpoints go to /app/cache/slots (writable container fs), NOT here.
@@ -162,10 +187,12 @@
           --privileged
           -v {{ _models_dir }}:{{ _models_mount }}:ro
           -p {{ port }}:{{ container_internal_port }}
+          {{ vk_env }}
           {{ docker_image }}
           {{ _models_mount }}/{{ model }}
           --ctx {{ _docker_ctx_len }}
           --slots {{ parallel | d(1) }}
+          {{ extra_args }}
       register: podman_run_result
       changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
       tags: [podman, deploy]
@@ -190,7 +217,7 @@
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
 
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_mount }}:ro -p {{ port }}:{{ container_internal_port }} {{ docker_image }} {{ _models_mount }}/{{ model }} --ctx {{ _docker_ctx_len }} --slots {{ parallel | d(1) }}
+            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged -v {{ _models_dir }}:{{ _models_mount }}:ro -p {{ port }}:{{ container_internal_port }}{{ vk_env }} {{ docker_image }} {{ _models_mount }}/{{ model }} --ctx {{ _docker_ctx_len }} --slots {{ parallel | d(1) }} {{ extra_args }}
 
           Check GPU access: ls -la /dev/dri/ /dev/kfd
       tags: [podman, deploy]
@@ -259,6 +286,7 @@
           Model:      {{ _models_dir }}/{{ model }}  (mounted at {{ _models_mount }})
           Port:       {{ port }} (host) -> {{ container_internal_port }} (container)
           Context:    {{ _docker_ctx_len }} | Slots: {{ parallel | d(1) }} | MTP: built-in
+          Vulkan:     nodes-per-submit pin: {{ vk_max_nodes_per_submit | default('off', true) }} | extra llama-server args: {{ extra_args | default('(none)', true) }}
           API:        http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1
           Launch script: ~/scripts/{{ track_stem }}-start.sh
           Pi config:    rendered/pi-configs/pi-{{ track_stem }}-podman.json

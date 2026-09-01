@@ -65,8 +65,8 @@ Host-level setup shared by both tracks (imported by each track's bootstrap):
 - `install-amdgpu.yml` — Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated)
 - `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
 - `install-hf-cli.yml` — HuggingFace CLI installation
-- `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size
-- `set-limine-ttm.yml` — Limine bootloader TTM kernel args (Limine hosts only)
+- `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size (+ opt-in GPU watchdog `amdgpu.lockup_timeout` via `-e lockup_timeout_enabled=true`)
+- `set-limine-ttm.yml` — Limine bootloader kernel args, same set (Limine hosts only)
 
 ## Quick Start
 
@@ -198,7 +198,9 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **Container**: `ghcr.io/julianmb/q38rocm:1.5.3` — custom ROCmFPX llama.cpp
   fork, **pulled from GHCR (never built)**. The only track that does not use the
   Nathanw1014 image; its `run_server.sh` entrypoint builds the full server
-  command, so no raw `llama-server` flags are passed.
+  command, and everything after the image name on the `podman run` line is
+  appended to it as `llama-server` overrides (`--ctx`/`--slots` today, plus an
+  optional `extra_args` profile knob — see below).
 - **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` (ROCmFP4_FAST, ~13.5 GB) from
   `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF`.
 - **MTP**: **built into the model** — `--spec-type draft-mtp` with no separate
@@ -209,6 +211,13 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **GPU**: `/dev/kfd` + `/dev/dri/renderD128`, auto Vulkan0→ROCm0; Strix Halo
   env (HSA_OVERRIDE_GFX_VERSION=11.5.1, unified memory) set inside the image.
 - **Slots**: 1 (override with the `parallel` playbook var).
+- **DeviceLost mitigation**: the container is started with
+  `GGML_VK_MAX_NODES_PER_SUBMIT=1` (profile knob `vk_max_nodes_per_submit`,
+  set `""` to unset). If long prompts still abort, pass `extra_args` (appended
+  to `run_server.sh`'s command), e.g. `ansible-playbook ...
+  -e extra_args='--spec-type none'`; escalate to the kernel watchdog only if
+  needed (`set-grub-ttm.yml` / `set-limine-ttm.yml` with
+  `-e lockup_timeout_enabled=true`). See [Troubleshooting](#troubleshooting).
 
 ### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
@@ -441,3 +450,51 @@ Vulkan container instead. MTP speculation args are baked into both the container
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
 downloads model weights. It NEVER launches servers.
+
+## Troubleshooting
+
+### `vk::DeviceLostError` / "context is lost" mid-prompt (Vulkan tracks)
+
+**Symptom** — the server dies during a long prompt (tens of thousands of
+tokens) with:
+
+```
+# host kernel log (journalctl -k)
+amdgpu: ring comp_1.2.0 timeout, signaled seq=…, emitted seq=…
+amdgpu: Ring comp_1.2.0 reset succeeded
+# container log (podman logs <container>)
+radv/amdgpu: The CS has been cancelled because the context is lost. This context is guilty of a hard recovery.
+terminate called after throwing an instance of 'vk::DeviceLostError'
+  what():  vk::Queue::submit: ErrorDeviceLost
+```
+
+**Cause** — a single `vkQueueSubmit` runs longer than the amdgpu compute-ring
+watchdog (`amdgpu.lockup_timeout`), so the kernel resets the ring and RADV
+reports a lost device. Long-context FLASH_ATTN submits are the usual trigger
+(llama.cpp #21724 / #20515 / #20889, ollama/ollama#17870 on the same chip);
+MTP speculation makes it worse because `common_speculative_process` runs an
+extra full-width draft decode after **every** prompt ubatch — with
+`--spec-type draft-mtp` repros die around 55k tokens even with one node per
+submit, while MTP-off survives 125k+ (llama.cpp #27306).
+
+**Mitigations (layered — the playbooks always apply 2; 1 is opt-in and only
+needed if the rest proves insufficient):**
+
+1. **Kernel watchdog (opt-in, last resort)** — run `set-grub-ttm.yml` /
+   `set-limine-ttm.yml` with `-e lockup_timeout_enabled=true` (reboot
+   required). Quick no-reboot test:
+   `echo 60000 | sudo tee /sys/module/amdgpu/parameters/lockup_timeout`.
+   Trade-off: a genuinely hung GPU takes longer to auto-recover.
+2. **Submit batching pin** — `-e GGML_VK_MAX_NODES_PER_SUBMIT=1` (upstream fix
+   #24872; default 1 on UMA since, pinned explicitly by the ROCmFP4 track).
+3. **Smaller ubatches** — lower `--ubatch-size` (e.g. 512 or 128) shrinks the
+   work per submit; costs prefill speed.
+4. **MTP off for long prompts** — ROCmFP4 track:
+   `-e extra_args='--spec-type none'`; UD-Q4_K_XL track: drop
+   `--spec-type draft-mtp` / `--model-draft` from the start script.
+
+**Evidence to capture if it persists** — `journalctl -k | grep -E 'amdgpu.*(timeout|reset)'`,
+`podman logs <container>`, and the exact prompt length / argv at which it dies;
+that distinguishes the watchdog class above from the separate
+checkpoint/`get_tensor` DeviceLost class (which happens with prompt-cache
+checkpoints armed).
