@@ -19,6 +19,8 @@ benchmarks/
     ├── README.md
     └── task-01-http-server-from-scratch/
     └── task-02-real-time-chat/
+└── stress/                # Reliability tests (not scored coding tasks)
+    └── long-context/      # ~100k-token DeviceLost stress test
 ```
 
 ## Tier Definitions
@@ -67,6 +69,15 @@ For each task, score these dimensions:
 | | | | | | |
 
 ---
+
+## Reliability / Stress Tests
+
+The `stress/` tier is different from the scored coding tiers: these are repro /
+soak tests run against the deployed models, not tasks given to an LLM.
+
+| Test | What it checks | How to run |
+|---|---|---|
+| **long-context** | Long-prompt `DeviceLost` (llama.cpp #21724 / #24872 / #27306): does `GGML_VK_MAX_NODES_PER_SUBMIT=1` alone survive a ~110k-token prefill, or is the opt-in `amdgpu.lockup_timeout` kernel arg (and/or `--spec-type none`) also needed? | `python3 benchmarks/stress/long-context/long_context_stress.py` — see that directory's README for the A/B run procedure |
 
 ## General Rules
 
