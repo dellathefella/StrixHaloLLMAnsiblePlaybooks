@@ -5,7 +5,7 @@
 # using Nathanw1014's Strix Halo tuned image (Vulkan backend, gfx1151
 # Flash-Attention + MoE-prefill fixes).
 #
-#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2
+#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
 #   launch script   ~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
 # =============================================================================
 
@@ -25,7 +25,7 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "qwen36-35b-ud-q8-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan-v0.7.2"
+    image_tag: "vulkan"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

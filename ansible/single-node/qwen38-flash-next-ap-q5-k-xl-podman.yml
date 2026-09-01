@@ -3,11 +3,11 @@
 # qwen38-flash-next-ap-q5-k-xl-podman.yml
 # Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL quantization, single ~112 GiB GGUF)
 # — llama.cpp via Podman, using Nathanw1014's Strix Halo tuned image
-# (ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2). This image bundles
+# (ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan). This image bundles
 # Flash-Attention and MoE-prefill fixes for gfx1151 plus a tested Mesa driver
 # stack.
 #
-# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2
+# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
 #
 # Third Flash-Next profile (qwen38-flash-next-ud-q2-k-xl-podman is the first,
 # qwen38-flash-next-ud-iq4-xs-podman is the second). Q5_K_XL is chosen because
@@ -47,7 +47,7 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "qwen38-flash-next-ap-q5-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan-v0.7.2"
+    image_tag: "vulkan"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

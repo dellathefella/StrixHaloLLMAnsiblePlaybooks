@@ -12,7 +12,7 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 All llama.cpp tracks run locally on a single machine:
 
 - **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
-  via Podman Vulkan container (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`).
+  via Podman Vulkan container (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`).
   Port 8080, ctx 262144.
 
 - **Qwen38-27B (UD-Q4_K_XL)** — Qwen3.8-27B (UD-Q4_K_XL) via Podman Vulkan
@@ -192,14 +192,14 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
 ## Track Details
 
 ### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
 - **Port**: 8080
 - **Backend**: Vulkan/RADV
 
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
   (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
@@ -235,7 +235,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
   `-e lockup_timeout_enabled=true`). See [Troubleshooting](#troubleshooting).
 
 ### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-Q2_K_XL (~89 GB), 3 shards under
   `UD-Q2_K_XL/`, renamed locally to `Qwen3.8-Flash-Next-UD-Q2_K_XL/`
 - **Context**: 262144 (native ceiling)
@@ -243,7 +243,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
 - **Backend**: Vulkan/RADV (`qwen4exp` arch)
 
 ### Qwen38-Flash-Next IQ4 (UD-IQ4_XS) — Podman Vulkan
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-Flash-Next 125B-A6B UD-IQ4_XS (~87 GiB on disk), 3 shards
   under `UD-IQ4_XS/`, renamed locally to `Qwen3.8-Flash-Next-UD-IQ4_XS/`.
   llama.cpp loads the set from part 1, so the shard directory is mounted.
@@ -263,7 +263,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
   pp4096 ~357 t/s, tg128 ~23 t/s.
 
 ### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
   `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
   (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/AP-Q5_K_XL/...`)
@@ -285,7 +285,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
   ~240 pp @ ~100k ctx, 12–20 t/s decode.
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
 - **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
   `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
@@ -462,7 +462,7 @@ needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman trac
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
-local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
+local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 Vulkan container instead. MTP speculation args are baked into both the container
 `run` command and the rendered launch script.
 

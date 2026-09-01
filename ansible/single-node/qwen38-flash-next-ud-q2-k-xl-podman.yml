@@ -26,7 +26,7 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "qwen38-flash-next-ud-q2-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan-v0.7.2"
+    image_tag: "vulkan"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

@@ -32,12 +32,12 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "qwen38-27b-ud-q4-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan-v0.7.2"
+    image_tag: "vulkan"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 
     # Model settings
-    ctx: 262144
+    ctx: 131072
     port: 8080
     parallel: 1
     batch: 2048
