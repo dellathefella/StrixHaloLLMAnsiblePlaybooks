@@ -533,7 +533,7 @@ def main() -> int:
                     help="force prompt regeneration (bypass cache)")
     ap.add_argument("--max-tokens", type=int, default=64,
                     help="max_tokens for the completion")
-    ap.add_argument("--timeout", type=float, default=1800.0,
+    ap.add_argument("--timeout", type=float, default=3600.0,
                     help="request timeout in seconds")
     ap.add_argument("--no-tokenize", action="store_true",
                     help="skip /tokenize; use chars/4.0 estimate")
