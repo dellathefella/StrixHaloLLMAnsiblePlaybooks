@@ -242,7 +242,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootst
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.2`
 - **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
   `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
-  (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/Q5_K_XL/...`)
+  (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/AP-Q5_K_XL/...`)
 - **Vision projector**: `mmproj-F16.gguf` from `unsloth/Qwen3.8-Flash-Next-GGUF`
   → `~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf`, passed as `--mmproj`
   (image input ON)
@@ -314,9 +314,9 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_
                              # playbook to ~/models/Qwen3.8-Flash-Next-UD-IQ4_XS/
 
 # Qwen3.8-Flash-Next-AP (Q5_K_XL, single ~112 GiB GGUF) + vision projector
-hf download agentionai/Qwen3.8-Flash-Next-AP-GGUF Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf \
+hf download agentionai/Qwen3.8-Flash-Next-AP-GGUF AP-Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf \
   --local-dir ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF
-                             # lands under the repo name: ~/models/agentionai/.../Q5_K_XL/...
+                             # lands under the repo name: ~/models/agentionai/.../AP-Q5_K_XL/...
 hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
   --local-dir ~/models/unsloth/Qwen3.8-Flash-Next-GGUF
                              # lands under the repo name: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf

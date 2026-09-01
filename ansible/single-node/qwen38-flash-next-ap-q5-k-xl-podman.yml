@@ -28,7 +28,7 @@
 # the merge cannot load this arch.
 #
 # Files (repo names preserved on disk so the two projectors can never collide):
-#   Model:     ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf
+#   Model:     ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/AP-Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf
 #   Projector: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
 # =============================================================================
 - name: "podman — setup + deploy llama.cpp container (Qwen3.8-Flash-Next-AP Q5_K_XL)"
@@ -70,7 +70,7 @@
 
     # Model — single GGUF from agentionai, kept under the repo name on disk
     hf_repo: "agentionai/Qwen3.8-Flash-Next-AP-GGUF"
-    model_file: "Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf"
+    model_file: "AP-Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf"
 
     # Vision projector — from unsloth (same family), also under its repo name
     mmproj_repo: "unsloth/Qwen3.8-Flash-Next-GGUF"
