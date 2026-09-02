@@ -12,8 +12,7 @@
 ansible/
   bootstrap.yml                orchestrator — static import_playbook of all tracks
   shared/                      shared setup playbooks: install-amdgpu (ROCm), install-podman,
-                               install-hf-cli, set-grub-ttm, setup-thunderbolt-net (TB4 node-to-node,
-                               multi-node only — targets the `multinode` group), set-limine-ttm
+                               install-hf-cli, set-grub-ttm, set-limine-ttm
   summary.yml                  final per-host completion summary
   <track>.yml                  per-track playbook (see track naming below)
   tasks/
@@ -51,7 +50,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |
-| `setup-thunderbolt-net.yml` (shared, multi-node only) | `multinode` | `thunderbolt` |
+| `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` |
 
 ### Template naming
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`

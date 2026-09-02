@@ -108,7 +108,7 @@
           ({{ ds4_link.stdout | default('?') }}Mb/s). The pipeline channel
           (port {{ ds4_pp_port }}) syncs activation tensors between the two
           nodes on every step; on 2.5Gbe that costs real tokens. Run
-          ansible/shared/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps.
+          ansible/multi-node/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps.
       when: (ds4_tb_if.stdout | length) == 0
       tags: [info]
 

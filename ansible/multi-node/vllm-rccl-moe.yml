@@ -139,7 +139,7 @@
           WARNING [link] no up tb* interface — using {{ vllm_moe_rccl_if }}
           ({{ vllm_moe_link.stdout | default('?') }}Mb/s). On a 2.5Gbe link every
           KV token adds cross-node RCCL sync cost. Run
-          ansible/shared/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps,
+          ansible/multi-node/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps,
           then re-run this track to re-bake NCCL_SOCKET_IFNAME.
       when: (vllm_moe_tb_if.stdout | length) == 0
       tags: [info]

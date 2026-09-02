@@ -2,7 +2,7 @@
 # hosts — SINGLE-NODE inventory (topology: one box, one model at a time)
 #
 # No Thunderbolt link here: there is no `multinode` group, so
-# ../shared/setup-thunderbolt-net.yml can never match anything in this file.
+# ../multi-node/setup-thunderbolt-net.yml can never match anything in this file.
 # The 2-node TB4 RCCL cluster (halo0 head + halo1 worker) lives in the sibling
 # file: ../multi-node/inventory/hosts
 #
@@ -27,14 +27,14 @@
 #   qwen36-35b-ud-q8-k-xl, qwen38-27b-ud-q4-k-xl, qwen38-flash-next-ud-q2-k-xl,
 #   qwen38-flash-next-ud-iq4-xs, gemma-4-26b-a4b-ud-q8-k-xl
 [vulkan]
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 #halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
 # ROCm backend — Podman ROCmFPX track: qwen38-27b-rocmfp4
 # (Same box as vulkan for a single-machine setup; use a dedicated host if you
 # run ROCm on a separate machine.)
 [rocm]
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
+halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 #halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
 [aiservers:children]

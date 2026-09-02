@@ -7,7 +7,7 @@
 #   ../shared/install-podman.yml               podman installation (Fedora/Debian/Arch)                  [install-podman]
 #   ../shared/install-hf-cli.yml               HuggingFace CLI installation                              [install-hf-cli]
 #   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (Ubuntu-gated: update-grub) [grub-ttm]
-#   ../shared/setup-thunderbolt-net.yml        TB4 node-to-node link for RCCL (modprobe + static IP, both distros)  [thunderbolt]
+#   setup-thunderbolt-net.yml                  TB4 node-to-node link for RCCL (modprobe + static IP, both distros)  [thunderbolt]
 #   vllm-rccl-moe.yml                          Multi-model vLLM + Ray + RCCL MoE track (TB link preferred) [vllm-rccl-moe]
 #   ds4-deepseek-v4-flash-mtp.yml              2-node ds4 (DeepSeek V4 Flash) pipeline parallel + MTP track (TB link preferred) [ds4-deepseek-v4-flash-mtp]
 #   summary.yml                                final per-host completion summary                         [summary]
@@ -33,7 +33,7 @@
 - import_playbook: ../shared/install-podman.yml
 - import_playbook: ../shared/install-hf-cli.yml
 - import_playbook: ../shared/set-grub-ttm.yml
-- import_playbook: ../shared/setup-thunderbolt-net.yml
+- import_playbook: setup-thunderbolt-net.yml
 - import_playbook: vllm-rccl-moe.yml
 - import_playbook: ds4-deepseek-v4-flash-mtp.yml
 - import_playbook: summary.yml

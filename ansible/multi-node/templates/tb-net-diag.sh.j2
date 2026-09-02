@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# =============================================================================
+# tb-net-diag — Thunderbolt (TB4) node-to-node link diagnostics
+#
+# Deployed to /usr/local/bin/tb-net-diag by
+# ansible/multi-node/setup-thunderbolt-net.yml. It auto-detects the tb*
+# interface and the static IP that playbook assigns (10.125.0.<n>).
+#
+# Subcommands:
+#   tb-net-diag [status]          show tb interface, link state, speed, local IP
+#   tb-net-diag server            start an iperf3 server on the TB IP (one client)
+#   tb-net-diag client <peer-ip>  iperf3 throughput test against <peer-ip> over TB
+#   tb-net-diag ping <peer-ip>    ping <peer-ip> over the TB interface
+#   tb-net-diag both <peer-ip>    ping + iperf client (full quick check)
+#
+# Env overrides: TB_PORT (5201)  TB_PAR (4 parallel streams)  TB_DUR (10s)
+#                TB_EXPECT_MBPS (37000)
+#
+# Typical 2-node test (one terminal per node):
+#   head   (halo0):  sudo tb-net-diag server
+#   worker (halo1):  sudo tb-net-diag client 10.125.0.1
+# A healthy TB4 link reports ~37-39 Gbps (≈ 37000-39000 Mb/s).
+# =============================================================================
+set -euo pipefail
+
+PORT="${TB_PORT:-5201}"
+PAR="${TB_PAR:-4}"
+DUR="${TB_DUR:-10}"
+EXPECT_MBPS="${TB_EXPECT_MBPS:-37000}"   # healthy TB4 ≈ 37-39 Gbps after overhead
+
+tb_if() { ip -br link show 2>/dev/null | awk '$1 ~ /^tb[0-9]+$/ {print $1; exit}'; }
+tb_ip() { ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
+die()   { echo "ERROR: $*" >&2; exit 1; }
+
+cmd_status() {
+  local ifc ipaddr speed state
+  ifc="$(tb_if)"
+  if [[ -z "$ifc" ]]; then
+    echo "No tb* interface found."
+    echo "  - TB4 cable connected node-to-node (no hub/switch)?"
+    echo "  - thunderbolt-net loaded?   (sudo modprobe thunderbolt-net)"
+    echo "  - BIOS Thunderbolt enabled on BOTH nodes?"
+    echo "  - Have you run setup-thunderbolt-net.yml on both nodes?"
+    return 0
+  fi
+  ipaddr="$(tb_ip "$ifc")"
+  speed="$(ethtool "$ifc" 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}')"
+  state="$(ip -br link show "$ifc" | awk '{print $2}')"
+  echo "TB interface : $ifc"
+  echo "  state      : $state"
+  echo "  speed      : ${speed:-N/A} Mb/s   (expect ~40000 on TB4)"
+  echo "  local IP   : ${ipaddr:-<none assigned — run setup-thunderbolt-net.yml>}"
+  echo "  default gw : $(ip -4 route show default 2>/dev/null | head -n1 || echo none)"
+  [[ "$ipaddr" == *.* ]] || echo "  WARNING: no IPv4 on $ifc"
+}
+
+cmd_server() {
+  local ifc ipaddr
+  ifc="$(tb_if)"; [[ -n "$ifc" ]] || die "no tb* interface on this host"
+  ipaddr="$(tb_ip "$ifc")"; [[ -n "$ipaddr" ]] || die "no IPv4 on $ifc"
+  pkill -f "iperf3 -s -p $PORT" 2>/dev/null || true
+  echo "iperf3 server on $ipaddr port $PORT (${PAR} streams, one client). Ctrl-C to stop."
+  exec iperf3 -s -B "$ipaddr" -p "$PORT" -1 -P "$PAR"
+}
+
+cmd_client() {
+  local peer="${1:-}"
+  [[ -n "$peer" ]] || die "usage: tb-net-diag client <peer-ip>"
+  local ifc ipaddr
+  ifc="$(tb_if)"; [[ -n "$ifc" ]] || die "no tb* interface on this host"
+  ipaddr="$(tb_ip "$ifc")"; [[ -n "$ipaddr" ]] || die "no IPv4 on $ifc"
+  echo "ping $peer via $ifc ..."
+  ping -I "$ifc" -c 3 -W 2 "$peer" >/dev/null || die "ping to $peer over $ifc FAILED — check link/cable/IPs"
+  echo "iperf3 ${DUR}s x ${PAR} streams: $ipaddr -> $peer (port $PORT)"
+  local out mbps
+  out="$(iperf3 -c "$peer" -B "$ipaddr" -p "$PORT" -t "$DUR" -P "$PAR" -J 2>/dev/null)" \
+    || die "iperf3 client failed — is the server running? (sudo tb-net-diag server)"
+  mbps="$(printf '%s' "$out" | python3 -c 'import sys,json
+try:
+    print(int(json.load(sys.stdin)["end"]["sum_received"]["bits_per_second"] // 1000000))
+except Exception:
+    pass')"
+  if [[ -n "$mbps" ]]; then
+    echo "RESULT: ${mbps} Mb/s"
+    if (( mbps >= EXPECT_MBPS )); then
+      echo "PASS: within TB4 expectation (>= ${EXPECT_MBPS} Mb/s)."
+    else
+      echo "WARN: below TB4 expectation (>= ${EXPECT_MBPS} Mb/s) — link may be on 2.5Gbe or degraded."
+    fi
+  else
+    echo "WARN: could not parse iperf3 result (server may not have been listening)."
+  fi
+}
+
+cmd_ping() {
+  local peer="${1:-}"
+  [[ -n "$peer" ]] || die "usage: tb-net-diag ping <peer-ip>"
+  local ifc; ifc="$(tb_if)"; [[ -n "$ifc" ]] || die "no tb* interface on this host"
+  ping -I "$ifc" -c 4 -W 2 "$peer"
+}
+
+cmd_both() {
+  local peer="${1:-}"
+  [[ -n "$peer" ]] || die "usage: tb-net-diag both <peer-ip>"
+  cmd_ping "$peer" && cmd_client "$peer"
+}
+
+main() {
+  local sub="${1:-status}"
+  [[ $# -gt 0 ]] && shift
+  case "$sub" in
+    status) cmd_status ;;
+    server) cmd_server ;;
+    client) cmd_client "$@" ;;
+    ping)   cmd_ping "$@" ;;
+    both)   cmd_both "$@" ;;
+    *) echo "usage: tb-net-diag [status|server|client <ip>|ping <ip>|both <ip>]"; exit 2 ;;
+  esac
+}
+
+main "$@"

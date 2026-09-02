@@ -8,10 +8,11 @@
 # — 16x the 2.5Gbe NIC the cluster falls back on when the TB link is down.
 #
 # Distro-agnostic: works on CachyOS/Arch (current fleet) and Ubuntu 26.04.
-# No packages are installed — everything uses the stock kernel:
+# The link itself uses only the stock kernel (no packages needed):
 #   - thunderbolt / thunderbolt-net kernel modules (both distros ship them)
 #   - `ip` for runtime addressing
 #   - NetworkManager (nmcli) for persistence (default on both distros)
+# The only package installed is iperf3 (diagnostics; optional via tb_net_install_iperf).
 #
 # What it does per host:
 #   1. Detects a Thunderbolt/USB4 controller (/sys/class/thunderbolt)
@@ -25,12 +26,19 @@
 #      the TB link must NEVER become the default route)
 #   6. Verifies: link state, ethtool speed (expect ~40000 Mb/s on TB4),
 #      and a ping of the auto-derived peer (2-host batches)
+#   7. Diagnostics: installs iperf3, deploys `tb-net-diag` to /usr/local/bin,
+#      and (2-host batches) runs a cross-node iperf3 throughput test (tb_net_iperf_test)
 #
 # Args (all overridable with -e):
-#   tb_net_enabled    default true — set false to skip the whole play
-#   tb_net_cidr       default "10.125.0.0/24"
-#   tb_net_ip         default "" (derived from inventory position)
-#   tb_net_peer_ip    default "" (derived for 2-host batches)
+#   tb_net_enabled        default true — set false to skip the whole play
+#   tb_net_cidr           default "10.125.0.0/24"
+#   tb_net_ip             default "" (derived from inventory position)
+#   tb_net_peer_ip        default "" (derived for 2-host batches)
+#   tb_net_install_iperf  default true — install iperf3 for diagnostics
+#   tb_net_iperf_test     default true — run the cross-node iperf3 test (2-host)
+#   tb_net_iperf_port     default 5201
+#   tb_net_iperf_parallel default 4 (parallel streams)
+#   tb_net_iperf_time     default 10 (seconds)
 #
 # Prerequisites (physical/BIOS — the playbook warns, it cannot fix these):
 #   - TB4 cable connected node-to-node (no hub/switch)
@@ -44,7 +52,7 @@
 #   is never configured on a standalone box.
 #
 # Usage:
-#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/setup-thunderbolt-net.yml
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/setup-thunderbolt-net.yml
 # (also imported by ansible/multi-node/bootstrap.yml)
 # =============================================================================
 
@@ -59,19 +67,32 @@
     tb_net_cidr: "10.125.0.0/24"
     tb_net_ip: ""        # per-host override; empty = 10.125.0.<play-batch-position>
     tb_net_peer_ip: ""   # explicit peer; empty = auto-derived for 2-host batches
+    # --- diagnostics (iperf3) ---
+    tb_net_install_iperf: true
+    tb_net_iperf_test: true
+    tb_net_iperf_port: 5201
+    tb_net_iperf_parallel: 4
+    tb_net_iperf_time: 10
     tb_net_prefixlen: "{{ tb_net_cidr.split('/')[1] }}"
     tb_net_base: "{{ tb_net_cidr.split('/')[0].split('.')[:3] | join('.') }}"
+    # 1-based position of this host in the play batch (1 = head/.1, 2 = worker/.2)
+    tb_net_pos: "{{ ansible_play_batch.index(inventory_hostname) + 1 }}"
     tb_net_ip_effective: >-
       {{ tb_net_ip if (tb_net_ip | length > 0)
-         else (tb_net_base ~ '.' ~ (ansible_play_batch.index + 1)) }}
+         else (tb_net_base ~ '.' ~ (tb_net_pos | int)) }}
     tb_net_peer_ip_effective: >-
       {{ tb_net_peer_ip
          if (tb_net_peer_ip | length > 0)
-         else (tb_net_base ~ '.2' if (ansible_play_batch | length == 2 and ansible_play_batch.index == 0)
-               else (tb_net_base ~ '.1' if (ansible_play_batch | length == 2 and ansible_play_batch.index == 1)
+         else (tb_net_base ~ '.2' if ((ansible_play_batch | length) == 2 and (tb_net_pos | int) == 1)
+               else (tb_net_base ~ '.1' if ((ansible_play_batch | length) == 2 and (tb_net_pos | int) == 2)
                      else '')) }}
 
   tasks:
+    - name: Skip this host when the TB link is disabled (tb_net_enabled=false)
+      ansible.builtin.meta: end_host
+      when: not (tb_net_enabled | bool)
+      tags: [thunderbolt, tb-net]
+
     # -----------------------------------------------------------------------
     # 1. Detect Thunderbolt/USB4 controller
     # -----------------------------------------------------------------------
@@ -103,9 +124,7 @@
 
     - name: Skip remaining tasks without a controller
       ansible.builtin.meta: end_host
-      when:
-        - tb_net_enabled | bool
-        - (tb_ctrl_count.stdout | default('0') | int) == 0
+      when: (tb_ctrl_count.stdout | default('0') | int) == 0
       tags: [thunderbolt, tb-net]
 
     # -----------------------------------------------------------------------
@@ -169,9 +188,7 @@
 
     - name: Skip IP setup without a tb* interface
       ansible.builtin.meta: end_host
-      when:
-        - tb_net_enabled | bool
-        - tb_if.stdout | length == 0
+      when: tb_if.stdout | length == 0
       tags: [thunderbolt, tb-net]
 
     # -----------------------------------------------------------------------
@@ -276,6 +293,89 @@
       when: tb_net_peer_ip_effective | length > 0
       tags: [thunderbolt, tb-net, verify]
 
+    # -----------------------------------------------------------------------
+    # 6. Diagnostics — iperf3 install, tb-net-diag script, cross-node test
+    # -----------------------------------------------------------------------
+    - name: Install iperf3 on Debian/Ubuntu (diagnostics)
+      ansible.builtin.apt:
+        name: iperf3
+        state: present
+        update_cache: yes
+      when:
+        - tb_net_install_iperf | bool
+        - (ansible_facts['os_family'] | lower == "debian") or (ansible_facts['os_family'] | lower == "ubuntu")
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Install iperf3 on Arch Linux (diagnostics)
+      community.general.pacman:
+        name: iperf3
+        state: present
+      when:
+        - tb_net_install_iperf | bool
+        - ansible_os_family | lower == "archlinux"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Install iperf3 on Fedora (diagnostics)
+      ansible.builtin.dnf:
+        name: iperf3
+        state: present
+      when:
+        - tb_net_install_iperf | bool
+        - ansible_os_family | lower == "fedora"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Verify iperf3 is available
+      ansible.builtin.command:
+        cmd: iperf3 --version
+      register: tb_iperf3_version
+      changed_when: false
+      failed_when: false
+      when: tb_net_install_iperf | bool
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Deploy tb-net-diag diagnostics script to /usr/local/bin
+      ansible.builtin.template:
+        src: tb-net-diag.sh.j2
+        dest: /usr/local/bin/tb-net-diag
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Start iperf3 server on the TB IP [head only, 2-host batch]
+      ansible.builtin.shell: |
+        pkill -f "iperf3 -s -p {{ tb_net_iperf_port }}" 2>/dev/null || true
+        setsid timeout 120 iperf3 -s -B {{ tb_net_ip_effective }} -p {{ tb_net_iperf_port }} -P {{ tb_net_iperf_parallel }} -1 > /tmp/tb-iperf3-server.log 2>&1 < /dev/null &
+      register: tb_iperf3_server
+      changed_when: true
+      failed_when: false
+      when:
+        - tb_net_iperf_test | bool
+        - tb_net_peer_ip_effective | length > 0
+        - tb_net_pos | int == 1
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Run iperf3 client against the peer over the TB link [worker only, 2-host batch]
+      ansible.builtin.shell: |
+        result=""
+        for i in $(seq 1 60); do
+          if iperf3 -c {{ tb_net_peer_ip_effective }} -B {{ tb_net_ip_effective }} -p {{ tb_net_iperf_port }} -t {{ tb_net_iperf_time }} -P {{ tb_net_iperf_parallel }} -J > /tmp/tb-iperf3-client.json 2>/dev/null; then
+            mbps=$(python3 -c 'import json; print(int(json.load(open("/tmp/tb-iperf3-client.json"))["end"]["sum_received"]["bits_per_second"] // 1000000))' 2>/dev/null || echo "")
+            if [ -n "$mbps" ]; then result="iperf3 {{ tb_net_peer_ip_effective }}: ${mbps} Mb/s"; break; fi
+          fi
+          sleep 1
+        done
+        if [ -z "$result" ]; then result="iperf3 {{ tb_net_peer_ip_effective }}: NO RESULT (server unreachable — check the link)"; fi
+        echo "$result"
+      register: tb_iperf3_client
+      changed_when: false
+      failed_when: false
+      when:
+        - tb_net_iperf_test | bool
+        - tb_net_peer_ip_effective | length > 0
+        - tb_net_pos | int == 2
+      tags: [thunderbolt, tb-net, iperf]
+
     - name: Print Thunderbolt net summary
       ansible.builtin.debug:
         msg: |
@@ -284,7 +384,9 @@
                        speed: {{ tb_link_speed.stdout | default('N/A') }}Mb/s — expect ~40000 on TB4)
           static IP:   {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }} (never-default)
           peer ping:   {{ 'OK' if (tb_peer_ping is not skipped and tb_peer_ping.rc == 0) else ('skipped' if tb_peer_ping is skipped else 'FAILED — check cable + module on the other node') }}
+          iperf3:      {{ tb_iperf3_client.stdout if tb_iperf3_client is defined else 'n/a on this host — the worker prints it (or: sudo tb-net-diag client <peer>)' }}
           RCCL:        the vllm-rccl-moe track auto-selects tb* interfaces.
                        Manual override: NCCL_SOCKET_IFNAME={{ tb_if.stdout }} GLOO_SOCKET_IFNAME={{ tb_if.stdout }}
+          manual test: sudo tb-net-diag server (head)  /  sudo tb-net-diag client {{ tb_net_peer_ip_effective }} (worker)
       tags: [info]
 

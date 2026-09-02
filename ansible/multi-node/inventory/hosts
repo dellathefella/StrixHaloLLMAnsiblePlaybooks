@@ -25,9 +25,9 @@
 # derives vllm_moe_head_ip / vllm_moe_worker_ip from these hostvars
 # (vllm_moe_ip, else ansible_host); -e still overrides (LAN IPs when the
 # TB link is down). Prefers the Thunderbolt link (tb*) from
-# ../shared/setup-thunderbolt-net.yml.
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=head vllm_moe_ip=10.125.0.1
-halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=worker vllm_moe_ip=10.125.0.2
+# ../setup-thunderbolt-net.yml.
+#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=head vllm_moe_ip=10.125.0.1
+#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=worker vllm_moe_ip=10.125.0.2
 
 [ds4-deepseek-v4-flash-mtp]
 # 2-node ds4 (DeepSeek V4 Flash) track — pipeline parallel + MTP speculative
@@ -37,9 +37,9 @@ halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella ansi
 # ds4_head_ip / ds4_worker_ip from these hostvars (ds4_ip, else
 # ansible_host); -e still overrides (LAN IPs when the TB link is down).
 # The pipeline channel (port 8081) prefers the Thunderbolt link (tb*) from
-# ../shared/setup-thunderbolt-net.yml.
-#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws ds4_role=head ds4_ip=10.125.0.1
-#halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws ds4_role=worker ds4_ip=10.125.0.2
+# ../setup-thunderbolt-net.yml.
+#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=10.125.0.1
+#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=10.125.0.2
 
 # Capability groups — group hosts by GPU backend. The vllm-rccl-moe track is a
 # vLLM/ROCm (RCCL) deployment, so it sits under `rocm`; `aiservers` is the union
@@ -55,6 +55,6 @@ ds4-deepseek-v4-flash-mtp
 rocm
 
 # TB4 multi-node link: only these hosts get the thunderbolt-net module +
-# 10.125.0.<n> static IP (../shared/setup-thunderbolt-net.yml).
+# 10.125.0.<n> static IP (../setup-thunderbolt-net.yml).
 [multinode:children]
 rocm

@@ -82,7 +82,7 @@ Cluster-based inference across multiple machines:
   `-e ds4_head_ip=... -e ds4_worker_ip=...`. Start the head first, then the
   worker (`DS4_ROLE=head|worker`).
 
-- **Thunderbolt networking** — `setup-thunderbolt-net.yml` (shared) sets up the
+- **Thunderbolt networking** — `setup-thunderbolt-net.yml` sets up the
   direct TB4 cable between the two Z2 G1a nodes: loads + persists
   `thunderbolt-net`, assigns `10.125.0.<n>/24` (first inventory host = `.1`,
   second = `.2`), persists via NetworkManager (`ipv4.never-default`), and
@@ -97,7 +97,6 @@ Host-level setup shared by both tracks (imported by each track's bootstrap):
 - `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
 - `install-hf-cli.yml` — HuggingFace CLI installation
 - `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size (+ opt-in GPU watchdog `amdgpu.lockup_timeout` via `-e lockup_timeout_enabled=true`)
-- `setup-thunderbolt-net.yml` — TB4 node-to-node link for RCCL: `thunderbolt-net` module, static `10.125.0.<n>/24`, NetworkManager persistence, speed/peer verification (distro-agnostic, multi-node only — targets the `multinode` group)
 - `set-limine-ttm.yml` — Limine bootloader kernel args, same set (Limine hosts only)
 
 ## Quick Start
@@ -126,7 +125,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
 
 # Thunderbolt node-to-node link (run on both nodes, TB4 cable attached):
-ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/setup-thunderbolt-net.yml
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/setup-thunderbolt-net.yml
 
 # vLLM + RCCL MoE track (both nodes) — head/worker IPs come from the
 # inventory hostvars (vllm_moe_role); -e overrides when TB is down:
@@ -151,7 +150,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)
 │   │   ├── install-hf-cli.yml     HuggingFace CLI installation
 │   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
-│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node link for RCCL (distro-agnostic)
 │   │   └── set-limine-ttm.yml     Limine bootloader TTM settings
 │   │
 │   ├── single-node/               Single-node tracks (one host, one model at a time)
@@ -192,6 +190,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
+│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node link for RCCL (multi-node only) + tb-net-diag
 │   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
 │   │   ├── ds4-deepseek-v4-flash-mtp.yml  2-node ds4 DeepSeek V4 Flash (pipeline parallel + MTP), TB link preferred
 │   │   ├── inventory/
@@ -201,7 +200,8 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
 │   │   │   ├── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
 │   │   │   ├── ds4-deepseek-v4-flash-mtp-start.sh.j2  ds4 cluster launch (DS4_ROLE=head|worker)
-│   │   │   └── pi-ds4-deepseek-v4-flash-mtp.json.j2   pi agent config (deepseek thinking format)
+│   │   │   ├── pi-ds4-deepseek-v4-flash-mtp.json.j2   pi agent config (deepseek thinking format)
+│   │   │   └── tb-net-diag.sh.j2                   TB4 link diagnostics (iperf3 server/client/ping)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -465,7 +465,7 @@ you open `/model`; no restart needed).
 ### Multi-Node Tracks
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
 - ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
-- setup-thunderbolt-net (shared): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` (per-host override), `tb_net_peer_ip` (per-host override)
+- setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
 Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.
