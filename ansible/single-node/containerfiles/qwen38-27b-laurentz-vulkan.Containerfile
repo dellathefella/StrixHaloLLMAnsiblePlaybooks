@@ -11,11 +11,23 @@
 # all despite Vulkan being the fork's primary target for this hardware. So we
 # build it ourselves, on the target host, from source.
 #
-# Package names (glslc, libvulkan-dev, mesa-vulkan-drivers) verified against
-# a live Ubuntu 26.04 apt cache. The kisak-mesa PPA in the runtime stage
-# mirrors julianmb/haloq38flash's own Dockerfile for the same gfx1151 target —
-# stock Ubuntu 24.04 mesa-vulkan-drivers is likely too old for reliable
-# RDNA3.5/gfx1151 support.
+# Package names (glslc, libvulkan-dev, mesa-vulkan-drivers, spirv-headers,
+# spirv-tools) verified against the real Ubuntu 24.04 "noble" archive
+# (packages.ubuntu.com) — NOT the WSL dev box's Ubuntu 26.04, whose repos
+# still had a spirv-tools-dev split that doesn't exist on noble. On noble the
+# base spirv-tools package itself ships every SPIRV-Tools*.cmake config (no
+# -dev split), which is what ggml-vulkan/CMakeLists.txt's
+# find_package(SPIRV-Headers) / find_package(SPIRV-Tools) chain needs — not
+# satisfied by libvulkan-dev/glslc/vulkan-tools alone. The kisak-mesa PPA in
+# the runtime stage mirrors julianmb/haloq38flash's own Dockerfile for the
+# same gfx1151 target — stock Ubuntu 24.04 mesa-vulkan-drivers is likely too
+# old for reliable RDNA3.5/gfx1151 support.
+#
+# kisak-mesa PPA: the slug is ppa:kisak/kisak-mesa, NOT ppa:kisak/kisak — the
+# latter isn't a real PPA under that Launchpad account (owner "kisak" hosts
+# kisak-mesa, kisak-mesa-build-deps, steamvr, and turtle; no PPA is literally
+# named "kisak"). Using the bare name failed with
+# "ERROR: ppa 'kisak/kisak' not found" during the runtime-stage apt step.
 #
 # UNVERIFIED: the fork's README only documents loading the DFlash2 draft
 # model via the auto-download `-hfd <hf-repo>` shorthand, never a local-file
@@ -32,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake ninja-build git ccache \
-      libvulkan-dev glslc vulkan-tools \
+      libvulkan-dev glslc vulkan-tools spirv-headers spirv-tools \
       libcurl4-openssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,7 +65,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # same driver-currency reasoning as julianmb/haloq38flash's own Dockerfile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       software-properties-common gpg-agent \
-    && add-apt-repository -y ppa:kisak/kisak \
+    && add-apt-repository -y ppa:kisak/kisak-mesa \
     && apt-get update && apt-get install -y --no-install-recommends \
       mesa-vulkan-drivers vulkan-tools libvulkan1 libcurl4 \
     && rm -rf /var/lib/apt/lists/*

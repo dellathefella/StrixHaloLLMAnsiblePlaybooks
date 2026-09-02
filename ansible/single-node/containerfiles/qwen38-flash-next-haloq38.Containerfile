@@ -1,9 +1,24 @@
 # =============================================================================
 # qwen38-flash-next-haloq38.Containerfile
-# Near-verbatim port of julianmb/haloq38flash's own Dockerfile
+# Port of julianmb/haloq38flash's own Dockerfile
 # (https://github.com/julianmb/haloq38flash) — it has no published registry
 # image (only `docker compose up --build`, building `.` locally), so this
 # reproduces its build steps directly under `podman build` instead of compose.
+# One deviation from that Dockerfile: it doesn't install spirv-headers/
+# spirv-tools, but the qwen38-27b-laurentz-vulkan Containerfile's build (same
+# ggml-vulkan CMake machinery, different llama.cpp fork) failed with
+# `Could not find a package configuration file provided by "SPIRV-Headers"`
+# without them — added here too since Nathanw1014's fork almost certainly has
+# the same ggml-vulkan CMakeLists.txt requiring it. Package name is
+# spirv-tools, not spirv-tools-dev — the latter doesn't exist on Ubuntu 24.04
+# "noble" (only on newer releases); noble's base spirv-tools package ships
+# every SPIRV-Tools*.cmake config itself, no -dev split needed.
+#
+# kisak-mesa PPA: the slug is ppa:kisak/kisak-mesa, NOT ppa:kisak/kisak — the
+# latter isn't a real PPA under that Launchpad account (owner "kisak" hosts
+# kisak-mesa, kisak-mesa-build-deps, steamvr, and turtle; no PPA is literally
+# named "kisak"). Same bug hit both from-source Containerfiles since both
+# copied the same runtime-stage apt step.
 #
 # Builds Nathanw1014's own llama.cpp fork (branch strix-halo-vulkan — the
 # same source lineage as the ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
@@ -26,7 +41,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake ninja-build git ccache \
-      libvulkan-dev glslc vulkan-tools \
+      libvulkan-dev glslc vulkan-tools spirv-headers spirv-tools \
       libcurl4-openssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -43,7 +58,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       software-properties-common gpg-agent \
-    && add-apt-repository -y ppa:kisak/kisak \
+    && add-apt-repository -y ppa:kisak/kisak-mesa \
     && apt-get update && apt-get install -y --no-install-recommends \
       mesa-vulkan-drivers vulkan-tools libvulkan1 libcurl4 \
     && rm -rf /var/lib/apt/lists/*
