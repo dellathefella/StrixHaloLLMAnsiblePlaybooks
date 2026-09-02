@@ -77,7 +77,7 @@ COPY --from=build /src/engine/build/bin/libggml*.so* /app/
 COPY --from=build /src/engine/build/bin/libllama*.so* /app/
 RUN ldconfig /app 2>/dev/null; true
 
-ENV LD_LIBRARY_PATH=/app
+ENV LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH}
 VOLUME /models
 WORKDIR /app
 EXPOSE 8080
