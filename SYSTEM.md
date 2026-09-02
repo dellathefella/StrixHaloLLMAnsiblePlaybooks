@@ -45,7 +45,6 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
 | `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
-| `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |
 | `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` | TB4 node-to-node cluster link |
@@ -63,20 +62,19 @@ Each track playbook is **self-contained** — it defines its own `vars:` block a
 - `port` / `ctx` / `parallel` — host port, context window, and slot count
 
 Tracks that may serve more than one model group the model-specific knobs into a
-**profile dict** selected by `active_profile` (see `qwen38-27b-rocmfp4-podman.yml`):
+**profile dict** selected by `active_profile` (see `vllm-rccl-moe.yml`):
 ```yaml
-active_profile: "qwen38-27b-rocmfp4"
-rocm_image_profiles:
-  qwen38-27b-rocmfp4:
-    image: "ghcr.io/julianmb/q38rocm:1.5.3"
-    model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
-    hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
-    port: 8080
-    ctx: 131072
-    parallel: 1
+active_profile: "minimax-m2.7-awq-4bit"
+vllm_moe_profiles:
+  minimax-m2.7-awq-4bit:
+    hf_repo: "cyankiwi/MiniMax-M2.7-AWQ-4bit"
+    display: "MiniMax M2.7 (AWQ-4bit)"
+    max_model_len: 196608
+    max_tokens: 32768
+    dtype: "bfloat16"
 ```
-Flat vars (`docker_image`, `model`, `port`, ...) are derived from
-`{{ rocm_image_profiles[active_profile] }}`, so `image_repo`/`image_tag` keep working.
+Flat vars are derived from `{{ vllm_moe_profiles[active_profile] }}`, so a new
+model only adds an entry to the dict.
 
 ## Playbook structure
 
@@ -254,7 +252,7 @@ use the plain image. Verify against the merge commit (or the pinned build's
 1. Define the track's vars inline in its playbook `vars:` block (self-contained, no
    `group_vars`): `track_stem`, `image_repo`/`image_tag`, `model`/`hf_repo`,
    `port`/`ctx`/`parallel`, plus any track-specific flags. For multi-model tracks use
-   the `active_profile` + profile-dict pattern (see `qwen38-27b-rocmfp4-podman.yml`).
+   the `active_profile` + profile-dict pattern (see `vllm-rccl-moe.yml`).
 
 2. Create `ansible/<track>.yml` with two plays (bootstrap + render), following the two-play pattern above.
 

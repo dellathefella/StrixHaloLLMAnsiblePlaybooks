@@ -38,7 +38,7 @@
     # Fixed TTM values for Strix Halo
     ttm_pages: 32505856
     # GPU ring watchdog — OPT-IN, default off. Start with the container-side
-    # GGML_VK_MAX_NODES_PER_SUBMIT=1 pin (qwen38-27b-rocmfp4-podman.yml);
+    # GGML_VK_MAX_NODES_PER_SUBMIT=1 pin on the affected Vulkan track;
     # enable with -e lockup_timeout_enabled=true only if long prompts still
     # trip vk::DeviceLostError. 60 s for the first 16 rings (covers the Strix
     # Halo GFX + COMPUTE rings; unlisted rings keep the driver default). A

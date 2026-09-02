@@ -4,7 +4,7 @@
 # Multi-node vLLM + Ray + RCCL track for MoE models on the 2x HP Z2 G1a pair.
 #
 # Multi-model: `active_profile` picks the model; every model-specific knob
-# lives in the profile dict (same pattern as qwen38-27b-rocmfp4-podman.yml).
+# lives in the profile dict.
 # Switch with -e active_profile=<name> — the rendered script + pi config
 # follow the active profile.
 #

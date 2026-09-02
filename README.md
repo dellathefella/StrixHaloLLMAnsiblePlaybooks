@@ -71,10 +71,12 @@ Cluster-based inference across multiple machines:
 - **ds4-deepseek-v4-flash-mtp** — DeepSeek V4 Flash on the dedicated `ds4`
   engine, 2-node **pipeline parallel** (head/coordinator `--layers 0:21`,
   worker `--layers 22:output`) + **MTP speculative decoding** on the head
-  (`--mtp`, `--mtp-draft 1`). Toolbox container `ds4_cluster` (separate from
-  `vllm_cluster`) on `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`.
-  The ~153 GB Q4KExperts hybrid GGUF from `antirez/deepseek-v4-gguf` lives at
-  `~/ds4` on both nodes (mounted at `/root/ds4`); the ~3.6 GB MTP drafter is
+  (`--mtp --mtp-model <drafter> --mtp-draft 1`). Toolbox container `ds4_cluster`
+  (separate from `vllm_cluster`) on
+  `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`.
+  The ~153 GB Q4KExperts hybrid GGUF from `antirez/deepseek-v4-gguf` is
+  downloaded by the playbook into `~/ds4` on both nodes and bind-mounted
+  read-only into the container at the same path; the ~3.6 GB MTP drafter is
   head-only. Pipeline channel on port 8081 (head listens, worker dials in)
   rides the Thunderbolt link (`tb*`, ~40 Gbps) when up; the OpenAI API is on
   port 8000 of the head. Head/worker IPs derive from the inventory hostvars
@@ -109,7 +111,6 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-rocmfp4-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ap-q5-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
@@ -155,7 +156,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
-│   │   ├── qwen38-27b-rocmfp4-podman.yml  Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, built-in MTP)
 │   │   ├── qwen38-flash-next-ap-q5-k-xl-podman.yml  Qwen3.8-Flash-Next AP Q5_K_XL (Podman Vulkan + vision)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── tasks/                 Shared task files included by the tracks above
@@ -173,13 +173,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
-│   │   │   │   ├── qwen38-27b-rocmfp4-start.sh.j2   Qwen3.8-27B ROCmFPX launch (prebuilt image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
-│   │   │   │   ├── pi-qwen38-27b-rocmfp4-podman.json.j2
 │   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   └── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
@@ -401,9 +399,6 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.8-27B (Podman Vulkan + MTP)
 ~/scripts/qwen38-27b-ud-q4-k-xl-start.sh
 
-# Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, prebuilt julianmb/q38rocm image)
-~/scripts/qwen38-27b-rocmfp4-start.sh
-
 # Qwen3.8-Flash-Next AP (Q5_K_XL, Podman Vulkan, image input)
 ~/scripts/qwen38-flash-next-ap-q5-k-xl-start.sh
 
@@ -427,8 +422,10 @@ DS4_ROLE=head   ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 
 # Once warm: OpenAI endpoint http://<head_ip>:8000/v1
-# First run downloads the ~153 GB main GGUF on both nodes and the ~3.6 GB
-# MTP drafter on the head into ~/ds4 (mounted at /root/ds4 in the container).
+# The playbook downloads the ~153 GB main GGUF on both nodes and the ~3.6 GB
+# MTP drafter on the head into ~/ds4 BEFORE this script runs; the container
+# bind-mounts that same host path read-only, so the script only checks the
+# files are present.
 ```
 
 ## Pi Agent Config
@@ -438,7 +435,6 @@ The bootstrap drops pi agent configs into `ansible/pi-configs/`:
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
@@ -451,11 +447,11 @@ you open `/model`; no restart needed).
 ## Config Variables (inventory / env)
 
 ### Single-Node Tracks
-(All single-node playbooks are self-contained with inline vars — no group_vars needed. The ROCmFP4 track groups its per-model knobs into a `rocm_image_profiles` dict selected by `active_profile`, deriving `docker_image`/`model`/`port`/`ctx`/`parallel` from the active profile.)
+All single-node playbooks are self-contained with inline vars — no group_vars needed.
 
 ### Multi-Node Tracks
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
-- ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
+- ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars — TB static IP when the live TB link check says both ends are up, else LAN `ansible_host` on both; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
 - setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (172.20.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
@@ -465,7 +461,6 @@ The settings below are baked into the rendered script as plain shell variables
 re-run it to change them.
 - `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
-- `qwen38-27b-rocmfp4-start.sh` (CONTAINER/HOST_PORT/CONTAINER_PORT/IMAGE/CTX/SLOTS — prebuilt julianmb/q38rocm image)
 - `qwen38-flash-next-ap-q5-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/PARALLEL/GPU_LAYERS/N_CPU_MOE/FLASH_ATTN/LOAD_MODE/TEMP/TOP_P/TOP_K/MIN_P)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set

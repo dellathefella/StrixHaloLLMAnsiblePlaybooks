@@ -19,17 +19,22 @@
 # `vllm_cluster`, so the two tracks can coexist (one model at a time per
 # engine is still the rule; each track --replaces its own container).
 #
-# Link: prefers the Thunderbolt link (tb* from setup-thunderbolt-net.yml,
-# ~40 Gbps) for the pipeline channel; falls back to the default-route NIC
-# (2.5Gbe) with a warning.
+# Link: the pipeline channel (--listen / --coordinator) actually uses whatever
+# link is live right now, checked fresh on every run — not just inventory
+# hostvars. When BOTH nodes have an up tb*/thunderbolt* interface (brought up
+# by ../setup-thunderbolt-net.yml — this playbook does not configure the
+# interface itself, only detects it), ds4_head_ip/ds4_worker_ip resolve to
+# the TB static IPs (ds4_ip hostvars, ~40 Gbps). If either end's TB link is
+# down, BOTH sides fall back together to ansible_host (LAN, ~2.5Gbe) — mixing
+# a TB IP on one end with a LAN IP on the other would just be unreachable.
 #
 # Run from repo root (per-node container setup on BOTH nodes):
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
 #
 # Head/worker IPs come from the inventory hostvars (ds4_role +
-# ds4_ip / ansible_host, see inventory/hosts). Override with
-# -e ds4_head_ip=... / -e ds4_worker_ip=... when needed — e.g. the LAN
-# IPs of the two nodes when the Thunderbolt link is down.
+# ds4_ip / ansible_host, see inventory/hosts) filtered through the live TB
+# check above. Override with -e ds4_head_ip=... / -e ds4_worker_ip=... to
+# force a specific pair (e.g. pin to LAN even though TB is up).
 # =============================================================================
 
 - name: "ds4-deepseek-v4-flash-mtp — 2-node ds4 pipeline + MTP track (TB link preferred)"
@@ -57,18 +62,36 @@
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
     # ------------------------------------------------------------------
     # Head/worker IPs — resolution order (highest first):
-    #   1. -e ds4_head_ip=... / -e ds4_worker_ip=... (extra vars
-    #      win; e.g. LAN IPs when the TB link is down)
+    #   1. -e ds4_head_ip=... / -e ds4_worker_ip=... (extra vars win —
+    #      forces a specific pair, e.g. LAN even though TB is up)
     #   2. Inventory hostvars: the [ds4-deepseek-v4-flash-mtp] hosts that
-    #      declare ds4_role=head|worker; IP = ds4_ip (else ansible_host)
+    #      declare ds4_role=head|worker; IP = ds4_ip (TB static, when the
+    #      live TB check below says BOTH ends are up) else ansible_host (LAN)
     #   3. Group-order fallback: first host = head, second = worker
+    #
+    # ds4_link_up (both-ends TB check) is filled in by the "Link selection"
+    # tasks below (ds4_tb_if, registered per-host) — referencing it here is
+    # safe because Jinja is lazy and these vars aren't consumed until later
+    # tasks, by which point every host in this play's batch has already run
+    # its own link-detection task (linear strategy runs task-by-task across
+    # the whole batch before moving on).
     # ------------------------------------------------------------------
     ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
     ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
     ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
     ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
-    ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
-    ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+    ds4_link_up: >-
+      {{ (ds4_head_host | length > 0) and (ds4_worker_host | length > 0)
+         and (hostvars[ds4_head_host]['ds4_tb_if']['stdout'] | default('') | length > 0)
+         and (hostvars[ds4_worker_host]['ds4_tb_if']['stdout'] | default('') | length > 0) }}
+    ds4_head_ip: >-
+      {{ ((hostvars[ds4_head_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_head_host]['ansible_host'])
+         | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true))
+         if ds4_head_host else '' }}
+    ds4_worker_ip: >-
+      {{ ((hostvars[ds4_worker_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_worker_host]['ansible_host'])
+         | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true))
+         if ds4_worker_host else '' }}
     # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
     ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 
@@ -109,12 +132,14 @@
     - name: Warn when falling back off the Thunderbolt link
       ansible.builtin.debug:
         msg: |
-          WARNING [link] no up tb* interface — using {{ ds4_pp_if }}
-          ({{ ds4_link.stdout | default('?') }}Mb/s). The pipeline channel
-          (port {{ ds4_pp_port }}) syncs activation tensors between the two
-          nodes on every step; on 2.5Gbe that costs real tokens. Run
-          ansible/multi-node/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps.
-          TB link IPs: 172.20.0.1 (head) / 172.20.0.2 (worker).
+          WARNING [link] no up tb* interface on {{ inventory_hostname }} — using
+          {{ ds4_pp_if }} ({{ ds4_link.stdout | default('?') }}Mb/s). Because
+          this end has no TB link, ds4_head_ip/ds4_worker_ip fall back to the
+          LAN IP (ansible_host) on BOTH nodes for this run — the pipeline
+          channel (port {{ ds4_pp_port }}) will use that instead of the TB
+          static IPs, which costs real tokens syncing activation tensors on
+          2.5Gbe every step. Run ansible/multi-node/setup-thunderbolt-net.yml
+          on BOTH nodes for ~40 Gbps, then re-run this track.
       when: (ds4_tb_if.stdout | length) == 0
       tags: [info]
 
@@ -162,8 +187,10 @@
     - name: Download main model file via hf — with token (BOTH nodes)
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
+          hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
           --token "{{ hf_token_lookup }}" --local-dir {{ ds4_models_dir }}
+      environment:
+        HF_XET_HIGH_PERFORMANCE: "1"
       when:
         - not main_model_stat.stat.exists
         - hf_token_lookup | length > 0
@@ -174,8 +201,10 @@
     - name: Download main model file via hf — without token (BOTH nodes)
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
+          hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
           --local-dir {{ ds4_models_dir }}
+      environment:
+        HF_XET_HIGH_PERFORMANCE: "1"
       when:
         - not main_model_stat.stat.exists
         - hf_token_lookup | length == 0
@@ -186,12 +215,18 @@
     - name: Download MTP drafter via hf — with token (head only)
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
+          hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
           --token "{{ hf_token_lookup }}" --local-dir {{ ds4_models_dir }}
+      environment:
+        HF_XET_HIGH_PERFORMANCE: "1"
+      # ds4_role first: on the worker, mtp_stat was never registered (its own
+      # task is head-only) — a list `when` short-circuits in order, so testing
+      # ds4_role first avoids a fatal "'dict object' has no attribute 'stat'"
+      # on every worker run.
       when:
+        - ds4_role == 'head'
         - not mtp_stat.stat.exists
         - hf_token_lookup | length > 0
-        - ds4_role == 'head'
       register: ds4_download_mtp
       changed_when: "'Downloaded' in ds4_download_mtp.stdout or 'Updated' in ds4_download_mtp.stdout"
       tags: [ds4-deepseek-v4-flash-mtp, container]
@@ -199,12 +234,14 @@
     - name: Download MTP drafter via hf — without token (head only)
       ansible.builtin.command:
         cmd: >-
-          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
+          hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
           --local-dir {{ ds4_models_dir }}
+      environment:
+        HF_XET_HIGH_PERFORMANCE: "1"
       when:
+        - ds4_role == 'head'
         - not mtp_stat.stat.exists
         - hf_token_lookup | length == 0
-        - ds4_role == 'head'
       register: ds4_download_mtp
       changed_when: "'Downloaded' in ds4_download_mtp.stdout or 'Updated' in ds4_download_mtp.stdout"
       tags: [ds4-deepseek-v4-flash-mtp, container]
@@ -248,10 +285,12 @@
           ==== ds4-deepseek-v4-flash-mtp track on {{ inventory_hostname }} ====
           model:   {{ ds4_hf_repo }} / {{ ds4_model_file }} (~153 GB, BOTH nodes)
           MTP:     {{ ds4_mtp_file }} (~3.6 GB, head only)
-          link:    {{ ds4_pp_if }} ({{ ds4_link.stdout | default('?') }}Mb/s)
+          local link: {{ ds4_pp_if }} ({{ ds4_link.stdout | default('?') }}Mb/s) on {{ inventory_hostname }}
+          pipeline:   {{ 'Thunderbolt (~40 Gbps)' if (ds4_link_up | bool) else 'LAN fallback (~2.5Gbe) — one or both ends have no TB link up' }}
           ports:   {{ ds4_pp_port }} (pipeline) | {{ ds4_api_port }} (OpenAI, head)
           layers:  head {{ ds4_layers_head }} | worker {{ ds4_layers_worker }} | ctx {{ ds4_ctx }}
           head:    {{ ds4_head_ip | default('', true) }}
+          worker:  {{ ds4_worker_ip | default('', true) }}
           Launch later via scripts/ds4-deepseek-v4-flash-mtp-start.sh (DS4_ROLE=head first, then DS4_ROLE=worker).
           Docs: https://github.com/kyuz0/strix-halo-ds4-toolbox
       tags: [info]
@@ -284,12 +323,25 @@
     ds4_api_port: 8000
     ds4_max_tokens: 65536
     # Head/worker derivation — same expressions as play 1 (keep in sync).
+    # ds4_link_up reads hostvars['ds4_tb_if'] registered by play 1's link
+    # detection task — it persists across plays in the same run, so this
+    # play does not need to redetect the link itself.
     ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
     ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
     ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
     ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
-    ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
-    ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+    ds4_link_up: >-
+      {{ (ds4_head_host | length > 0) and (ds4_worker_host | length > 0)
+         and (hostvars[ds4_head_host]['ds4_tb_if']['stdout'] | default('') | length > 0)
+         and (hostvars[ds4_worker_host]['ds4_tb_if']['stdout'] | default('') | length > 0) }}
+    ds4_head_ip: >-
+      {{ ((hostvars[ds4_head_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_head_host]['ansible_host'])
+         | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true))
+         if ds4_head_host else '' }}
+    ds4_worker_ip: >-
+      {{ ((hostvars[ds4_worker_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_worker_host]['ansible_host'])
+         | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true))
+         if ds4_worker_host else '' }}
     # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
     ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 

@@ -14,10 +14,12 @@
 # falls back to the 2.5Gbe NIC.
 #
 # Requires the {{ ds4_cluster_name }} container from the ds4-deepseek-v4-flash-mtp
-# track bootstrap (image {{ ds4_container }}). Model weights are downloaded
-# into ~/ds4 on the host (mounted at /root/ds4 in the container) on first
-# run — the ~153 GB main GGUF on BOTH nodes, the ~3.6 GB MTP drafter on
-# the head only.
+# track bootstrap (image {{ ds4_container }}). The playbook downloads model
+# weights into ~/ds4 on the host BEFORE the container is launched — the
+# ~153 GB main GGUF on BOTH nodes, the ~3.6 GB MTP drafter on the head only —
+# and the container bind-mounts that same host path read-only, so the path
+# is identical inside and outside the container. This script only checks the
+# files are there; re-run the playbook if either is missing.
 #
 # The playbook never launches servers: this is where the cluster comes up.
 # =============================================================================
@@ -27,6 +29,7 @@ set -euo pipefail
 DS4_ROLE="${DS4_ROLE:?set DS4_ROLE=head|worker}"
 
 # --- baked config (override via env) ---
+DS4_MODELS_DIR="${DS4_MODELS_DIR:-{{ ds4_models_dir }}}"
 DS4_HF_REPO="${DS4_HF_REPO:-{{ ds4_hf_repo }}}"
 DS4_MODEL_FILE="${DS4_MODEL_FILE:-{{ ds4_model_file }}}"
 DS4_MTP_FILE="${DS4_MTP_FILE:-{{ ds4_mtp_file }}}"
@@ -41,6 +44,9 @@ DS4_WORKER_IP="${DS4_WORKER_IP:-{{ ds4_worker_ip }}}"
 CONTAINER="{{ ds4_cluster_name }}"
 SERVER="/usr/local/bin/ds4-server"
 
+MODEL_PATH="${DS4_MODELS_DIR}/${DS4_MODEL_FILE}"
+MTP_PATH="${DS4_MODELS_DIR}/${DS4_MTP_FILE}"
+
 ensure_container() {
   if [ "$(sudo podman ps --filter name=${CONTAINER} --format '{{ '{{.Names}}' }}')" = "${CONTAINER}" ]; then
     return 0
@@ -49,34 +55,38 @@ ensure_container() {
   sudo podman start "${CONTAINER}"
 }
 
-# Download a model file into /root/ds4 inside the container if missing.
+# The playbook downloads model weights on the host before the container ever
+# starts (retried with/without an HF token); the container only bind-mounts
+# them read-only. So this just verifies they're there — it does not download.
 ensure_file() {
-  local f="$1"
-  if sudo podman exec "${CONTAINER}" test -f "/root/ds4/${f}"; then
+  local path="$1"
+  if [ -f "${path}" ]; then
     return 0
   fi
-  echo "Downloading ${f} from ${DS4_HF_REPO} (first run only) ..." >&2
-  sudo podman exec "${CONTAINER}" \
-    HF_XET_HIGH_PERFORMANCE=1 hf download "${DS4_HF_REPO}" "${f}" --local-dir /root/ds4
+  echo "ERROR: ${path} not found." >&2
+  echo "       Re-run the ds4-deepseek-v4-flash-mtp playbook to download it:" >&2
+  echo "       ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml" >&2
+  exit 1
 }
 
 case "${DS4_ROLE}" in
   head)
     [ -n "${DS4_HEAD_IP}" ] || { echo "DS4_HEAD_IP not set — re-run the track with the inventory group or -e ds4_head_ip=..." >&2; exit 1; }
     ensure_container
-    ensure_file "${DS4_MODEL_FILE}"
-    ensure_file "${DS4_MTP_FILE}"
+    ensure_file "${MODEL_PATH}"
+    ensure_file "${MTP_PATH}"
 
-    echo "Starting ds4 coordinator on ${DS4_HEAD_IP} (layers ${DS4_LAYERS_HEAD}, MTP on, pipeline port ${DS4_PP_PORT}) ..."
+    echo "Starting ds4 coordinator on ${DS4_HEAD_IP} (layers ${DS4_LAYERS_HEAD}, MTP on, pipeline port ${DS4_PP_PORT}, API port ${DS4_API_PORT}) ..."
     # First-run model load is slow (~153 GB mmap + weights); watch with:
     #   sudo podman logs -f ${CONTAINER}
     sudo podman exec -d "${CONTAINER}" "${SERVER}" \
-      -m "/root/ds4/${DS4_MODEL_FILE}" \
+      -m "${MODEL_PATH}" \
       --ctx "${DS4_CTX}" \
-      --mtp "/root/ds4/${DS4_MTP_FILE}" \
+      --mtp --mtp-model "${MTP_PATH}" \
       --mtp-draft "${DS4_MTP_DRAFT}" \
       --role coordinator --layers "${DS4_LAYERS_HEAD}" \
-      --listen "${DS4_HEAD_IP}" "${DS4_PP_PORT}"
+      --listen "${DS4_HEAD_IP}" "${DS4_PP_PORT}" \
+      --host 0.0.0.0 --port "${DS4_API_PORT}"
 
     echo "CLUSTER HEAD READY (when warm) — OpenAI endpoint: http://${DS4_HEAD_IP}:${DS4_API_PORT}/v1"
     echo "Health poll:  curl -s http://${DS4_HEAD_IP}:${DS4_API_PORT}/v1/models"
@@ -86,11 +96,11 @@ case "${DS4_ROLE}" in
   worker)
     [ -n "${DS4_HEAD_IP}" ] || { echo "DS4_HEAD_IP not set — re-run the track with the inventory group or -e ds4_head_ip=..." >&2; exit 1; }
     ensure_container
-    ensure_file "${DS4_MODEL_FILE}"
+    ensure_file "${MODEL_PATH}"
 
     echo "Joining coordinator ${DS4_HEAD_IP}:${DS4_PP_PORT} as worker (layers ${DS4_LAYERS_WORKER}) ..."
     sudo podman exec -d "${CONTAINER}" "${SERVER}" \
-      -m "/root/ds4/${DS4_MODEL_FILE}" \
+      -m "${MODEL_PATH}" \
       --ctx "${DS4_CTX}" \
       --role worker --layers "${DS4_LAYERS_WORKER}" \
       --coordinator "${DS4_HEAD_IP}" "${DS4_PP_PORT}"
