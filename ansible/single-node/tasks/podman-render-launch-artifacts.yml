@@ -20,10 +20,15 @@
   tags: [podman, launch]
 
 - name: "Render launch script ({{ track_stem }}-start.sh) into ~/scripts/"
+  # owner/group: plays run with become: yes, so without these the rendered
+  # script lands root:root on the target host (it must stay user-owned so
+  # the user can edit/run it without sudo).
   ansible.builtin.template:
     src: "templates/scripts/{{ track_stem }}-start.sh.j2"
     dest: "{{ _user_home }}/scripts/{{ track_stem }}-start.sh"
     mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
   tags: [podman, launch]
 
 - name: Ensure pi-configs output directory exists on controller

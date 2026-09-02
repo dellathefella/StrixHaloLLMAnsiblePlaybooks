@@ -23,11 +23,25 @@
   failed_when: false
   tags: [podman, build]
 
+- name: "podman-build: ensure ~/.cache exists and is user-owned"
+  # becomes root under become: yes — a root-created ~/.cache would make it
+  # impossible for the user to add anything else there without sudo.
+  ansible.builtin.file:
+    path: "{{ _user_home }}/.cache"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  tags: [podman, build]
+
 - name: "podman-build: copy Containerfile to remote host"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/{{ _containerfile_path }}"
     dest: "{{ _user_home }}/.cache/{{ track_stem }}.Containerfile"
     mode: "0644"
+    # become: yes would otherwise land this as root:root
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
   when: _build_image_exists.rc != 0
   tags: [podman, build]
 

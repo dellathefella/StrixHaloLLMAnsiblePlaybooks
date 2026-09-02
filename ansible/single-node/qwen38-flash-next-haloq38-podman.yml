@@ -58,7 +58,7 @@
 
     # Model settings — mirrors haloq38flash's own Dockerfile CMD default
     # exactly (same ctx, same KV quant, same ubatch/threads).
-    ctx: 32768
+    ctx: 65536
     port: 8080
     n_gpu: 999
     ubatch: 2048

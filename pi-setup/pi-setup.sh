@@ -1,0 +1,2 @@
+npm install -g pi-coding-agent 
+pi install npm:pi-permission-system && pi install npm:pi-web-access && pi install npm:@juicesharp/rpiv-ask-user-question && pi install npm:pi-lens && pi install npm:pi-simplify && pi install npm:@tintinweb/pi-subagents && pi install npm:pi-goal-x && pi install npm:pi-memory && pi install npm:@narumitw/pi-plan-mode && pi install https://github.com && pi install npm:@monroewilliams/pi-local
