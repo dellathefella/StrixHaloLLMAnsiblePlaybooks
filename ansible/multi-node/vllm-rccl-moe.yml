@@ -38,7 +38,10 @@
   vars:
     active_profile: "minimax-m2.7-awq-4bit"
     vllm_moe_container: "oci-registry.ryai.dev/ryai-vllm:latest"
-    vllm_moe_models_dir: "~/.local/share/vLLM/models"
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    vllm_moe_models_dir: "{{ _user_home }}/.local/share/vLLM/models"
     vllm_moe_port: 8081
     vllm_moe_tp_size: 2
     vllm_moe_gpu_util: 0.9
@@ -56,6 +59,8 @@
     vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
     vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     # ------------------------------------------------------------------
     # Model profiles — add a new MoE model by adding an entry here.
     #   hf_repo           HF repo served by `vllm serve`
@@ -141,6 +146,7 @@
           KV token adds cross-node RCCL sync cost. Run
           ansible/multi-node/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps,
           then re-run this track to re-bake NCCL_SOCKET_IFNAME.
+          TB link IPs: 172.20.0.1 (head) / 172.20.0.2 (worker).
       when: (vllm_moe_tb_if.stdout | length) == 0
       tags: [info]
 
@@ -228,12 +234,17 @@
     vllm_moe_tp_size: 2
     vllm_moe_gpu_util: 0.9
     # Head/worker derivation — same expressions as play 1 (keep in sync).
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
     vllm_moe_group_hosts: "{{ groups['vllm-rccl-moe'] | default([]) }}"
     vllm_moe_role_by_host: "{{ dict(zip(vllm_moe_group_hosts, vllm_moe_group_hosts | map('extract', hostvars, 'vllm_moe_role', default('')) | list)) }}"
     vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts | first | default(''), true) }}"
     vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
     vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_profiles:
       minimax-m2.7-awq-4bit:
         hf_repo: "cyankiwi/MiniMax-M2.7-AWQ-4bit"
@@ -252,12 +263,30 @@
         extra_serve_args: "--reasoning-parser qwen3"
 
   tasks:
-    - name: Render vllm-rccl-moe-start.sh launch script into scripts/
-      ansible.builtin.template:
-        src: templates/vllm-rccl-moe-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/vllm-rccl-moe-start.sh"
+    - name: Ensure ~/scripts directory exists on target
+      ansible.builtin.file:
+        path: "{{ _user_home }}/scripts"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+      tags: [launch]
+
+    - name: Ensure pi-configs output directory exists on controller
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../pi-configs"
+        state: directory
         mode: "0755"
       delegate_to: localhost
+      tags: [launch]
+
+    - name: Render vllm-rccl-moe-start.sh launch script into ~/scripts/
+      ansible.builtin.template:
+        src: templates/vllm-rccl-moe-start.sh.j2
+        dest: "{{ _user_home }}/scripts/vllm-rccl-moe-start.sh"
+        mode: "0755"
+      become: no
       tags: [launch]
 
     - name: Render pi agent config (pi-vllm-rccl-moe.json) into pi-configs/
@@ -270,7 +299,7 @@
 
     - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 10.125.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (vllm_moe_head_ip | length == 0) or (vllm_moe_worker_ip | length == 0)
       tags: [info]

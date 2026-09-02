@@ -2,7 +2,7 @@
   "providers": {
     "vllm-rccl-moe": {
       "name": "{{ vllm_moe_profiles[active_profile].display }} (vLLM + RCCL cluster, profile {{ active_profile }})",
-      "baseUrl": "http://{{ vllm_moe_head_ip }}:{{ vllm_moe_port }}/v1",
+      "baseUrl": "http://{{ vllm_moe_head_ansible_host }}:{{ vllm_moe_port }}/v1",
       "api": "openai-completions",
       "apiKey": "vllm-rccl-moe-local",
       "compat": {

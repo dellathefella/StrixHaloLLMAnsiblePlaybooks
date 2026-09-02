@@ -50,7 +50,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |
-| `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` |
+| `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` | TB4 node-to-node cluster link |
 
 ### Template naming
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`

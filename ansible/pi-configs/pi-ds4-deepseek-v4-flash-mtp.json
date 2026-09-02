@@ -2,7 +2,7 @@
   "providers": {
     "ds4-deepseek-v4-flash-mtp": {
       "name": "DeepSeek V4 Flash (ds4, 2-node pipeline + MTP)",
-      "baseUrl": "http://10.125.0.1:8000/v1",
+      "baseUrl": "http://192.168.7.145:8000/v1",
       "api": "openai-completions",
       "apiKey": "dsv4-local",
       "compat": {

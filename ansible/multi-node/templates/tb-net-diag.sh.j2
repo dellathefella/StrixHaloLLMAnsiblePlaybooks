@@ -4,7 +4,7 @@
 #
 # Deployed to /usr/local/bin/tb-net-diag by
 # ansible/multi-node/setup-thunderbolt-net.yml. It auto-detects the tb*
-# interface and the static IP that playbook assigns (10.125.0.<n>).
+# interface and the static IP that playbook assigns (172.20.0.<n>).
 #
 # Subcommands:
 #   tb-net-diag [status]          show tb interface, link state, speed, local IP
@@ -18,7 +18,7 @@
 #
 # Typical 2-node test (one terminal per node):
 #   head   (halo0):  sudo tb-net-diag server
-#   worker (halo1):  sudo tb-net-diag client 10.125.0.1
+#   worker (halo1):  sudo tb-net-diag client 172.20.0.1
 # A healthy TB4 link reports ~37-39 Gbps (≈ 37000-39000 Mb/s).
 # =============================================================================
 set -euo pipefail

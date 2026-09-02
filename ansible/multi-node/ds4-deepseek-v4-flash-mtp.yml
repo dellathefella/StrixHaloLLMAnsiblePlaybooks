@@ -39,9 +39,10 @@
   tags: [ds4-deepseek-v4-flash-mtp]
 
   vars:
+    _user_home: "/home/{{ ansible_user }}"
     ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4"
     ds4_cluster_name: "ds4_cluster"
-    ds4_models_dir: "~/ds4"
+    ds4_models_dir: "{{ _user_home }}/ds4"
     ds4_hf_repo: "antirez/deepseek-v4-gguf"
     ds4_model_file: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
     ds4_mtp_file: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
@@ -66,6 +67,8 @@
     ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
     ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
     ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 
   tasks:
     # -----------------------------------------------------------------------
@@ -109,6 +112,7 @@
           (port {{ ds4_pp_port }}) syncs activation tensors between the two
           nodes on every step; on 2.5Gbe that costs real tokens. Run
           ansible/multi-node/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps.
+          TB link IPs: 172.20.0.1 (head) / 172.20.0.2 (worker).
       when: (ds4_tb_if.stdout | length) == 0
       tags: [info]
 
@@ -190,11 +194,13 @@
   tags: [launch, ds4-deepseek-v4-flash-mtp]
 
   vars:
+    _user_home: "/home/{{ ansible_user }}"
     # Mirror of play-1 vars — play vars do NOT carry across plays, and the
     # templates below render from this play's scope. -e overrides apply to
     # BOTH plays, so the rendered artifacts follow the CLI. Keep in sync.
     ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4"
     ds4_cluster_name: "ds4_cluster"
+    ds4_models_dir: "{{ _user_home }}/ds4"
     ds4_hf_repo: "antirez/deepseek-v4-gguf"
     ds4_model_file: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
     ds4_mtp_file: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
@@ -212,25 +218,34 @@
     ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
     ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
     ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 
   tasks:
-    - name: Ensure render output directories exist on the controller
+    - name: Ensure ~/scripts directory exists on target
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ _user_home }}/scripts"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+      tags: [launch]
+
+    - name: Ensure pi-configs output directory exists on controller
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../pi-configs"
         state: directory
         mode: "0755"
       delegate_to: localhost
-      loop:
-        - "{{ playbook_dir }}/../scripts"
-        - "{{ playbook_dir }}/../pi-configs"
       tags: [launch]
 
-    - name: Render ds4-deepseek-v4-flash-mtp-start.sh launch script into scripts/
+    - name: Render ds4-deepseek-v4-flash-mtp-start.sh launch script into ~/scripts/
       ansible.builtin.template:
         src: templates/ds4-deepseek-v4-flash-mtp-start.sh.j2
-        dest: "{{ playbook_dir }}/../scripts/ds4-deepseek-v4-flash-mtp-start.sh"
+        dest: "{{ _user_home }}/scripts/ds4-deepseek-v4-flash-mtp-start.sh"
         mode: "0755"
-      delegate_to: localhost
+      become: no
       tags: [launch]
 
     - name: Render pi agent config (pi-ds4-deepseek-v4-flash-mtp.json) into pi-configs/
@@ -243,7 +258,7 @@
 
     - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 10.125.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (ds4_head_ip | length == 0) or (ds4_worker_ip | length == 0)
       tags: [info, ds4-deepseek-v4-flash-mtp]

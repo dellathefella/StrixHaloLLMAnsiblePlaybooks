@@ -2,7 +2,7 @@
   "providers": {
     "ds4-deepseek-v4-flash-mtp": {
       "name": "DeepSeek V4 Flash (ds4, 2-node pipeline + MTP)",
-      "baseUrl": "http://{{ ds4_head_ip }}:{{ ds4_api_port }}/v1",
+      "baseUrl": "http://{{ ds4_head_ansible_host }}:{{ ds4_api_port }}/v1",
       "api": "openai-completions",
       "apiKey": "dsv4-local",
       "compat": {

@@ -65,7 +65,7 @@ Cluster-based inference across multiple machines:
   ~40 Gbps) for RCCL KV exchange and falls back to the 2.5Gbe NIC with a warning.
   Reuses the `vllm_cluster` container name (one model at a time, `--replace`).
   Port 8081; head/worker IPs derive from the inventory hostvars
-  (`vllm_moe_role` — TB static 10.125.0.1/.2 by default); override with
+  (`vllm_moe_role` — TB static 172.20.0.1/.2 by default); override with
   `-e vllm_moe_head_ip=... -e vllm_moe_worker_ip=...` (e.g. LAN IPs, TB down).
 
 - **ds4-deepseek-v4-flash-mtp** — DeepSeek V4 Flash on the dedicated `ds4`
@@ -78,13 +78,13 @@ Cluster-based inference across multiple machines:
   head-only. Pipeline channel on port 8081 (head listens, worker dials in)
   rides the Thunderbolt link (`tb*`, ~40 Gbps) when up; the OpenAI API is on
   port 8000 of the head. Head/worker IPs derive from the inventory hostvars
-  (`ds4_role` — TB static 10.125.0.1/.2 by default); override with
+  (`ds4_role` — TB static 172.20.0.1/.2 by default); override with
   `-e ds4_head_ip=... -e ds4_worker_ip=...`. Start the head first, then the
   worker (`DS4_ROLE=head|worker`).
 
 - **Thunderbolt networking** — `setup-thunderbolt-net.yml` sets up the
   direct TB4 cable between the two Z2 G1a nodes: loads + persists
-  `thunderbolt-net`, assigns `10.125.0.<n>/24` (first inventory host = `.1`,
+  `thunderbolt-net`, assigns `172.20.0.<n>/24` (first inventory host = `.1`,
   second = `.2`), persists via NetworkManager (`ipv4.never-default`), and
   verifies speed (~40 Gbps) + peer ping. Distro-agnostic (CachyOS/Arch +
   Ubuntu). **Multi-node only** — targets the `multinode` capability group, so
@@ -190,7 +190,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node link for RCCL (multi-node only) + tb-net-diag
+│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node cluster link (multi-node only) + tb-net-diag
 │   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
 │   │   ├── ds4-deepseek-v4-flash-mtp.yml  2-node ds4 DeepSeek V4 Flash (pipeline parallel + MTP), TB link preferred
 │   │   ├── inventory/
@@ -465,7 +465,7 @@ you open `/model`; no restart needed).
 ### Multi-Node Tracks
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
 - ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
-- setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
+- setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (172.20.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
 Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.
