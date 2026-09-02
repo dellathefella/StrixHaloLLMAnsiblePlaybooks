@@ -9,6 +9,7 @@
 #   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size (Ubuntu-gated: update-grub) [grub-ttm]
 #   ../shared/setup-thunderbolt-net.yml        TB4 node-to-node link for RCCL (modprobe + static IP, both distros)  [thunderbolt]
 #   vllm-rccl-moe.yml                          Multi-model vLLM + Ray + RCCL MoE track (TB link preferred) [vllm-rccl-moe]
+#   ds4-deepseek-v4-flash-mtp.yml              2-node ds4 (DeepSeek V4 Flash) pipeline parallel + MTP track (TB link preferred) [ds4-deepseek-v4-flash-mtp]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
 # ../shared/set-limine-ttm.yml is intentionally NOT imported here: multi-node
@@ -24,6 +25,8 @@
 # Run a single track:
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
 #     (head/worker IPs from inventory hostvars; -e vllm_moe_head_ip/... to override)
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
+#     (head/worker IPs from inventory hostvars; -e ds4_head_ip/... to override)
 # =============================================================================
 
 - import_playbook: ../shared/install-amdgpu.yml
@@ -32,4 +35,5 @@
 - import_playbook: ../shared/set-grub-ttm.yml
 - import_playbook: ../shared/setup-thunderbolt-net.yml
 - import_playbook: vllm-rccl-moe.yml
+- import_playbook: ds4-deepseek-v4-flash-mtp.yml
 - import_playbook: summary.yml

@@ -68,6 +68,20 @@ Cluster-based inference across multiple machines:
   (`vllm_moe_role` — TB static 10.125.0.1/.2 by default); override with
   `-e vllm_moe_head_ip=... -e vllm_moe_worker_ip=...` (e.g. LAN IPs, TB down).
 
+- **ds4-deepseek-v4-flash-mtp** — DeepSeek V4 Flash on the dedicated `ds4`
+  engine, 2-node **pipeline parallel** (head/coordinator `--layers 0:21`,
+  worker `--layers 22:output`) + **MTP speculative decoding** on the head
+  (`--mtp`, `--mtp-draft 1`). Toolbox container `ds4_cluster` (separate from
+  `vllm_cluster`) on `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`.
+  The ~153 GB Q4KExperts hybrid GGUF from `antirez/deepseek-v4-gguf` lives at
+  `~/ds4` on both nodes (mounted at `/root/ds4`); the ~3.6 GB MTP drafter is
+  head-only. Pipeline channel on port 8081 (head listens, worker dials in)
+  rides the Thunderbolt link (`tb*`, ~40 Gbps) when up; the OpenAI API is on
+  port 8000 of the head. Head/worker IPs derive from the inventory hostvars
+  (`ds4_role` — TB static 10.125.0.1/.2 by default); override with
+  `-e ds4_head_ip=... -e ds4_worker_ip=...`. Start the head first, then the
+  worker (`DS4_ROLE=head|worker`).
+
 - **Thunderbolt networking** — `setup-thunderbolt-net.yml` (shared) sets up the
   direct TB4 cable between the two Z2 G1a nodes: loads + persists
   `thunderbolt-net`, assigns `10.125.0.<n>/24` (first inventory host = `.1`,
@@ -117,6 +131,10 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/setup-thun
 # vLLM + RCCL MoE track (both nodes) — head/worker IPs come from the
 # inventory hostvars (vllm_moe_role); -e overrides when TB is down:
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
+
+# ds4 DeepSeek V4 Flash track (both nodes) — pipeline parallel + MTP;
+# launch per-node later with DS4_ROLE=head|worker:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
 ```
 
 ## Layout
@@ -175,12 +193,15 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
+│   │   ├── ds4-deepseek-v4-flash-mtp.yml  2-node ds4 DeepSeek V4 Flash (pipeline parallel + MTP), TB link preferred
 │   │   ├── inventory/
 │   │   │   ├── hosts              multi-node inventory (halo0 head + halo1 worker, SSH; rocm → aiservers, multinode for TB)
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
 │   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
-│   │   │   └── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
+│   │   │   ├── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
+│   │   │   ├── ds4-deepseek-v4-flash-mtp-start.sh.j2  ds4 cluster launch (DS4_ROLE=head|worker)
+│   │   │   └── pi-ds4-deepseek-v4-flash-mtp.json.j2   pi agent config (deepseek thinking format)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -306,6 +327,24 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
 - **Backend**: ROCm; RCCL traffic rides the Thunderbolt link (`tb*`, ~40 Gbps)
   when up, else the 2.5Gbe NIC — see `setup-thunderbolt-net.yml`
 
+### ds4-deepseek-v4-flash-mtp (Multi-Node)
+- **Engine**: `ds4` (antirez's DeepSeek V4 inference engine) in the toolbox
+  container `ds4_cluster` — `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`
+- **Model**: `DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf`
+  (~153 GB hybrid quant, `antirez/deepseek-v4-gguf`) at `~/ds4` on both nodes
+- **MTP**: drafter `DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf` (~3.6 GB) on the
+  head only — `--mtp <file> --mtp-draft 1`
+- **Parallelism**: 2-node pipeline (layer slicing) — head/coordinator
+  `--layers 0:21 --listen <head_ip> 8081`, worker `--layers 22:output
+  --coordinator <head_ip> 8081`; the pipeline channel rides the Thunderbolt
+  link (`tb*`, ~40 Gbps) when up
+- **Context**: 262144 (256k, per the toolbox multi-node example)
+- **Ports**: 8081 (pipeline, head listens) + 8000 (OpenAI API on the head)
+- **Launch order**: head first (`DS4_ROLE=head`), then worker
+  (`DS4_ROLE=worker`) via the rendered script
+- **Backend**: ROCm 7.2.4 (the multi-node binary ships only in the
+  `multi-node-rocm-7.2.4` toolbox image tag)
+
 ## Model Downloads (hf CLI)
 
 The bootstrap downloads GGUF weights via **hf** (the Hugging Face CLI), which
@@ -353,7 +392,7 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
 
 After the bootstrap, the rendered launch scripts are in `~/scripts/` on the
 target host. The bootstrap also drops PI agent configs into
-`ansible/rendered/pi-configs/` (rendered on the controller).
+`ansible/pi-configs/` (rendered on the controller).
 
 ### Single-Node Launch Example
 ```bash
@@ -382,14 +421,26 @@ target host. The bootstrap also drops PI agent configs into
 ### Multi-Node Launch Example (vllm-rccl-moe)
 ```bash
 # halo0 (head — Ray head + vLLM server):
-VLLM_RCCL_MOE_ROLE=head   ./ansible/rendered/scripts/vllm-rccl-moe-start.sh
+VLLM_RCCL_MOE_ROLE=head   ./ansible/scripts/vllm-rccl-moe-start.sh
 # halo1 (worker — joins Ray):
-VLLM_RCCL_MOE_ROLE=worker ./ansible/rendered/scripts/vllm-rccl-moe-start.sh
+VLLM_RCCL_MOE_ROLE=worker ./ansible/scripts/vllm-rccl-moe-start.sh
+```
+
+### Multi-Node Launch Example (ds4-deepseek-v4-flash-mtp)
+```bash
+# halo0 (head — coordinator: layers 0:21, MTP drafter, OpenAI API):
+DS4_ROLE=head   ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
+# halo1 (worker — pipeline worker: layers 22:output, joins the coordinator):
+DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
+
+# Once warm: OpenAI endpoint http://<head_ip>:8000/v1
+# First run downloads the ~153 GB main GGUF on both nodes and the ~3.6 GB
+# MTP drafter on the head into ~/ds4 (mounted at /root/ds4 in the container).
 ```
 
 ## Pi Agent Config
 
-The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
+The bootstrap drops pi agent configs into `ansible/pi-configs/`:
 
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
@@ -401,6 +452,7 @@ The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
+- `pi-ds4-deepseek-v4-flash-mtp.json` — `ds4-deepseek-v4-flash-mtp` provider (deepseek thinking format) → `http://<head_ip>:8000/v1`
 
 Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
 you open `/model`; no restart needed).
@@ -412,6 +464,7 @@ you open `/model`; no restart needed).
 
 ### Multi-Node Tracks
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
+- ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
 - setup-thunderbolt-net (shared): `tb_net_enabled` (true), `tb_net_cidr` (10.125.0.0/24), `tb_net_ip` (per-host override), `tb_net_peer_ip` (per-host override)
 
 ### Scripts

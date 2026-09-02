@@ -1,0 +1,249 @@
+---
+# =============================================================================
+# ds4-deepseek-v4-flash-mtp.yml
+# 2-node ds4 (DeepSeek V4 inference engine) track: pipeline parallelism +
+# MTP speculative decoding on the 2x HP Z2 G1a pair.
+#
+#   image           docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4
+#   cluster         ds4-server, pipeline parallel — head (coordinator)
+#                   --layers 0:21, worker --layers 22:output
+#   model           DeepSeek-V4-Flash Q4KExperts hybrid GGUF (~153 GB) from
+#                   antirez/deepseek-v4-gguf at ~/ds4 on BOTH nodes
+#                   (mounted at /root/ds4 in the container)
+#   MTP drafter     DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf (~3.6 GB), head only
+#   ports           8081 pipeline channel (head listens, worker dials in);
+#                   8000 OpenAI API on the head
+#   launch script   scripts/ds4-deepseek-v4-flash-mtp-start.sh (DS4_ROLE=head|worker)
+#
+# Container name is `ds4_cluster` — separate from the vllm-rccl-moe track's
+# `vllm_cluster`, so the two tracks can coexist (one model at a time per
+# engine is still the rule; each track --replaces its own container).
+#
+# Link: prefers the Thunderbolt link (tb* from setup-thunderbolt-net.yml,
+# ~40 Gbps) for the pipeline channel; falls back to the default-route NIC
+# (2.5Gbe) with a warning.
+#
+# Run from repo root (per-node container setup on BOTH nodes):
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
+#
+# Head/worker IPs come from the inventory hostvars (ds4_role +
+# ds4_ip / ansible_host, see inventory/hosts). Override with
+# -e ds4_head_ip=... / -e ds4_worker_ip=... when needed — e.g. the LAN
+# IPs of the two nodes when the Thunderbolt link is down.
+# =============================================================================
+
+- name: "ds4-deepseek-v4-flash-mtp — 2-node ds4 pipeline + MTP track (TB link preferred)"
+  hosts: rocm
+  gather_facts: yes
+  become: yes
+  tags: [ds4-deepseek-v4-flash-mtp]
+
+  vars:
+    ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4"
+    ds4_cluster_name: "ds4_cluster"
+    ds4_models_dir: "~/ds4"
+    ds4_hf_repo: "antirez/deepseek-v4-gguf"
+    ds4_model_file: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
+    ds4_mtp_file: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
+    ds4_ctx: 262144
+    ds4_mtp_draft: 1
+    ds4_layers_head: "0:21"
+    ds4_layers_worker: "22:output"
+    ds4_pp_port: 8081
+    ds4_api_port: 8000
+    ds4_max_tokens: 65536
+    # ------------------------------------------------------------------
+    # Head/worker IPs — resolution order (highest first):
+    #   1. -e ds4_head_ip=... / -e ds4_worker_ip=... (extra vars
+    #      win; e.g. LAN IPs when the TB link is down)
+    #   2. Inventory hostvars: the [ds4-deepseek-v4-flash-mtp] hosts that
+    #      declare ds4_role=head|worker; IP = ds4_ip (else ansible_host)
+    #   3. Group-order fallback: first host = head, second = worker
+    # ------------------------------------------------------------------
+    ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
+    ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
+    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
+    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
+    ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
+    ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Link selection — Thunderbolt (tb*) preferred, default NIC fallback
+    # -----------------------------------------------------------------------
+    - name: Detect an up Thunderbolt interface (from setup-thunderbolt-net.yml)
+      ansible.builtin.shell:
+        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^tb[0-9]+$/ && $2 == \"UP\" {print $1; exit}'"
+      register: ds4_tb_if
+      changed_when: false
+      failed_when: false
+      tags: [ds4-deepseek-v4-flash-mtp, link]
+
+    - name: Detect default-route NIC (2.5Gbe fallback)
+      ansible.builtin.shell:
+        cmd: "ip route get 1.1.1.1 2>/dev/null | grep -oP 'dev \\K\\S+' || true"
+      register: ds4_def_if
+      changed_when: false
+      failed_when: false
+      tags: [ds4-deepseek-v4-flash-mtp, link]
+
+    - name: Select the pipeline channel interface (TB if up, else default NIC)
+      ansible.builtin.set_fact:
+        ds4_pp_if: >-
+          {{ ds4_tb_if.stdout
+             if (ds4_tb_if.stdout | length > 0)
+             else (ds4_def_if.stdout if (ds4_def_if.stdout | length > 0) else 'eth0') }}
+      tags: [ds4-deepseek-v4-flash-mtp, link]
+
+    - name: Check link speed of the selected interface
+      ansible.builtin.shell:
+        cmd: "ethtool {{ ds4_pp_if }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
+      register: ds4_link
+      changed_when: false
+      failed_when: false
+    - name: Warn when falling back off the Thunderbolt link
+      ansible.builtin.debug:
+        msg: |
+          WARNING [link] no up tb* interface — using {{ ds4_pp_if }}
+          ({{ ds4_link.stdout | default('?') }}Mb/s). The pipeline channel
+          (port {{ ds4_pp_port }}) syncs activation tensors between the two
+          nodes on every step; on 2.5Gbe that costs real tokens. Run
+          ansible/shared/setup-thunderbolt-net.yml on BOTH nodes for ~40 Gbps.
+      when: (ds4_tb_if.stdout | length) == 0
+      tags: [info]
+
+    - name: Warn on memory pool sizing (153 GB model + 256k ctx on both nodes)
+      ansible.builtin.debug:
+        msg: |
+          WARNING [memory] the ~153 GB Q4KExperts hybrid GGUF is mmap'd on
+          BOTH nodes (each evaluates its own layer slice) and ctx
+          {{ ds4_ctx }} adds KV pressure. Make sure the GPU shared-memory
+          pool is large enough (GRUB TTM args, see set-grub-ttm.yml /
+          SYSTEM.md) — if the server OOMs at load time, lower ds4_ctx
+          (e.g. -e ds4_ctx=131072).
+      tags: [info]
+
+    # -----------------------------------------------------------------------
+    # 2. Container — ds4_cluster (ds4 toolbox, multi-node ROCm 7.2.4 image)
+    # -----------------------------------------------------------------------
+    - name: Create model download directory (~/ds4, mounted at /root/ds4)
+      ansible.builtin.file:
+        path: "{{ ds4_models_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      become: no
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Launch ds4 cluster container (ds4 toolbox, multi-node ROCm 7.2.4)
+      ansible.builtin.command:
+        cmd: >-
+          sudo podman run -dit --name {{ ds4_cluster_name }} --replace --pull missing
+          --network=host --device /dev/kfd --device /dev/dri
+          --group-add video --group-add render
+          --security-opt seccomp=unconfined
+          -v {{ ds4_models_dir }}:/root/ds4
+          --shm-size=16g
+          --entrypoint=bin/bash {{ ds4_container }}
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Verify ds4 cluster container is running
+      ansible.builtin.command:
+        cmd: "sudo podman ps --filter name={{ ds4_cluster_name }} --format '{{ '{{.Names}}' }}'"
+      register: ds4_pod
+      become: no
+      changed_when: false
+      failed_when: false
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Warn if ds4 container not running
+      ansible.builtin.debug:
+        msg: "WARNING [container] {{ ds4_cluster_name }} not running — start it before cluster launch."
+      when: ds4_pod.stdout | length == 0
+      tags: [info]
+
+    - name: Print ds4-deepseek-v4-flash-mtp track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== ds4-deepseek-v4-flash-mtp track on {{ inventory_hostname }} ====
+          model:   {{ ds4_hf_repo }} / {{ ds4_model_file }} (~153 GB, BOTH nodes)
+          MTP:     {{ ds4_mtp_file }} (~3.6 GB, head only)
+          link:    {{ ds4_pp_if }} ({{ ds4_link.stdout | default('?') }}Mb/s)
+          ports:   {{ ds4_pp_port }} (pipeline) | {{ ds4_api_port }} (OpenAI, head)
+          layers:  head {{ ds4_layers_head }} | worker {{ ds4_layers_worker }} | ctx {{ ds4_ctx }}
+          head:    {{ ds4_head_ip | default('', true) }}
+          Launch later via scripts/ds4-deepseek-v4-flash-mtp-start.sh (DS4_ROLE=head first, then DS4_ROLE=worker).
+          Docs: https://github.com/kyuz0/strix-halo-ds4-toolbox
+      tags: [info]
+# -----------------------------------------------------------------------------
+# Launch render — drop local ds4 launch script + pi config
+# -----------------------------------------------------------------------------
+- name: "ds4-deepseek-v4-flash-mtp — drop local launch script + pi config"
+  hosts: rocm
+  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
+  become: no
+  run_once: yes
+  tags: [launch, ds4-deepseek-v4-flash-mtp]
+
+  vars:
+    # Mirror of play-1 vars — play vars do NOT carry across plays, and the
+    # templates below render from this play's scope. -e overrides apply to
+    # BOTH plays, so the rendered artifacts follow the CLI. Keep in sync.
+    ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4"
+    ds4_cluster_name: "ds4_cluster"
+    ds4_hf_repo: "antirez/deepseek-v4-gguf"
+    ds4_model_file: "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf"
+    ds4_mtp_file: "DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf"
+    ds4_ctx: 262144
+    ds4_mtp_draft: 1
+    ds4_layers_head: "0:21"
+    ds4_layers_worker: "22:output"
+    ds4_pp_port: 8081
+    ds4_api_port: 8000
+    ds4_max_tokens: 65536
+    # Head/worker derivation — same expressions as play 1 (keep in sync).
+    ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
+    ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
+    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
+    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
+    ds4_head_ip: "{{ hostvars[ds4_head_host]['ds4_ip'] | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true) if ds4_head_host else '' }}"
+    ds4_worker_ip: "{{ hostvars[ds4_worker_host]['ds4_ip'] | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true) if ds4_worker_host else '' }}"
+
+  tasks:
+    - name: Ensure render output directories exist on the controller
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      loop:
+        - "{{ playbook_dir }}/../scripts"
+        - "{{ playbook_dir }}/../pi-configs"
+      tags: [launch]
+
+    - name: Render ds4-deepseek-v4-flash-mtp-start.sh launch script into scripts/
+      ansible.builtin.template:
+        src: templates/ds4-deepseek-v4-flash-mtp-start.sh.j2
+        dest: "{{ playbook_dir }}/../scripts/ds4-deepseek-v4-flash-mtp-start.sh"
+        mode: "0755"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Render pi agent config (pi-ds4-deepseek-v4-flash-mtp.json) into pi-configs/
+      ansible.builtin.template:
+        src: templates/pi-ds4-deepseek-v4-flash-mtp.json.j2
+        dest: "{{ playbook_dir }}/../pi-configs/pi-ds4-deepseek-v4-flash-mtp.json"
+        mode: "0644"
+      delegate_to: localhost
+      tags: [launch]
+
+    - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
+      ansible.builtin.debug:
+        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 10.125.0.1/.2 when the TB link is up)."
+      delegate_to: localhost
+      when: (ds4_head_ip | length == 0) or (ds4_worker_ip | length == 0)
+      tags: [info, ds4-deepseek-v4-flash-mtp]

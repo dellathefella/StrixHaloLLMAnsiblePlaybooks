@@ -50,6 +50,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
+| `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |
 | `setup-thunderbolt-net.yml` (shared, multi-node only) | `multinode` | `thunderbolt` |
 
 ### Template naming
