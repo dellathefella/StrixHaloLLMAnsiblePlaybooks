@@ -9,7 +9,7 @@
 #                   --layers 0:21, worker --layers 22:output
 #   model           DeepSeek-V4-Flash Q4KExperts hybrid GGUF (~153 GB) from
 #                   antirez/deepseek-v4-gguf at ~/ds4 on BOTH nodes
-#                   (mounted at /root/ds4 in the container)
+#                   (mounted at ~/ds4 in the container)
 #   MTP drafter     DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf (~3.6 GB), head only
 #   ports           8081 pipeline channel (head listens, worker dials in);
 #                   8000 OpenAI API on the head
@@ -53,6 +53,8 @@
     ds4_pp_port: 8081
     ds4_api_port: 8000
     ds4_max_tokens: 65536
+    # HF token (optional — repo is public but token allows higher rate limits)
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
     # ------------------------------------------------------------------
     # Head/worker IPs — resolution order (highest first):
     #   1. -e ds4_head_ip=... / -e ds4_worker_ip=... (extra vars
@@ -128,38 +130,108 @@
       tags: [info]
 
     # -----------------------------------------------------------------------
-    # 2. Container — ds4_cluster (ds4 toolbox, multi-node ROCm 7.2.4 image)
+    # 2. Model download — hf CLI on the host (before container launch)
     # -----------------------------------------------------------------------
-    - name: Create model download directory (~/ds4, mounted at /root/ds4)
+    - name: Create model download directory (~/ds4)
       ansible.builtin.file:
         path: "{{ ds4_models_dir }}"
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0755"
-      become: no
+      become: yes
       tags: [ds4-deepseek-v4-flash-mtp, container]
 
+    # -----------------------------------------------------------------------
+    # 2. Model download — hf CLI on the host (before container launch)
+    # -----------------------------------------------------------------------
+    - name: Check if main model file already exists (BOTH nodes)
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_model_file }}"
+      register: main_model_stat
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Check if MTP drafter file already exists (head only)
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_mtp_file }}"
+      register: mtp_stat
+      when: ds4_role == 'head'
+      changed_when: false
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Download main model file via hf — with token (BOTH nodes)
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
+          --token "{{ hf_token_lookup }}" --local-dir {{ ds4_models_dir }}
+      when:
+        - not main_model_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: ds4_download_main
+      changed_when: "'Downloaded' in ds4_download_main.stdout or 'Updated' in ds4_download_main.stdout"
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Download main model file via hf — without token (BOTH nodes)
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_model_file }}
+          --local-dir {{ ds4_models_dir }}
+      when:
+        - not main_model_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: ds4_download_main
+      changed_when: "'Downloaded' in ds4_download_main.stdout or 'Updated' in ds4_download_main.stdout"
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Download MTP drafter via hf — with token (head only)
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
+          --token "{{ hf_token_lookup }}" --local-dir {{ ds4_models_dir }}
+      when:
+        - not mtp_stat.stat.exists
+        - hf_token_lookup | length > 0
+        - ds4_role == 'head'
+      register: ds4_download_mtp
+      changed_when: "'Downloaded' in ds4_download_mtp.stdout or 'Updated' in ds4_download_mtp.stdout"
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    - name: Download MTP drafter via hf — without token (head only)
+      ansible.builtin.command:
+        cmd: >-
+          HF_XET_HIGH_PERFORMANCE=1 hf download {{ ds4_hf_repo }} {{ ds4_mtp_file }}
+          --local-dir {{ ds4_models_dir }}
+      when:
+        - not mtp_stat.stat.exists
+        - hf_token_lookup | length == 0
+        - ds4_role == 'head'
+      register: ds4_download_mtp
+      changed_when: "'Downloaded' in ds4_download_mtp.stdout or 'Updated' in ds4_download_mtp.stdout"
+      tags: [ds4-deepseek-v4-flash-mtp, container]
+
+    # -----------------------------------------------------------------------
+    # 3. Container — ds4_cluster (ds4 toolbox, multi-node ROCm 7.2.4)
+    # -----------------------------------------------------------------------
     - name: Launch ds4 cluster container (ds4 toolbox, multi-node ROCm 7.2.4)
       ansible.builtin.command:
         cmd: >-
-          sudo podman run -dit --name {{ ds4_cluster_name }} --replace --pull missing
-          --network=host --device /dev/kfd --device /dev/dri
+          podman run -dit --name {{ ds4_cluster_name }} --replace --pull missing
+          --userns=host --network=host --device /dev/kfd --device /dev/dri
           --group-add video --group-add render
           --security-opt seccomp=unconfined
-          -v {{ ds4_models_dir }}:/root/ds4
+          -v {{ ds4_models_dir }}:{{ ds4_models_dir }}:ro
           --shm-size=16g
           --entrypoint=bin/bash {{ ds4_container }}
-      become: no
+      become: yes
       changed_when: false
       failed_when: false
       tags: [ds4-deepseek-v4-flash-mtp, container]
 
     - name: Verify ds4 cluster container is running
       ansible.builtin.command:
-        cmd: "sudo podman ps --filter name={{ ds4_cluster_name }} --format '{{ '{{.Names}}' }}'"
+        cmd: "podman ps --filter name={{ ds4_cluster_name }} --format '{{ '{{.Names}}' }}'"
+      become: yes
       register: ds4_pod
-      become: no
       changed_when: false
       failed_when: false
       tags: [ds4-deepseek-v4-flash-mtp, container]

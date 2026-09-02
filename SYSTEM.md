@@ -43,8 +43,6 @@ model is chosen by which track playbook you run, not by group membership.
 |---|---|---|
 | `qwen36-35b-ud-q8-k-xl-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-podman` |
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
-| `qwen38-flash-next-ud-q2-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ud-q2-k-xl-podman` |
-| `qwen38-flash-next-ud-iq4-xs-podman.yml` | `vulkan` | `qwen38-flash-next-ud-iq4-xs-podman` |
 | `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `qwen38-27b-rocmfp4-podman.yml` | `rocm` | `qwen38-27b-rocmfp4-podman` |
@@ -119,7 +117,7 @@ self-contained and `group_vars/all.yml` is an empty placeholder:
 Each track clones llama.cpp into its own directory:
 - `qwen36-35b-ud-q8-k-xl` → `~/llama-cpp-qwen36`
 - `qwen38-27b-ud-q8-k-xl` → `~/llama-cpp-qwen38-27b`
-- `qwen38-flash-next-ud-iq4-xs` → `~/llama-cpp-flash` (PR #27742 branch)
+- `qwen38-flash-next-ap-q5-k-xl` → `~/llama-cpp-flash` (PR #27742 branch)
 
 This allows independent branching/PRs per track without conflicts.
 

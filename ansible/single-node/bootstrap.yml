@@ -11,8 +11,7 @@
 #   qwen36-35b-ud-q8-k-xl-podman.yml          Qwen3.6-35B-A3B (Podman Vulkan)                             [qwen36-35b-ud-q8-k-xl-podman]
 #   qwen38-27b-ud-q4-k-xl-podman.yml          Qwen3.8-27B (Podman Vulkan + MTP)                          [qwen38-27b-ud-q4-k-xl-podman]
 #   qwen38-27b-rocmfp4-podman.yml             Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, built-in MTP)   [qwen38-27b-rocmfp4-podman]
-#   qwen38-flash-next-ud-q2-k-xl-podman.yml   Qwen3.8-Flash-Next (Podman Vulkan)                          [qwen38-flash-next-ud-q2-k-xl-podman]
-#   qwen38-flash-next-ud-iq4-xs-podman.yml    Qwen3.8-Flash-Next (Podman Vulkan, UD-IQ4_XS, ctx 131072)   [qwen38-flash-next-ud-iq4-xs-podman]
+#   qwen38-flash-next-ap-q5-k-xl-podman.yml   Qwen3.8-Flash-Next-AP (Podman Vulkan, Q5_K_XL, vision)     [qwen38-flash-next-ap-q5-k-xl-podman]
 #   gemma-4-26b-a4b-ud-q8-k-xl-podman.yml    Gemma 4 26B A4B (Podman Vulkan, image input)                [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
@@ -56,12 +55,6 @@
 
 - import_playbook: qwen38-27b-rocmfp4-podman.yml
   tags: [qwen38-27b-rocmfp4-podman]
-
-- import_playbook: qwen38-flash-next-ud-q2-k-xl-podman.yml
-  tags: [qwen38-flash-next-ud-q2-k-xl-podman]
-
-- import_playbook: qwen38-flash-next-ud-iq4-xs-podman.yml
-  tags: [qwen38-flash-next-ud-iq4-xs-podman]
 
 - import_playbook: qwen38-flash-next-ap-q5-k-xl-podman.yml
   tags: [qwen38-flash-next-ap-q5-k-xl-podman]

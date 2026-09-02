@@ -1,0 +1,23 @@
+# =============================================================================
+# podman-models-dir.yml
+# Ensures the host's models directory exists and is owned by ansible_user.
+# Include with:
+#   _models_dir   local models root (e.g. "{{ _user_home }}/models")
+# =============================================================================
+---
+- name: Ensure models directory exists
+  ansible.builtin.file:
+    path: "{{ _models_dir }}"
+    state: directory
+    mode: "0755"
+  tags: [podman, model]
+
+- name: Ensure proper ownership of models directory
+  ansible.builtin.file:
+    path: "{{ _models_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  become: yes
+  tags: [podman, model]

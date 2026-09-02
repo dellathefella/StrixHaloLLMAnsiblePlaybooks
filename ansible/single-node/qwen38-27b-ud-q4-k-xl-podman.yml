@@ -1,4 +1,4 @@
-﻿---
+---
 # =============================================================================
 # qwen38-27b-ud-q4-k-xl-podman.yml
 # Qwen3.8-27B (UD-Q4_K_XL quantization) — llama.cpp via Podman, using
@@ -65,216 +65,84 @@
     # Model download settings — read token on controller
     hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
 
+    hf_download_items:
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
+      - { repo: "{{ hf_repo }}", file: "{{ mtp_draft_file }}", dest_dir: "{{ _models_dir }}" }
+
+    # Everything after the run-mode flags (-d --name X / -it), shared between
+    # the real launch and the manual debug hint below — keeps them from drifting.
+    _podman_common_args: >-
+      --device=/dev/dri/renderD128
+      --device=/dev/kfd
+      --privileged
+      --entrypoint llama-server
+      -v {{ _models_dir }}:{{ _models_dir }}:ro
+      -p {{ port }}:{{ port }}
+      {{ docker_image }}
+      --model {{ _models_dir }}/{{ model }}
+      --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
+      --host 0.0.0.0
+      --port {{ port }}
+      --ctx-size {{ _docker_ctx_len }}
+      --parallel {{ parallel | d(1) }}
+      --n-gpu-layers {{ n_gpu | d(999) }}
+      --batch-size {{ batch | d(2048) }}
+      --ubatch-size {{ ubatch | d(512) }}
+      --cache-type-k {{ cache_type_k }}
+      --cache-type-v {{ cache_type_v }}
+      --flash-attn {{ flash_attn | d('on') }}
+      --load-mode {{ load_mode | d('mmap') }}
+      --spec-type {{ spec_type }}
+      --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
+
   tasks:
     # -----------------------------------------------------------------------
     # 1. Ensure models directory exists
     # -----------------------------------------------------------------------
-    - name: Ensure models directory exists
-      ansible.builtin.file:
-        path: "{{ _models_dir }}"
-        state: directory
-        mode: "0755"
-      tags: [podman, model]
-
-    - name: Ensure proper ownership of models directory
-      ansible.builtin.file:
-        path: "{{ _models_dir }}"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0755"
-      become: yes
-      tags: [podman, model]
+    - name: Set up models directory
+      ansible.builtin.include_tasks: tasks/podman-models-dir.yml
 
     # -----------------------------------------------------------------------
-    # 2. Download model if not present
+    # 2. Download model + MTP drafter if not present
     # -----------------------------------------------------------------------
-    - name: Check if model file already exists
-      ansible.builtin.stat:
-        path: "{{ _models_dir }}/{{ model }}"
-      register: model_file_stat
-      tags: [podman, model]
-
-    - name: Print model download status
-      ansible.builtin.debug:
-        msg: "Checking for model at: {{ _models_dir }}/{{ model }} | Found: {{ model_file_stat.stat.exists | default('unknown') }} | stat: {{ model_file_stat.stat }}"
-      tags: [podman, model]
-
-
-    - name: Download model from HuggingFace (with token)
-      ansible.builtin.command:
-        cmd: >-
-          hf download {{ hf_repo }} {{ model }} --token "{{ hf_token_lookup }}" --local-dir {{ _models_dir }}
-      when:
-        - not model_file_stat.stat.exists
-        - hf_token_lookup | length > 0
-      register: hf_download_result
-      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
-      tags: [podman, model]
-
-    - name: Download model without token (public repo)
-      ansible.builtin.command:
-        cmd: >-
-          hf download {{ hf_repo }} {{ model }} --local-dir {{ _models_dir }}
-      when:
-        - not model_file_stat.stat.exists
-        - hf_token_lookup | length == 0
-      register: hf_download_result
-      changed_when: "'Downloaded' in hf_download_result.stdout or 'Updated' in hf_download_result.stdout"
-      tags: [podman, model]
-
-    # -----------------------------------------------------------------------
-    # 2b. Fetch the MTP drafter — draft-mtp requires it; llama.cpp only
-    # auto-discovers a sibling drafter when loading with -hf, not from a
-    # local --model, so we pass it explicitly via --model-draft.
-    # -----------------------------------------------------------------------
-    - name: Check if MTP drafter already exists
-      ansible.builtin.stat:
-        path: "{{ _models_dir }}/{{ mtp_draft_file }}"
-      register: mtp_draft_stat
-      tags: [podman, model]
-
-    - name: Download MTP drafter from HuggingFace (with token)
-      ansible.builtin.command:
-        cmd: >-
-          hf download {{ hf_repo }} {{ mtp_draft_file }} --token "{{ hf_token_lookup }}" --local-dir {{ _models_dir }}
-      when:
-        - not mtp_draft_stat.stat.exists
-        - hf_token_lookup | length > 0
-      register: mtp_download_result
-      changed_when: "'Downloaded' in mtp_download_result.stdout or 'Updated' in mtp_download_result.stdout"
-      tags: [podman, model]
-
-    - name: Download MTP drafter without token (public repo)
-      ansible.builtin.command:
-        cmd: >-
-          hf download {{ hf_repo }} {{ mtp_draft_file }} --local-dir {{ _models_dir }}
-      when:
-        - not mtp_draft_stat.stat.exists
-        - hf_token_lookup | length == 0
-      register: mtp_download_result
-      changed_when: "'Downloaded' in mtp_download_result.stdout or 'Updated' in mtp_download_result.stdout"
-      tags: [podman, model]
+    - name: Download model + MTP drafter
+      ansible.builtin.include_tasks: tasks/hf-download-files.yml
 
     # -----------------------------------------------------------------------
     # 3. Create and run the Podman container
     # -----------------------------------------------------------------------
-    - name: Remove any existing container with the same name
-      ansible.builtin.command:
-        cmd: "podman rm -f {{ docker_container_name }}"
-      ignore_errors: yes
-      changed_when: false
-      tags: [podman, deploy]
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
 
     - name: Run llama.cpp container (Podman, single Vulkan)
       ansible.builtin.command:
-        cmd: >-
-          podman run -d --name {{ docker_container_name }}
-          --rm --pull=newer
-          --device=/dev/dri/renderD128
-          --device=/dev/kfd
-          --privileged
-          --entrypoint llama-server
-          -v {{ _models_dir }}:{{ _models_dir }}:ro
-          -p {{ port }}:{{ port }}
-          {{ docker_image }}
-          --model {{ _models_dir }}/{{ model }}
-          --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
-          --host 0.0.0.0
-          --port {{ port }}
-          --ctx-size {{ _docker_ctx_len }}
-          --parallel {{ parallel | d(1) }}
-          --n-gpu-layers {{ n_gpu | d(999) }}
-          --batch-size {{ batch | d(2048) }}
-          --ubatch-size {{ ubatch | d(512) }}
-          --cache-type-k {{ cache_type_k }}
-          --cache-type-v {{ cache_type_v }}
-          --flash-attn {{ flash_attn | d('on') }}
-          --load-mode {{ load_mode | d('mmap') }}
-          --spec-type {{ spec_type }}
-          --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
+        cmd: "podman run -d --name {{ docker_container_name }} --rm --pull=newer {{ _podman_common_args }}"
       register: podman_run_result
       changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
       tags: [podman, deploy]
 
-    - name: Print container start result
-      ansible.builtin.debug:
-        msg: "Container started: {{ podman_run_result.stdout | default('unknown') }}"
-      when: podman_run_result is defined
-      tags: [podman, deploy]
-
-    - name: Check if container is running
-      ansible.builtin.command:
-        cmd: "podman ps --filter name={{ docker_container_name }} --format json"
-      register: container_check
-      changed_when: false
-      failed_when: false
-      tags: [podman, deploy]
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
 
     - name: Print container failure info
       ansible.builtin.debug:
         msg: |
           Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
-          
+
           To debug, run manually:
-            podman run -it --rm --device=/dev/dri/renderD128 --device=/dev/kfd --privileged --entrypoint llama-server -v {{ _models_dir }}:{{ _models_dir }}:ro -p {{ port }}:{{ port }} {{ docker_image }} --model {{ _models_dir }}/{{ model }} --model-draft {{ _models_dir }}/{{ mtp_draft_file }} --host 0.0.0.0 --port {{ port }} --ctx-size {{ _docker_ctx_len }} --parallel {{ parallel | d(1) }} --n-gpu-layers {{ n_gpu | d(999) }} --batch-size {{ batch | d(2048) }} --ubatch-size {{ ubatch | d(512) }} --cache-type-k {{ cache_type_k }} --cache-type-v {{ cache_type_v }} --flash-attn {{ flash_attn | d('on') }} --load-mode {{ load_mode | d('mmap') }} --spec-type {{ spec_type }} --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
-          
+            podman run -it --rm {{ _podman_common_args }}
+
           Check GPU access: ls -la /dev/dri/ /dev/kfd
       tags: [podman, deploy]
 
-    - name: Sleep 10s to let container initialize
-      ansible.builtin.command:
-        cmd: "sleep 10"
-      changed_when: false
-      tags: [podman, deploy]
-
-    - name: Wait for llama-server API to respond
-      ansible.builtin.uri:
-        url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health"
-        return_content: yes
-        status_code: 200
-      register: health_check
-      retries: 60
-      delay: 5
-      until: health_check is succeeded
-      tags: [podman, deploy]
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
 
     # -----------------------------------------------------------------------
-    # 5. Write launch script to remote host
+    # 4. Write launch script + pi config
     # -----------------------------------------------------------------------
-    - name: Ensure scripts directory exists on host
-      ansible.builtin.file:
-        path: "{{ _user_home }}/scripts"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0755"
-      tags: [podman, launch]
-
-    - name: Render launch script ({{ track_stem }}-start.sh) into ~/scripts/
-      ansible.builtin.template:
-        src: "templates/scripts/{{ track_stem }}-start.sh.j2"
-        dest: "{{ _user_home }}/scripts/{{ track_stem }}-start.sh"
-        mode: "0755"
-      tags: [podman, launch]
-
-    - name: Ensure pi-configs output directory exists on controller
-      ansible.builtin.file:
-        path: "{{ playbook_dir }}/rendered/pi-configs"
-        state: directory
-        mode: "0755"
-      delegate_to: localhost
-      become: no
-      tags: [podman, launch]
-
-    - name: Render pi agent config for Qwen3.8-27B (pi-qwen38-27b-ud-q4-k-xl-podman.json) into ansible/rendered/pi-configs/
-      ansible.builtin.template:
-        src: templates/pi-configs/pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
-        dest: "{{ playbook_dir }}/rendered/pi-configs/pi-qwen38-27b-ud-q4-k-xl-podman.json"
-        mode: "0644"
-      delegate_to: localhost
-      become: no
-      tags: [podman, launch]
+    - name: Render launch script + pi config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
 
     - name: Print deployment summary
       ansible.builtin.debug:

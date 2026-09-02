@@ -1,0 +1,71 @@
+# =============================================================================
+# hf-download-files.yml
+# Downloads each item in `hf_download_items` from HuggingFace, skipping any
+# whose target file already exists on disk.
+#
+# Include with:
+#   hf_download_items   list of items:
+#                          repo       HF repo id
+#                          file       path to the file inside the repo (hf
+#                                     preserves this layout under dest_dir)
+#                          dest_dir   local dir passed to `hf download --local-dir`
+#                          dest_name  OPTIONAL final filename (relative to
+#                                     dest_dir) to rename the download to —
+#                                     use this when the repo's on-disk name is
+#                                     too generic to share a models dir with
+#                                     another track (e.g. "mmproj-F16.gguf")
+#   hf_token_lookup      HF token string ("" => public/no-token download)
+# =============================================================================
+---
+- name: "hf-download: stat target files"
+  ansible.builtin.stat:
+    path: "{{ item.dest_dir }}/{{ item.dest_name | default(item.file | basename) }}"
+  loop: "{{ hf_download_items }}"
+  loop_control:
+    label: "{{ item.dest_name | default(item.file | basename) }}"
+  register: _hf_target_stat
+  tags: [model]
+
+- name: "hf-download: fetch missing files (with token)"
+  ansible.builtin.command:
+    cmd: >-
+      hf download {{ item.item.repo }} {{ item.item.file }}
+      --token "{{ hf_token_lookup }}" --local-dir {{ item.item.dest_dir }}
+  loop: "{{ _hf_target_stat.results }}"
+  loop_control:
+    label: "{{ item.item.file }}"
+  when:
+    - not item.stat.exists
+    - hf_token_lookup | length > 0
+  register: _hf_download_with_token
+  changed_when: "'Downloaded' in _hf_download_with_token.stdout or 'Updated' in _hf_download_with_token.stdout"
+  tags: [model]
+
+- name: "hf-download: fetch missing files (public, no token)"
+  ansible.builtin.command:
+    cmd: >-
+      hf download {{ item.item.repo }} {{ item.item.file }}
+      --local-dir {{ item.item.dest_dir }}
+  loop: "{{ _hf_target_stat.results }}"
+  loop_control:
+    label: "{{ item.item.file }}"
+  when:
+    - not item.stat.exists
+    - hf_token_lookup | length == 0
+  register: _hf_download_public
+  changed_when: "'Downloaded' in _hf_download_public.stdout or 'Updated' in _hf_download_public.stdout"
+  tags: [model]
+
+# Only fires for items that declared dest_name AND were just downloaded this
+# run (already-present files were caught by the target-file stat above and
+# never reach here under their generic repo name).
+- name: "hf-download: rename downloads to dest_name"
+  ansible.builtin.command:
+    cmd: "mv {{ item.item.dest_dir }}/{{ item.item.file | basename }} {{ item.item.dest_dir }}/{{ item.item.dest_name }}"
+  loop: "{{ _hf_target_stat.results }}"
+  loop_control:
+    label: "{{ item.item.dest_name | default('') }}"
+  when:
+    - item.item.dest_name is defined
+    - not item.stat.exists
+  tags: [model]

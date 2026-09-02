@@ -1,0 +1,45 @@
+# =============================================================================
+# podman-render-launch-artifacts.yml
+# Renders the manual launch script (~/scripts/<track_stem>-start.sh) and the
+# pi agent config (rendered/pi-configs/pi-<track_stem>-podman.json).
+#
+# Include with:
+#   track_stem   stem shared by the templates and rendered filenames —
+#                templates/scripts/{{ track_stem }}-start.sh.j2
+#                templates/pi-configs/pi-{{ track_stem }}-podman.json.j2
+#   _user_home   remote user's home dir
+# =============================================================================
+---
+- name: Ensure scripts directory exists on host
+  ansible.builtin.file:
+    path: "{{ _user_home }}/scripts"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  tags: [podman, launch]
+
+- name: "Render launch script ({{ track_stem }}-start.sh) into ~/scripts/"
+  ansible.builtin.template:
+    src: "templates/scripts/{{ track_stem }}-start.sh.j2"
+    dest: "{{ _user_home }}/scripts/{{ track_stem }}-start.sh"
+    mode: "0755"
+  tags: [podman, launch]
+
+- name: Ensure pi-configs output directory exists on controller
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/rendered/pi-configs"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: no
+  tags: [podman, launch]
+
+- name: "Render pi agent config (pi-{{ track_stem }}-podman.json) into ansible/rendered/pi-configs/"
+  ansible.builtin.template:
+    src: "templates/pi-configs/pi-{{ track_stem }}-podman.json.j2"
+    dest: "{{ playbook_dir }}/rendered/pi-configs/pi-{{ track_stem }}-podman.json"
+    mode: "0644"
+  delegate_to: localhost
+  become: no
+  tags: [podman, launch]

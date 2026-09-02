@@ -110,8 +110,6 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-rocmfp4-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-q2-k-xl-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ud-iq4-xs-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ap-q5-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
@@ -158,10 +156,15 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── qwen38-27b-rocmfp4-podman.yml  Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, built-in MTP)
-│   │   ├── qwen38-flash-next-ud-q2-k-xl-podman.yml  Qwen3.8-Flash-Next (Podman Vulkan)
-│   │   ├── qwen38-flash-next-ud-iq4-xs-podman.yml  Qwen3.8-Flash-Next IQ4 (Podman Vulkan)
 │   │   ├── qwen38-flash-next-ap-q5-k-xl-podman.yml  Qwen3.8-Flash-Next AP Q5_K_XL (Podman Vulkan + vision)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
+│   │   ├── tasks/                 Shared task files included by the tracks above
+│   │   │   ├── podman-models-dir.yml            models dir + ownership
+│   │   │   ├── hf-download-files.yml            HF download loop (skip if present, optional rename)
+│   │   │   ├── podman-remove-container.yml      podman rm -f before (re)launch
+│   │   │   ├── podman-check-running.yml         start result + running check
+│   │   │   ├── podman-wait-health.yml           sleep + poll /health
+│   │   │   └── podman-render-launch-artifacts.yml  launch script + pi config render
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (vulkan/rocm → aiservers)
 │   │   │   ├── hosts.example      sample multi-machine inventory
@@ -171,16 +174,12 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
 │   │   │   │   ├── qwen38-27b-rocmfp4-start.sh.j2   Qwen3.8-27B ROCmFPX launch (prebuilt image)
-│   │   │   │   ├── qwen38-flash-next-ud-q2-k-xl-start.sh.j2   Flash-Next Q2 launch (3 shards)
-│   │   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Flash-Next IQ4 launch (3 shards)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-rocmfp4-podman.json.j2
-│   │   │   │   ├── pi-qwen38-flash-next-ud-q2-k-xl-podman.json.j2
-│   │   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs-podman.json.j2
 │   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   └── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
@@ -405,12 +404,6 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.8-27B (ROCmFPX engine, ROCmFP4_FAST, prebuilt julianmb/q38rocm image)
 ~/scripts/qwen38-27b-rocmfp4-start.sh
 
-# Qwen3.8-Flash-Next (UD-Q2_K_XL, Podman Vulkan)
-~/scripts/qwen38-flash-next-ud-q2-k-xl-start.sh
-
-# Qwen3.8-Flash-Next IQ4 (UD-IQ4_XS, Podman Vulkan)
-~/scripts/qwen38-flash-next-ud-iq4-xs-start.sh
-
 # Qwen3.8-Flash-Next AP (Q5_K_XL, Podman Vulkan, image input)
 ~/scripts/qwen38-flash-next-ap-q5-k-xl-start.sh
 
@@ -446,8 +439,6 @@ The bootstrap drops pi agent configs into `ansible/pi-configs/`:
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-rocmfp4-podman.json` — provider `qwen38-27b-rocmfp4` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-flash-next-ud-q2-k-xl-podman.json` — provider `qwen38-flash-next-ud-q2-k-xl` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-flash-next-ud-iq4-xs-podman.json` — provider `qwen38-flash-next-ud-iq4-xs` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
@@ -475,8 +466,7 @@ re-run it to change them.
 - `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-rocmfp4-start.sh` (CONTAINER/HOST_PORT/CONTAINER_PORT/IMAGE/CTX/SLOTS — prebuilt julianmb/q38rocm image)
-- `qwen38-flash-next-ud-q2-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `qwen38-flash-next-ud-iq4-xs-start.sh` (CONTAINER/PORT/MODEL/MODEL_DIR/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/FLASH_ATTN/LOAD_MODE/REASONING/TEMP/TOP_P/TOP_K/MIN_P)
+- `qwen38-flash-next-ap-q5-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/PARALLEL/GPU_LAYERS/N_CPU_MOE/FLASH_ATTN/LOAD_MODE/TEMP/TOP_P/TOP_K/MIN_P)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
