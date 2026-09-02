@@ -60,14 +60,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       software-properties-common gpg-agent \
     && add-apt-repository -y ppa:kisak/kisak-mesa \
     && apt-get update && apt-get install -y --no-install-recommends \
-      mesa-vulkan-drivers vulkan-tools libvulkan1 libcurl4 \
+      mesa-vulkan-drivers vulkan-tools libvulkan1 libcurl4 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/engine/build/bin/llama-server /app/llama-server
 COPY --from=build /src/engine/build/bin/llama-cli /app/llama-cli
 COPY --from=build /src/engine/build/bin/llama-bench /app/llama-bench
-COPY --from=build /src/engine/build/bin/libggml*.so* /app/
-COPY --from=build /src/engine/build/bin/libllama*.so* /app/
+# Use *.so* (not libggml* + libllama*) — modern llama.cpp also builds libmtmd.so
+# (multimodal/MTMD library) which is required at runtime but doesn't match
+# the libggml*/libllama* glob. CMAKE_LIBRARY_OUTPUT_DIRECTORY is build/bin/
+# so all .so files land there regardless of name prefix.
+COPY --from=build /src/engine/build/bin/*.so* /app/
 RUN ldconfig /app 2>/dev/null; true
 
 ENV LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH}
