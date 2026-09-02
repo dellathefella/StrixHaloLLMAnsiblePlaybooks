@@ -49,7 +49,7 @@
     docker_container_name: "{{ track_stem }}"
 
     # Model settings — per the fork's own "65.6 t/s" benchmark config.
-    ctx: 32768
+    ctx: 65536
     port: 8080
     n_gpu: 999
     spec_draft_ngl: 99          # GPU layers for the DFlash2 draft model specifically
