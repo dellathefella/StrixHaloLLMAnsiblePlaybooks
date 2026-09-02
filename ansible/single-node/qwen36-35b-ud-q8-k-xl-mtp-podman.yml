@@ -1,0 +1,164 @@
+---
+# =============================================================================
+# qwen36-35b-ud-q8-k-xl-mtp-podman.yml
+# Qwen3.6-35B-A3B (UD-Q8_K_XL quantization, ~38.5 GB) — llama.cpp via Podman,
+# using Nathanw1014's Strix Halo tuned image (Vulkan backend, gfx1151
+# Flash-Attention + MoE-prefill fixes). Same model/quant as the plain
+# qwen36-35b-ud-q8-k-xl track, but from the MTP-GGUF repo — MTP speculative
+# decoding is BAKED INTO every quant in that repo (no separate drafter file,
+# unlike the qwen38-27b-ud-q4-k-xl track's MTP/*.gguf drafter).
+#
+# Flags follow the model card's own quickstart (huggingface.co/unsloth/
+# Qwen3.6-35B-A3B-MTP-GGUF):
+#   llama-server -hf ...:UD-Q4_K_XL -ngl 99 -c 8192 -fa on -np 1
+#     --spec-type draft-mtp --spec-draft-n-max 2
+# -ngl 99 (not 999) and --parallel 1 come straight from that card — it also
+# states -np > 1 and --mmproj are not yet supported with MTP. Loading this
+# GGUF WITHOUT --spec-type draft-mtp is what breaks the plain track when you
+# just swap hf_repo/model in it: the MTP tensors need the flag to load at all.
+#
+#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
+#   launch script   ~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
+# =============================================================================
+
+- name: "podman — setup + deploy llama.cpp container (UD-Q8_K_XL, MTP)"
+  hosts: vulkan
+  gather_facts: yes
+  become: yes
+  tags: [qwen36-35b-ud-q8-k-xl-mtp-podman]
+
+  vars:
+    # =====================================================================
+    # Qwen36-35B-A3B MTP (UD-Q8_K_XL) track vars — self-contained, no group_vars
+    # =====================================================================
+
+    # Container settings — uses Nathanw1014's pre-built Strix Halo tuned image
+    # (Vulkan backend, gfx1151 Flash-Attention + MoE-prefill fixes).
+    #   track_stem       → stem used for container name, script names
+    track_stem: "qwen36-35b-ud-q8-k-xl-mtp"
+    image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
+    image_tag: "vulkan"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}"
+
+    # Model settings — same file name/quant as the plain qwen36-35b track,
+    # different (MTP) HF repo. --parallel MUST stay 1: the model card says
+    # -np > 1 isn't supported with MTP yet.
+    ctx: 262144
+    port: 8080
+    parallel: 1
+    batch: 256
+    model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
+    hf_repo: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
+    n_gpu: 99
+    flash_attn: "on"
+
+    # MTP speculation — built into the model file itself, so there is no
+    # --model-draft here (unlike qwen38-27b-ud-q4-k-xl's separate drafter).
+    spec_type: "draft-mtp"
+    spec_draft_n_max: 2
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/models"
+    _docker_ctx_len: "{{ ctx | d('8192') }}"
+
+    # Model download settings — read token on controller
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+
+    hf_download_items:
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
+
+    # Everything after the run-mode flags (-d --name X / -it), shared between
+    # the real launch and the manual debug hint below — keeps them from drifting.
+    _podman_common_args: >-
+      --device=/dev/dri/renderD128
+      --device=/dev/kfd
+      --privileged
+      --entrypoint llama-server
+      -v {{ _models_dir }}:{{ _models_dir }}:ro
+      -p {{ port }}:{{ port }}
+      {{ docker_image }}
+      --model {{ _models_dir }}/{{ model }}
+      --host 0.0.0.0
+      --port {{ port }}
+      --ctx-size {{ _docker_ctx_len }}
+      --parallel {{ parallel | d(1) }}
+      --n-gpu-layers {{ n_gpu | d(99) }}
+      --batch-size {{ batch | d(256) }}
+      --flash-attn {{ flash_attn | d('on') }}
+      --spec-type {{ spec_type }}
+      --spec-draft-n-max {{ spec_draft_n_max | d(2) }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Ensure models directory exists
+    # -----------------------------------------------------------------------
+    - name: Set up models directory
+      ansible.builtin.include_tasks: tasks/podman-models-dir.yml
+
+    # -----------------------------------------------------------------------
+    # 2. Download model if not present
+    # -----------------------------------------------------------------------
+    - name: Download model
+      ansible.builtin.include_tasks: tasks/hf-download-files.yml
+
+    # -----------------------------------------------------------------------
+    # 3. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+
+    - name: Run llama.cpp container (Podman, single Vulkan, MTP)
+      ansible.builtin.command:
+        cmd: "podman run -d --name {{ docker_container_name }} --rm --pull=newer {{ _podman_common_args }}"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }}
+
+          If the load fails specifically on MTP tensors, check that the image's
+          llama.cpp build actually supports --spec-type draft-mtp for this
+          architecture (podman logs {{ docker_container_name }}).
+
+          Check GPU access: ls -la /dev/dri/ /dev/kfd
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+
+    # -----------------------------------------------------------------------
+    # 4. Write launch script + pi config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + pi config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp (Podman) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }}
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          Model: {{ _models_dir }}/{{ model }} (MTP built-in, {{ spec_type }} n-max {{ spec_draft_n_max | d(2) }})
+          GPU layers: {{ n_gpu | d(99) }} | Flash-attn: {{ flash_attn | d('on') }} | Parallel: {{ parallel | d(1) }}
+          Context: {{ _docker_ctx_len }}
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]

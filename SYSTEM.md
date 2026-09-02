@@ -42,8 +42,11 @@ model is chosen by which track playbook you run, not by group membership.
 | Playbook | Play targets (`hosts:`) | Track tag (`tags:`) |
 |---|---|---|
 | `qwen36-35b-ud-q8-k-xl-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-podman` |
+| `qwen36-35b-ud-q8-k-xl-mtp-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-mtp-podman` |
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
+| `qwen38-27b-laurentz-vulkan-podman.yml` (builds image from source) | `vulkan` | `qwen38-27b-laurentz-vulkan-podman` |
 | `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
+| `qwen38-flash-next-haloq38-podman.yml` (builds image from source) | `vulkan` | `qwen38-flash-next-haloq38-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |

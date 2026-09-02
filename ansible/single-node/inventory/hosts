@@ -24,8 +24,9 @@
 # inference hosts and is what the shared host-level plays target.
 
 # Vulkan backend — Podman Vulkan (llama.cpp) tracks:
-#   qwen36-35b-ud-q8-k-xl, qwen38-27b-ud-q4-k-xl, qwen38-flash-next-ap-q5-k-xl,
-#   gemma-4-26b-a4b-ud-q8-k-xl
+#   qwen36-35b-ud-q8-k-xl, qwen36-35b-ud-q8-k-xl-mtp, qwen38-27b-ud-q4-k-xl,
+#   qwen38-27b-laurentz-vulkan (built from source), qwen38-flash-next-ap-q5-k-xl,
+#   qwen38-flash-next-haloq38 (built from source), gemma-4-26b-a4b-ud-q8-k-xl
 [vulkan]
 #halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella

@@ -15,38 +15,52 @@ All llama.cpp tracks run locally on a single machine:
   via Podman Vulkan container (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`).
   Port 8080, ctx 262144.
 
+- **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — same model/quant/image as above, but
+  from the `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` repo, which bakes MTP
+  speculative decoding **into the GGUF itself** (no separate drafter file).
+  Follows the model card's own quickstart: `-ngl 99` (not 999), `-fa on`,
+  `--parallel 1` (MTP doesn't support `-np > 1` yet), `--spec-type draft-mtp
+  --spec-draft-n-max 2`. Loading this GGUF without `--spec-type draft-mtp`
+  fails to load at all — it's not optional here. Port 8080, ctx 262144.
+
 - **Qwen38-27B (UD-Q4_K_XL)** — Qwen3.8-27B (UD-Q4_K_XL) via Podman Vulkan
   container with **MTP speculative decoding** via the repo drafter
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` (`draft-mtp`, draft n-max 3, f16 KV cache,
   batch 2048 / ubatch 512, flash-attn on, mmap loading, single slot).
   Port 8080, ctx 262144.
 
-- **Qwen38-27B (ROCmFP4_FAST, ROCmFPX engine)** — Qwen3.8-27B (ROCmFP4_FAST,
-  ~13.5 GB) on the custom `julianmb/q38rocm` ROCmFPX llama.cpp fork — PULLED
-  from `ghcr.io/julianmb/q38rocm:1.5.3` (never built). MTP is **built into the
-  model** (no separate drafter file). The image's `run_server.sh` entrypoint
-  builds the full "speed" profile command (ctx 131072, MTP draft-n 4, KV
-  K=q8_0/V=turbo4, 128K prompt cache, auto Vulkan0/ROCm0). Port 8080, ctx 131072.
-
-- **Qwen38-Flash-Next (UD-Q2_K_XL)** — Qwen3.8-Flash-Next (UD-Q2_K_XL, ~89 GB) via Podman
-  Vulkan container. Port 8080, ctx 262144.
-
-- **Qwen38-Flash-Next IQ4 (UD-IQ4_XS)** — Qwen3.8-Flash-Next 125B-A6B (UD-IQ4_XS,
-  3 shards, ~87 GiB on disk) via Podman Vulkan container. Second Flash-Next
-  profile: ctx 131072 (~91 GB resident), `--load-mode none`, KV cache f16
-  (quantized KV asserts on the `qwen4exp` arch), `--jinja`, `--reasoning on`,
-  single slot, sampler defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0.
-  Port 8080. Measured on a 128 GB Strix Halo: ~23 t/s decode, ~390 t/s pp512.
+- **Qwen38-27B (LaurentZuijdwijk fork, DFlash2)** — same ROCmFP4-FAST model as
+  the ROCmFPX track that used to exist, but on LaurentZuijdwijk/llama.cpp's
+  adaptive speculative decoding (`draft-dflash`, draft n 3–7, separate DFlash2
+  drafter GGUF from `agentionai`). **Built from source on the target host** —
+  the fork publishes no runnable image (its only GHCR package is CI
+  build-cache layers, no Vulkan tag). Experimental: the drafter is loaded via
+  `--model-draft`, inferred from upstream convention since the fork's own docs
+  only document HF auto-download, not a local-file flag. Port 8080, ctx 32768.
 
 - **Qwen38-Flash-Next AP (Q5_K_XL)** — Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL,
   single ~112 GiB GGUF from `agentionai`) via Podman Vulkan container, with
   **image recognition** (the `unsloth` `mmproj-F16.gguf` projector is downloaded
-  and passed as `--mmproj`). Third Flash-Next profile, chosen because the Q4/IQ4
-  quants had quality issues: `-ngl 99`, `--n-cpu-moe 0`, `-fa on`, `--load-mode
+  and passed as `--mmproj`). The only Flash-Next profile kept — the UD-Q2_K_XL
+  and UD-IQ4_XS quants were dropped for unreliable output quality: `-ngl 99`,
+  `--n-cpu-moe 0`, `-fa on`, `--load-mode
   mmap` (112 GiB pages from disk so the KV cache fits), `--no-op-offload`,
   `--override-tensor per_layer_token_embd=CPU`, `--jinja`, `--parallel 1`, sampler
   defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0. Port 8080. Reported on a
   128 GB Strix Halo: ~450 pp @ 2048 ctx, ~240 pp @ ~100k ctx, 12–20 t/s decode, no MTP.
+
+- **Qwen38-Flash-Next (haloq38flash)** — julianmb's bugfixed
+  Qwen3.8-Flash-Next-IQ4_XS-GGUF quant + tuned launch flags, built from
+  Nathanw1014's own llama.cpp fork (`strix-halo-vulkan` branch — the same
+  source lineage the prebuilt image above comes from). **Built from source on
+  the target host** — haloq38flash publishes no registry image either, only
+  `docker compose up --build`. Default profile: IQ4_XS-PLE (~91 GB), ctx
+  32768, `-ctk/-ctv q8_0`, optional MTP sidecar wired in via the proven
+  `draft-mtp` flags. Caution: the previously-removed unsloth-quant IQ4_XS
+  track hit a quantized-KV assert on this same architecture — vars are
+  exposed to drop to f16 if this quant's claimed fix doesn't hold up. Port
+  8080. A second, larger-context quant (116 GB, ctx ≥ 128k, SSD-streaming
+  `--tensor-read-lazy`) is documented but not wired up as a profile.
 
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
@@ -110,8 +124,11 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ap-q5-k-xl-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-haloq38-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
@@ -155,12 +172,19 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
+│   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
+│   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 │   │   ├── qwen38-flash-next-ap-q5-k-xl-podman.yml  Qwen3.8-Flash-Next AP Q5_K_XL (Podman Vulkan + vision)
+│   │   ├── qwen38-flash-next-haloq38-podman.yml  Qwen3.8-Flash-Next (haloq38flash, built from source)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
+│   │   ├── containerfiles/        Containerfiles for the two built-from-source tracks
+│   │   │   ├── qwen38-27b-laurentz-vulkan.Containerfile
+│   │   │   └── qwen38-flash-next-haloq38.Containerfile
 │   │   ├── tasks/                 Shared task files included by the tracks above
 │   │   │   ├── podman-models-dir.yml            models dir + ownership
 │   │   │   ├── hf-download-files.yml            HF download loop (skip if present, optional rename)
+│   │   │   ├── podman-build-image.yml           podman build from a Containerfile (skip if tag exists)
 │   │   │   ├── podman-remove-container.yml      podman rm -f before (re)launch
 │   │   │   ├── podman-check-running.yml         start result + running check
 │   │   │   ├── podman-wait-health.yml           sleep + poll /health
@@ -172,14 +196,20 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
+│   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
+│   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
-│   │   │   │   └── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
+│   │   │   │   ├── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
+│   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-27b-laurentz-vulkan-podman.json.j2
 │   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   └── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
+│   │   │   │   ├── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
+│   │   │   │   └── pi-qwen38-flash-next-haloq38-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── pi-configs/        Rendered pi agent configs
@@ -216,6 +246,19 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Port**: 8080
 - **Backend**: Vulkan/RADV
 
+### Qwen36-35B-A3B MTP (UD-Q8_K_XL) — Podman Vulkan + MTP
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Model**: `Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf` from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`
+  (same filename/quant as the plain track — different repo)
+- **MTP**: **built into the model** — `--spec-type draft-mtp --spec-draft-n-max 2`,
+  no separate `--model-draft` drafter file. Loading this GGUF without
+  `--spec-type draft-mtp` fails to load, per the model card.
+- **Context**: 262144 (native ceiling), `--parallel 1` (model card: `-np > 1`
+  not yet supported with MTP)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV
+- **GPU layers**: `-ngl 99` (not 999, per the model card's own quickstart), `-fa on`
+
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
@@ -227,58 +270,31 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
 
-### Qwen38-27B (ROCmFP4_FAST) — ROCmFPX engine (julianmb/q38rocm)
-- **Container**: `ghcr.io/julianmb/q38rocm:1.5.3` — custom ROCmFPX llama.cpp
-  fork, **pulled from GHCR (never built)**. The only track that does not use the
-  Nathanw1014 image; its `run_server.sh` entrypoint builds the full server
-  command, and everything after the image name on the `podman run` line is
-  appended to it as `llama-server` overrides (`--ctx`/`--slots` today, plus an
-  optional `extra_args` profile knob — see below).
-- **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` (ROCmFP4_FAST, ~13.5 GB) from
-  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF`.
-- **MTP**: **built into the model** — `--spec-type draft-mtp` with no separate
-  `--model-draft` drafter file (unlike the UD-Q4_K_XL track).
-- **Speed profile defaults**: ctx 131072, MTP draft-n 4, KV K=q8_0/V=turbo4,
-  batch 2048 / ubatch 1024, temperature 0, 128K prompt cache (32 GiB / 64 ckpts).
-- **Port**: 8080 (host) → 8000 (container; fixed by the image)
-- **GPU**: `/dev/kfd` + `/dev/dri/renderD128`, auto Vulkan0→ROCm0; Strix Halo
-  env (HSA_OVERRIDE_GFX_VERSION=11.5.1, unified memory) set inside the image.
-- **Slots**: 1 (override with the `parallel` playbook var).
-- **DeviceLost mitigation**: the container is started with
-  `GGML_VK_MAX_NODES_PER_SUBMIT=1` (profile knob `vk_max_nodes_per_submit`,
-  set `""` to unset). If long prompts still abort, pass `extra_args` (appended
-  to `run_server.sh`'s command), e.g. `ansible-playbook ...
-  -e extra_args='--spec-type none'`; escalate to the kernel watchdog only if
-  needed (`set-grub-ttm.yml` / `set-limine-ttm.yml` with
-  `-e lockup_timeout_enabled=true`). See [Troubleshooting](#troubleshooting).
-
-### Qwen38-Flash-Next (UD-Q2_K_XL) — Podman Vulkan
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
-- **Model**: Qwen3.8-Flash-Next 125B-A6B UD-Q2_K_XL (~89 GB), 3 shards under
-  `UD-Q2_K_XL/`, renamed locally to `Qwen3.8-Flash-Next-UD-Q2_K_XL/`
-- **Context**: 262144 (native ceiling)
+### Qwen38-27B (LaurentZuijdwijk fork) — Vulkan, built from source, DFlash2
+- **Source**: `LaurentZuijdwijk/llama.cpp`, pinned commit
+  `5e085d123eead2e89b5c19f824fccb05727da6a2` (2026-08-31, `master`) —
+  **built on the target host** via `containerfiles/qwen38-27b-laurentz-vulkan.Containerfile`.
+  No runnable image exists to pull: the fork's only GHCR package
+  (`ghcr.io/laurentzuijdwijk/llama.cpp`) has only `buildcache-*` CI layer
+  caches for CUDA/ROCm — not bootable, and no Vulkan tag despite that being
+  the fork's whole point on this hardware.
+- **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` from
+  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF` (same model repo the retired
+  ROCmFPX track used)
+- **Drafter (DFlash2)**: `Qwen3.8-27B-DFlash2-Q4_0_ROCMFP4_FAST.gguf` from
+  `agentionai/Qwen3.8-27B-DFlash2-ROCmFP4-FAST-GGUF`, passed as `--model-draft`
+  — **unverified**: the fork's README only documents loading it via the
+  HF auto-download `-hfd` shorthand, never a local-file flag. If the
+  coordinator ignores the drafter, check `llama-server --help` in the
+  container for the real flag name.
+- **Context**: 32768 (per the fork's own benchmark config)
 - **Port**: 8080
-- **Backend**: Vulkan/RADV (`qwen4exp` arch)
-
-### Qwen38-Flash-Next IQ4 (UD-IQ4_XS) — Podman Vulkan
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
-- **Model**: Qwen3.8-Flash-Next 125B-A6B UD-IQ4_XS (~87 GiB on disk), 3 shards
-  under `UD-IQ4_XS/`, renamed locally to `Qwen3.8-Flash-Next-UD-IQ4_XS/`.
-  llama.cpp loads the set from part 1, so the shard directory is mounted.
-- **Context**: 131072 (~91 GB resident — the native 262144 does not fit
-  alongside an f16 KV cache in 128 GB)
-- **Port**: 8080
-- **Backend**: Vulkan/RADV — `qwen4exp` is Gated DeltaNet + sparse attention
-  (QSA), 125B total / 6B active plus a 51B n-gram embedding table
-- **Loading**: `--load-mode none` (no mmap); KV cache stays **f16** (`-ctk/-ctv`)
-  because quantized KV asserts and dies on this arch
-- **Sampling**: `--jinja`, `--reasoning on`, defaults temp 1.0 / top-p 0.95 /
-  top-k 20 / min-p 0.0, `--parallel 1` (single slot), `-ngl 999`, `-fa on`
-- **Engine**: `qwen4exp` landed in llama.cpp via PR #27742 (merged 2026-08-27)
-  together with the `LLM_ARCH_QWEN4EXP` entry in `graph_max_nodes()`; the pinned
-  b10666 image already contains both, so no PR-branch build or local patch.
-- **Measured** on a 128 GB Strix Halo (llama-bench, fa on): pp512 ~390 t/s,
-  pp4096 ~357 t/s, tg128 ~23 t/s.
+- **Backend**: Vulkan/RADV
+- **Speculation**: `--spec-type draft-dflash --spec-draft-adaptive
+  --spec-draft-n-min 3 --spec-draft-n-max 7`, `--spec-draft-ngl 99`
+- **Batching**: `-ngl 999`, `-b 2048`, `-ub 512`, `-fa on`
+- **Claimed** (fork's README, not independently verified here): 65.6 t/s
+  structured output, 4.7x bare decode
 
 ### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
@@ -301,6 +317,33 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   `--parallel 1` (single slot), `-ngl 99` (not 999), `-fa on`
 - **Reported** on a 128 GB Strix Halo (v0.7.2, mmap): ~450 pp @ 2048 ctx,
   ~240 pp @ ~100k ctx, 12–20 t/s decode.
+
+### Qwen38-Flash-Next (haloq38flash) — Vulkan, built from source
+- **Source**: `julianmb/haloq38flash` — **built on the target host** via
+  `containerfiles/qwen38-flash-next-haloq38.Containerfile`, itself building
+  `Nathanw1014/llama.cpp` (branch `strix-halo-vulkan`, same lineage as the
+  prebuilt `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan` image other
+  tracks pull). No registry image exists — the upstream repo only offers
+  `docker compose up --build`.
+- **Model**: `Qwen3.8-Flash-Next-IQ4_XS-PLE.gguf` from
+  `julianmb/Qwen3.8-Flash-Next-IQ4_XS-GGUF` (~91 GB) — julianmb's README
+  claims a fixed converter bug vs. the unsloth quant the retired
+  `qwen38-flash-next-ud-iq4-xs` track used
+- **MTP sidecar** (optional upstream, wired in here): `mtp-Qwen3.8-Flash-Next-Q8_0.gguf`,
+  same repo, via `--model-draft --spec-type draft-mtp --spec-draft-n-max 3`
+- **Context**: 32768 (matches the upstream Dockerfile's own baked default)
+- **Port**: 8080
+- **Backend**: Vulkan/RADV (`qwen4exp` arch)
+- **KV cache**: `-ctk q8_0 -ctv q8_0` (upstream default) — **caution**: the
+  retired unsloth-quant track crashed with `quantized KV cache asserts and
+  dies on qwen4exp` on the same architecture; `cache_type_k`/`cache_type_v`
+  vars let you drop to f16 without touching the flags if julianmb's claimed
+  fix doesn't hold here too
+- **Loading**: `-ngl 999`, `-ub 2048`, `--threads 4`, `-fa on`, `--jinja`
+- **Not wired up**: a second, larger quant (`Qwen3.8-Flash-Next-IQ4_XS.gguf`,
+  ~116 GB) for ctx ≥ 128k via SSD-streaming (`--load-mode mmap
+  --tensor-read-lazy on`) — override `-e model=... -e ctx=262144` and add the
+  flag by hand if you want to try it
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
@@ -330,7 +373,9 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Model**: `DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf`
   (~153 GB hybrid quant, `antirez/deepseek-v4-gguf`) at `~/ds4` on both nodes
 - **MTP**: drafter `DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf` (~3.6 GB) on the
-  head only — `--mtp <file> --mtp-draft 1`
+  head only — `--mtp --mtp-model <file> --mtp-draft 1`. Optional: if the
+  drafter isn't present, the launch script starts the coordinator without it
+  (plain, non-speculative) rather than refusing to serve the 153 GB model.
 - **Parallelism**: 2-node pipeline (layer slicing) — head/coordinator
   `--layers 0:21 --listen <head_ip> 8081`, worker `--layers 22:output
   --coordinator <head_ip> 8081`; the pipeline channel rides the Thunderbolt
@@ -396,11 +441,20 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.6-35B-A3B (Podman Vulkan)
 ~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
 
+# Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
+~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
+
 # Qwen3.8-27B (Podman Vulkan + MTP)
 ~/scripts/qwen38-27b-ud-q4-k-xl-start.sh
 
+# Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
+~/scripts/qwen38-27b-laurentz-vulkan-start.sh
+
 # Qwen3.8-Flash-Next AP (Q5_K_XL, Podman Vulkan, image input)
 ~/scripts/qwen38-flash-next-ap-q5-k-xl-start.sh
+
+# Qwen3.8-Flash-Next (haloq38flash, built from source)
+~/scripts/qwen38-flash-next-haloq38-start.sh
 
 # Gemma 4 26B A4B (Podman Vulkan, image input)
 ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
@@ -434,8 +488,11 @@ The bootstrap drops pi agent configs into `ansible/pi-configs/`:
 
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
+  - `pi-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `pi-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
@@ -460,8 +517,11 @@ The settings below are baked into the rendered script as plain shell variables
 (`CONTAINER`, `PORT`, `MODEL`, `IMAGE`, `CTX`, ...); edit the file in place and
 re-run it to change them.
 - `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
+- `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `qwen38-flash-next-ap-q5-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/PARALLEL/GPU_LAYERS/N_CPU_MOE/FLASH_ATTN/LOAD_MODE/TEMP/TOP_P/TOP_K/MIN_P)
+- `qwen38-flash-next-haloq38-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/UBATCH/THREADS/FLASH_ATTN/CACHE_TYPE_K/CACHE_TYPE_V/SPEC_TYPE/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
@@ -543,12 +603,14 @@ needed if the rest proves insufficient):**
    `echo 60000 | sudo tee /sys/module/amdgpu/parameters/lockup_timeout`.
    Trade-off: a genuinely hung GPU takes longer to auto-recover.
 2. **Submit batching pin** — `-e GGML_VK_MAX_NODES_PER_SUBMIT=1` (upstream fix
-   #24872; default 1 on UMA since, pinned explicitly by the ROCmFP4 track).
+   #24872; default 1 on UMA since). No current track exposes this as a
+   playbook var (the ROCmFP4 track that did was retired) — set it via
+   `podman run -e GGML_VK_MAX_NODES_PER_SUBMIT=1` directly if needed.
 3. **Smaller ubatches** — lower `--ubatch-size` (e.g. 512 or 128) shrinks the
    work per submit; costs prefill speed.
-4. **MTP off for long prompts** — ROCmFP4 track:
-   `-e extra_args='--spec-type none'`; UD-Q4_K_XL track: drop
-   `--spec-type draft-mtp` / `--model-draft` from the start script.
+4. **MTP off for long prompts** — UD-Q4_K_XL / UD-Q8_K_XL-MTP tracks: drop
+   `--spec-type draft-mtp` (and `--model-draft`/`--mtp-model` if present)
+   from the start script.
 
 **Evidence to capture if it persists** — `journalctl -k | grep -E 'amdgpu.*(timeout|reset)'`,
 `podman logs <container>`, and the exact prompt length / argv at which it dies;

@@ -21,6 +21,11 @@
 # is identical inside and outside the container. This script only checks the
 # files are there; re-run the playbook if either is missing.
 #
+# MTP is optional: the coordinator needs the ~153 GB main model to serve
+# anything, but the ~3.6 GB drafter only adds speculative decoding on top —
+# if it's missing, the coordinator starts WITHOUT --mtp/--mtp-model rather
+# than refusing to serve the model at all.
+#
 # The playbook never launches servers: this is where the cluster comes up.
 # =============================================================================
 set -euo pipefail
@@ -57,7 +62,9 @@ ensure_container() {
 
 # The playbook downloads model weights on the host before the container ever
 # starts (retried with/without an HF token); the container only bind-mounts
-# them read-only. So this just verifies they're there — it does not download.
+# them read-only. So this just verifies the file is there — it does not
+# download. Used for the main model, which the coordinator/worker cannot
+# run without.
 ensure_file() {
   local path="$1"
   if [ -f "${path}" ]; then
@@ -74,16 +81,27 @@ case "${DS4_ROLE}" in
     [ -n "${DS4_HEAD_IP}" ] || { echo "DS4_HEAD_IP not set — re-run the track with the inventory group or -e ds4_head_ip=..." >&2; exit 1; }
     ensure_container
     ensure_file "${MODEL_PATH}"
-    ensure_file "${MTP_PATH}"
 
-    echo "Starting ds4 coordinator on ${DS4_HEAD_IP} (layers ${DS4_LAYERS_HEAD}, MTP on, pipeline port ${DS4_PP_PORT}, API port ${DS4_API_PORT}) ..."
+    # MTP drafter is optional — degrade to a plain (non-speculative) launch
+    # instead of blocking the whole model from serving.
+    mtp_args=()
+    if [ -f "${MTP_PATH}" ]; then
+      mtp_args=(--mtp --mtp-model "${MTP_PATH}" --mtp-draft "${DS4_MTP_DRAFT}")
+      mtp_status="MTP on"
+    else
+      echo "WARNING: MTP drafter not found at ${MTP_PATH} — starting WITHOUT" >&2
+      echo "         speculative decoding. Re-run the playbook to fetch it:" >&2
+      echo "         ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml" >&2
+      mtp_status="MTP off — drafter missing"
+    fi
+
+    echo "Starting ds4 coordinator on ${DS4_HEAD_IP} (layers ${DS4_LAYERS_HEAD}, ${mtp_status}, pipeline port ${DS4_PP_PORT}, API port ${DS4_API_PORT}) ..."
     # First-run model load is slow (~153 GB mmap + weights); watch with:
     #   sudo podman logs -f ${CONTAINER}
     sudo podman exec -d "${CONTAINER}" "${SERVER}" \
       -m "${MODEL_PATH}" \
       --ctx "${DS4_CTX}" \
-      --mtp --mtp-model "${MTP_PATH}" \
-      --mtp-draft "${DS4_MTP_DRAFT}" \
+      "${mtp_args[@]}" \
       --role coordinator --layers "${DS4_LAYERS_HEAD}" \
       --listen "${DS4_HEAD_IP}" "${DS4_PP_PORT}" \
       --host 0.0.0.0 --port "${DS4_API_PORT}"

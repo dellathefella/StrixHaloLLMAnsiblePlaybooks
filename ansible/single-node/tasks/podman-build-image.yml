@@ -1,0 +1,52 @@
+# =============================================================================
+# podman-build-image.yml
+# Builds a local podman image from a Containerfile checked into this repo,
+# skipping the build if the tagged image already exists locally — the tag
+# should embed a version/commit pin, so a real source change always means a
+# new tag (and therefore a real rebuild), never a stale cache hit.
+#
+# Include with:
+#   docker_image          local tag to build and run, e.g. "localhost/<track>:<pin>"
+#   _containerfile_path   path to the Containerfile, relative to playbook_dir
+#                         (e.g. "containerfiles/<name>.Containerfile")
+#   _user_home            remote user's home dir (build context + Containerfile
+#                         land in ~/.cache there)
+#   _build_arg            OPTIONAL single "NAME=VALUE" string passed as
+#                         --build-arg (e.g. "LLAMA_CPP_COMMIT=abc123...")
+# =============================================================================
+---
+- name: "podman-build: check if {{ docker_image }} already exists locally"
+  ansible.builtin.command:
+    cmd: "podman image exists {{ docker_image }}"
+  register: _build_image_exists
+  changed_when: false
+  failed_when: false
+  tags: [podman, build]
+
+- name: "podman-build: copy Containerfile to remote host"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/{{ _containerfile_path }}"
+    dest: "{{ _user_home }}/.cache/{{ track_stem }}.Containerfile"
+    mode: "0644"
+  when: _build_image_exists.rc != 0
+  tags: [podman, build]
+
+- name: "podman-build: build {{ docker_image }} from source (can take a while — compiling llama.cpp + Vulkan shaders)"
+  ansible.builtin.command:
+    cmd: >-
+      podman build -t {{ docker_image }}
+      {{ ('--build-arg ' ~ _build_arg) if (_build_arg | default('') | length > 0) else '' }}
+      -f {{ _user_home }}/.cache/{{ track_stem }}.Containerfile
+      {{ _user_home }}/.cache
+  when: _build_image_exists.rc != 0
+  register: _build_result
+  changed_when: true
+  tags: [podman, build]
+
+- name: "podman-build: {{ docker_image }} already built, skipping"
+  ansible.builtin.debug:
+    msg: >-
+      {{ docker_image }} already exists locally — skipping rebuild.
+      Remove it (podman rmi {{ docker_image }}) to force a rebuild.
+  when: _build_image_exists.rc == 0
+  tags: [podman, build]

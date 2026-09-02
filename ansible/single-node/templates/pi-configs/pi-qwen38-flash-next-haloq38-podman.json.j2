@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "qwen38-flash-next-haloq38": {
+      "name": "Qwen3.8-Flash-Next IQ4_XS-PLE (haloq38flash, Strix Halo)",
+      "baseUrl": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+      "api": "openai-completions",
+      "apiKey": "qwen38-flash-haloq38-local",
+      "models": [
+        {
+          "id": "qwen3.8-flash-next-haloq38",
+          "name": "Qwen3.8-Flash-Next IQ4_XS-PLE (~91 GB)",
+          "input": ["text"],
+          "contextWindow": {{ ctx }},
+          "maxTokens": 65536,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

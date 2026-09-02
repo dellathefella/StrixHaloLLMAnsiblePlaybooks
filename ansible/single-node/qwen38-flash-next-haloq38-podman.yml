@@ -1,0 +1,199 @@
+---
+# =============================================================================
+# qwen38-flash-next-haloq38-podman.yml
+# Qwen3.8-Flash-Next (IQ4_XS-PLE, ~91 GB) — llama.cpp via Podman, using
+# julianmb's haloq38flash build (https://github.com/julianmb/haloq38flash):
+# a bugfixed quant/conversion of Qwen3.8-Flash-Next for Strix Halo, built on
+# top of Nathanw1014's own llama.cpp fork (branch strix-halo-vulkan — the
+# same source lineage the ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
+# image several other tracks pull prebuilt).
+#
+# BUILT FROM SOURCE, not pulled: haloq38flash publishes no registry image
+# (only `docker compose up --build`, building `.` locally). See
+# containerfiles/qwen38-flash-next-haloq38.Containerfile — a near-verbatim
+# port of that repo's own Dockerfile to plain `podman build` (no compose).
+#
+# CAUTION — KV-cache quantization risk: the now-removed qwen38-flash-next-
+# ud-iq4-xs track (same qwen4exp architecture, same Nathanw1014 lineage,
+# unsloth's quant instead of julianmb's) hit "quantized KV cache asserts and
+# dies on qwen4exp" and had to stay on f16 KV. julianmb's README claims a
+# "fixed converter bug" and recommends -ctk q8_0 -ctv q8_0 anyway (baked into
+# the Dockerfile's own default CMD). If that assert lives in llama.cpp's
+# qwen4exp handling rather than the old quant's conversion, it could still
+# crash here despite the model-side fix — cache_type_k/cache_type_v are vars
+# specifically so you can drop to f16 without touching flags if it does.
+#
+#   image           localhost/qwen38-flash-next-haloq38:latest (built here)
+#   model           Qwen3.8-Flash-Next-IQ4_XS-PLE.gguf ("ctx <= 32k — wins
+#                   everywhere, mtp to 56 t/s" per the repo's own README)
+#   MTP sidecar     mtp-Qwen3.8-Flash-Next-Q8_0.gguf (optional per the repo;
+#                   wired in here via the proven --model-draft/draft-mtp flags)
+#   launch script   ~/scripts/qwen38-flash-next-haloq38-start.sh
+#
+# The repo also documents a second, larger-context quant/mode — IQ4_XS
+# static (116 GB), ctx >= 128k, `-c 262144 -lm mmap --tensor-read-lazy on` —
+# not wired up as a profile here; override -e model=Qwen3.8-Flash-Next-
+# IQ4_XS.gguf -e ctx=262144 -e load_mode=mmap if you want to try it, and add
+# --tensor-read-lazy on to _podman_common_args by hand.
+# =============================================================================
+
+- name: "podman — build from source + deploy llama.cpp container (haloq38flash)"
+  hosts: vulkan
+  gather_facts: yes
+  become: yes
+  tags: [qwen38-flash-next-haloq38-podman]
+
+  vars:
+    # =====================================================================
+    # Qwen3.8-Flash-Next haloq38flash track vars — self-contained, no group_vars
+    # =====================================================================
+    track_stem: "qwen38-flash-next-haloq38"
+
+    # No commit/version pin available — haloq38flash's Dockerfile has no
+    # build ARG for this. Tagged :latest; "podman image exists" (in
+    # tasks/podman-build-image.yml) means it's built once and reused until
+    # you remove it (podman rmi) to force a rebuild.
+    docker_image: "localhost/{{ track_stem }}:latest"
+    docker_container_name: "{{ track_stem }}"
+
+    # Model settings — mirrors haloq38flash's own Dockerfile CMD default
+    # exactly (same ctx, same KV quant, same ubatch/threads).
+    ctx: 32768
+    port: 8080
+    n_gpu: 999
+    ubatch: 2048
+    threads: 4
+    flash_attn: "on"
+    cache_type_k: "q8_0"
+    cache_type_v: "q8_0"
+    model: "Qwen3.8-Flash-Next-IQ4_XS-PLE.gguf"
+    hf_repo: "julianmb/Qwen3.8-Flash-Next-IQ4_XS-GGUF"
+
+    # Optional MTP sidecar (same repo) — wired in via the proven upstream
+    # draft-mtp flags already used by the qwen38-27b-ud-q4-k-xl track.
+    mtp_draft_file: "mtp-Qwen3.8-Flash-Next-Q8_0.gguf"
+    spec_type: "draft-mtp"
+    spec_draft_n_max: 3
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/models"
+    _docker_ctx_len: "{{ ctx | d('32768') }}"
+
+    # Model download settings — read token on controller
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+
+    hf_download_items:
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
+      - { repo: "{{ hf_repo }}", file: "{{ mtp_draft_file }}", dest_dir: "{{ _models_dir }}" }
+
+    _containerfile_path: "containerfiles/{{ track_stem }}.Containerfile"
+
+    # Everything after the run-mode flags (-d --name X / -it), shared between
+    # the real launch and the manual debug hint below — keeps them from drifting.
+    # NOTE the --entrypoint path: our own Containerfile puts the binary at
+    # /app/llama-server with no PATH entry, unlike the Nathanw1014-based
+    # PULLED-image tracks (bare `llama-server`) — this is a self-built image.
+    _podman_common_args: >-
+      --device=/dev/dri/renderD128
+      --device=/dev/kfd
+      --privileged
+      --entrypoint /app/llama-server
+      -v {{ _models_dir }}:{{ _models_dir }}:ro
+      -p {{ port }}:{{ port }}
+      {{ docker_image }}
+      --model {{ _models_dir }}/{{ model }}
+      --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
+      --host 0.0.0.0
+      --port {{ port }}
+      --ctx-size {{ _docker_ctx_len }}
+      --n-gpu-layers {{ n_gpu | d(999) }}
+      --flash-attn {{ flash_attn | d('on') }}
+      --cache-type-k {{ cache_type_k }}
+      --cache-type-v {{ cache_type_v }}
+      --ubatch-size {{ ubatch | d(2048) }}
+      --threads {{ threads | d(4) }}
+      --jinja
+      --spec-type {{ spec_type }}
+      --spec-draft-n-max {{ spec_draft_n_max | d(3) }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Build the image from source (skipped if already built)
+    # -----------------------------------------------------------------------
+    - name: Build haloq38flash image from source
+      ansible.builtin.include_tasks: tasks/podman-build-image.yml
+
+    # -----------------------------------------------------------------------
+    # 2. Ensure models directory exists
+    # -----------------------------------------------------------------------
+    - name: Set up models directory
+      ansible.builtin.include_tasks: tasks/podman-models-dir.yml
+
+    # -----------------------------------------------------------------------
+    # 3. Download model + MTP sidecar if not present
+    # -----------------------------------------------------------------------
+    - name: Download model + MTP sidecar
+      ansible.builtin.include_tasks: tasks/hf-download-files.yml
+
+    # -----------------------------------------------------------------------
+    # 4. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+
+    - name: Run llama.cpp container (Podman, haloq38flash)
+      ansible.builtin.command:
+        cmd: "podman run -d --name {{ docker_container_name }} --rm {{ _podman_common_args }}"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }}
+
+          If it dies specifically on KV cache allocation, --cache-type-k/-v
+          q8_0 may still hit the qwen4exp assert the old unsloth-quant track
+          warned about — try -e cache_type_k=f16 -e cache_type_v=f16.
+
+          Check GPU access: ls -la /dev/dri/ /dev/kfd
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+
+    # -----------------------------------------------------------------------
+    # 5. Write launch script + pi config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + pi config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp (Podman, haloq38flash) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }} (built from source — Nathanw1014/llama.cpp, strix-halo-vulkan branch)
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          Model: {{ _models_dir }}/{{ model }}
+          MTP sidecar: {{ _models_dir }}/{{ mtp_draft_file }} ({{ spec_type }}, n-max {{ spec_draft_n_max | d(3) }})
+          KV cache: {{ cache_type_k }} (K) / {{ cache_type_v }} (V) — see header comment if this crashes
+          GPU layers: {{ n_gpu | d(999) }} | Ubatch {{ ubatch | d(2048) }} | Threads {{ threads | d(4) }} | Flash-attn {{ flash_attn | d('on') }}
+          Context: {{ _docker_ctx_len }}
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]
