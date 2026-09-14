@@ -12,13 +12,11 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 
 All llama.cpp tracks run locally on a single machine:
 
-- **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
-  via Podman Vulkan container (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`).
-  Port 8080, ctx 262144.
-
-- **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — same model/quant/image as above, but
-  from the `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` repo, which bakes MTP
-  speculative decoding **into the GGUF itself** (no separate drafter file).
+- **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL,
+  ~38.5 GB) via Podman Vulkan container
+  (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`), but from the
+  `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` repo, which bakes MTP speculative
+  decoding **into the GGUF itself** (no separate drafter file).
   Follows the model card's own quickstart: `-ngl 99` (not 999), `-fa on`,
   `--parallel 1` (MTP doesn't support `-np > 1` yet), `--spec-type draft-mtp
   --spec-draft-n-max 2`. Loading this GGUF without `--spec-type draft-mtp`
@@ -127,7 +125,6 @@ Host-level setup shared by both tracks (imported by each track's bootstrap):
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
 
 # Run a single Podman track:
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
@@ -175,7 +172,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   ├── single-node/               Single-node tracks (one host, one model at a time)
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── qwen36-35b-ud-q8-k-xl-podman.yml  Qwen3.6-35B-A3B (Podman Vulkan)
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
@@ -198,14 +194,12 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
-│   │   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B Vulkan launch
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
-│   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-laurentz-vulkan-podman.json.j2
@@ -252,7 +246,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: `Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf` from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`
-  (same filename/quant as the plain track — different repo)
+  (same file name/quant, different repo)
 - **MTP**: **built into the model** — `--spec-type draft-mtp --spec-draft-n-max 2`,
   no separate `--model-draft` drafter file. Loading this GGUF without
   `--spec-type draft-mtp` fails to load, per the model card.
@@ -407,8 +401,8 @@ model. The same commands work manually if you want to re-fetch a model outside
 ansible:
 
 ```bash
-# Qwen3.6-35B-A3B (UD-Q8_K_XL, ~38.5 GB)
-hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
+# Qwen3.6-35B-A3B MTP (UD-Q8_K_XL, ~38.5 GB)
+hf download unsloth/Qwen3.6-35B-A3B-MTP-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
   --local-dir ~/models
 
 # Qwen3.8-27B (UD-Q4_K_XL) + MTP drafter
@@ -449,9 +443,6 @@ target host. The bootstrap also drops PI agent configs into
 ### Single-Node Launch Example
 
 ```bash
-# Qwen3.6-35B-A3B (Podman Vulkan)
-~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
-
 # Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 ~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
 
@@ -497,7 +488,6 @@ DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 The bootstrap drops pi agent configs into `ansible/pi-configs/`:
 
 - **Podman tracks:**
-  - `pi-qwen36-35b-ud-q8-k-xl-podman.json` — provider `qwen36-35b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
@@ -529,7 +519,6 @@ The settings below are baked into the rendered script as plain shell variables
 (`CONTAINER`, `PORT`, `MODEL`, `IMAGE`, `CTX`, ...); edit the file in place and
 re-run it to change them.
 
-- `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
@@ -546,7 +535,7 @@ nightlies, latest llama.cpp from source):
 - **ROCm/HIP dominates prompt processing** on gfx1151 — 4.7× faster and 65%
   less energy than Vulkan. We build llama.cpp **ROCm-only** (HIP graphs
   enabled).
-- **MoE models need 2^n batching** — `batch=256` for qwen36-35b-ud-q8-k-xl (38.5 GB, fits KV cache).
+- **MoE models need 2^n batching** — `batch=256` for qwen36-35b-ud-q8-k-xl-mtp (38.5 GB, fits KV cache).
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
 - **`qwen4exp` (Qwen3.8-Flash-Next) must keep an f16 KV cache** — quantized KV
@@ -567,8 +556,9 @@ Auto/minimum, append the GRUB args, reboot.
 
 **ROCm version:** the shared `install-amdgpu.yml` track installs ROCm via
 AMD's `repo.radeon.com` `amdgpu-install` deb (currently 7.2.1, noble) with
-`--usecase=rocm --no-dkms` — *not* the Ubuntu `rocm` package (7.1.0). ROCm is
-needed for the qwen36-35b track. Vulkan is needed for the qwen38-27b Podman track.
+`--usecase=rocm --no-dkms` — *not* the Ubuntu `rocm` package (7.1.0). The
+single-node Podman tracks only need podman + recent Mesa (Vulkan); ROCm is
+needed for the multi-node vllm-rccl-moe / ds4-deepseek-v4-flash-mtp tracks.
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the

@@ -44,7 +44,6 @@ model is chosen by which track playbook you run, not by group membership.
 
 | Playbook | Play targets (`hosts:`) | Track tag (`tags:`) |
 | --- | --- | --- |
-| `qwen36-35b-ud-q8-k-xl-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-podman` |
 | `qwen36-35b-ud-q8-k-xl-mtp-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-mtp-podman` |
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
 | `qwen38-27b-laurentz-vulkan-podman.yml` (builds image from source) | `vulkan` | `qwen38-27b-laurentz-vulkan-podman` |
@@ -129,7 +128,6 @@ self-contained and `group_vars/all.yml` is an empty placeholder:
 
 Each track clones llama.cpp into its own directory:
 
-- `qwen36-35b-ud-q8-k-xl` → `~/llama-cpp-qwen36`
 - `qwen38-27b-ud-q8-k-xl` → `~/llama-cpp-qwen38-27b`
 
 This allows independent branching/PRs per track without conflicts.

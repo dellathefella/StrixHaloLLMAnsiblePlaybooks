@@ -9,7 +9,7 @@
 #
 # Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
 #
-# Almost identical to the qwen36-35b-ud-q8-k-xl track (port 8080, ctx 262144,
+# Same shape as the other single-node Podman tracks (port 8080, ctx 262144,
 # batch 256, n-gpu-layers 999) with one addition: the vision projector
 # (mmproj) unsloth ships alongside the quant. llama.cpp needs it via --mmproj
 # to accept images through the OpenAI-compatible /v1/chat/completions API;
@@ -69,8 +69,17 @@
     # hf writes the projector under its generic repo name; dest_name renames
     # it so a later vision track can never overwrite it.
     hf_download_items:
-      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
-      - { repo: "{{ hf_repo }}", file: "{{ mmproj_file }}", dest_dir: "{{ _models_dir }}", dest_name: "{{ mmproj_local }}" }
+      - {
+          repo: "{{ hf_repo }}",
+          file: "{{ model }}",
+          dest_dir: "{{ _models_dir }}",
+        }
+      - {
+          repo: "{{ hf_repo }}",
+          file: "{{ mmproj_file }}",
+          dest_dir: "{{ _models_dir }}",
+          dest_name: "{{ mmproj_local }}",
+        }
 
     # Everything after the run-mode flags (-d --name X / -it), shared between
     # the real launch and the manual debug hint below — keeps them from drifting.
