@@ -33,7 +33,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_URL = "http://192.168.1.212:8080"          # host port for qwen38-27b-rocmfp4
-DEFAULT_CONTAINER = "qwen38-27b-ud-q4-k-xl"       # docker_container_name in the playbook
+DEFAULT_CONTAINER = "qwen38-27b-laurentz-vulkan"  # docker_container_name in the playbook
 DEFAULT_CTX = 262144                           # server --ctx (speed profile)
 DEFAULT_TARGET_TOKENS = 260_000                # ~107k real tokens; headroom under 128K ctx
 CHARS_PER_TOKEN_EST = 4.0                      # sizing estimate (Qwen BPE, tech prose)
@@ -478,15 +478,15 @@ def get_model_id(url: str) -> str:
 # Log forensics — did the GPU lose the device?
 # ---------------------------------------------------------------------------
 
-def _run(cmd: str, timeout: float = 60.0) -> tuple:
-    """Run a shell command; return (ok, combined_output)."""
+def _run(argv: list, timeout: float = 60.0) -> tuple:
+    """Run a command (no shell); return (ok, combined stdout+stderr)."""
     try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         return (p.returncode == 0), (p.stdout or "") + (p.stderr or "")
     except FileNotFoundError:
-        return False, f"command not available: {cmd.split()[0]}"
+        return False, f"command not available: {argv[0]}"
     except subprocess.TimeoutExpired:
-        return False, f"timeout running: {cmd}"
+        return False, f"timeout running: {argv[0]}"
 
 
 def _grep(lines, pattern) -> list:
@@ -496,14 +496,14 @@ def _grep(lines, pattern) -> list:
 def collect_evidence(container: str, want_kernel: bool) -> dict:
     """Grep container + kernel logs for DeviceLost / watchdog signatures."""
     ev = {"container_lines": [], "kernel_lines": [], "sources": [], "notes": {}}
-    ok, out = _run(f"podman logs --tail 800 {container} 2>&1")
+    ok, out = _run(["podman", "logs", "--tail", "800", container])
     if ok:
         ev["sources"].append(f"podman logs {container}")
         ev["container_lines"] = _grep(out.splitlines(), DEVICE_LOST_RE)
     else:
         ev["notes"]["podman"] = out.strip() or "podman unavailable"
     if want_kernel:
-        ok, out = _run("journalctl -k --since '30 min ago' --no-pager 2>&1")
+        ok, out = _run(["journalctl", "-k", "--since", "30 min ago", "--no-pager"])
         if ok:
             ev["sources"].append("journalctl -k (30 min)")
             ev["kernel_lines"] = _grep(out.splitlines(), DEVICE_LOST_RE)

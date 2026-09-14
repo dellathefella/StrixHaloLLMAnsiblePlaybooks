@@ -32,8 +32,7 @@
 # UNVERIFIED: the fork's README only documents loading the DFlash2 draft
 # model via the auto-download `-hfd <hf-repo>` shorthand, never a local-file
 # flag. This uses --model-draft (upstream llama.cpp's flag for --spec-type
-# draft-mtp, and the same flag the qwen38-27b-ud-q4-k-xl track already uses
-# successfully) on the assumption --spec-type draft-dflash reads the draft
+# draft-mtp) on the assumption --spec-type draft-dflash reads the draft
 # model the same way. If the coordinator fails to pick up the drafter, run
 # `podman exec <container> llama-server --help` to find the actual flag name.
 # =============================================================================

@@ -126,7 +126,6 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-haloq38-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
@@ -173,7 +172,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
-│   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 │   │   ├── qwen38-flash-next-haloq38-podman.yml  Qwen3.8-Flash-Next (haloq38flash, built from source)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
@@ -195,13 +193,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── templates/             Jinja templates (rendered by each track)
 │   │   │   ├── scripts/           Launch script templates
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
-│   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
-│   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-laurentz-vulkan-podman.json.j2
 │   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   └── pi-qwen38-flash-next-haloq38-podman.json.j2
@@ -446,9 +442,6 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 ~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
 
-# Qwen3.8-27B (Podman Vulkan + MTP)
-~/scripts/qwen38-27b-ud-q4-k-xl-start.sh
-
 # Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 ~/scripts/qwen38-27b-laurentz-vulkan-start.sh
 
@@ -489,7 +482,6 @@ The bootstrap drops pi agent configs into `ansible/pi-configs/`:
 
 - **Podman tracks:**
   - `pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
@@ -520,7 +512,6 @@ The settings below are baked into the rendered script as plain shell variables
 re-run it to change them.
 
 - `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
-- `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `qwen38-flash-next-haloq38-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/UBATCH/THREADS/FLASH_ATTN/CACHE_TYPE_K/CACHE_TYPE_V/SPEC_TYPE/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
