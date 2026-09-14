@@ -1,6 +1,7 @@
 # ROCm Inference Bootstrap — Conventions
 
 ## Target platform
+
 - **CachyOS (Arch-based) first — current fleet — Ubuntu 26.04 (noble) second.**
   Distro-gated shared plays say so in their headers (e.g. `install-amdgpu.yml`
   is Ubuntu-gated; `setup-thunderbolt-net.yml` is distro-agnostic).
@@ -8,6 +9,7 @@
 - Local ansible runs use `ansible_connection=local` + `ansible_become_exe=/usr/bin/sudo.ws` (classic C sudo, not sudo-rs) with password-fed `become` via `-K`.
 
 ## Directory layout
+
 ```
 ansible/
   bootstrap.yml                orchestrator — static import_playbook of all tracks
@@ -33,6 +35,7 @@ pi-configs/                    rendered pi provider configs
 ## Track naming convention
 
 ### File naming
+
 Playbooks and templates use the **descriptive model + quant name**. Plays target a
 **capability group** (GPU backend) rather than one model — `aiservers` is the union of
 all inference hosts, with `vulkan` and `rocm` underneath. A host runs one model at a
@@ -40,12 +43,11 @@ time, so hosts are placed **directly** in their backend group (`vulkan`/`rocm`);
 model is chosen by which track playbook you run, not by group membership.
 
 | Playbook | Play targets (`hosts:`) | Track tag (`tags:`) |
-|---|---|---|
+| --- | --- | --- |
 | `qwen36-35b-ud-q8-k-xl-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-podman` |
 | `qwen36-35b-ud-q8-k-xl-mtp-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-mtp-podman` |
 | `qwen38-27b-ud-q4-k-xl-podman.yml` | `vulkan` | `qwen38-27b-ud-q4-k-xl-podman` |
 | `qwen38-27b-laurentz-vulkan-podman.yml` (builds image from source) | `vulkan` | `qwen38-27b-laurentz-vulkan-podman` |
-| `qwen38-flash-next-ap-q5-k-xl-podman.yml` | `vulkan` | `qwen38-flash-next-ap-q5-k-xl-podman` |
 | `qwen38-flash-next-haloq38-podman.yml` (builds image from source) | `vulkan` | `qwen38-flash-next-haloq38-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
@@ -53,12 +55,15 @@ model is chosen by which track playbook you run, not by group membership.
 | `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` | TB4 node-to-node cluster link |
 
 ### Template naming
+
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`
 - Pi config: `templates/pi-<playbook-name>.json.j2` → renders to `pi-configs/pi-<playbook-name>.json`
 
 ### Variable conventions
+
 Each track playbook is **self-contained** — it defines its own `vars:` block and uses
 **no `group_vars`**. Common per-track vars:
+
 - `track_stem` — model stem; basis for the container name and rendered script/config names
 - `image_repo` / `image_tag` — container image to pull (`docker_image: "{{ image_repo }}:{{ image_tag }}"`)
 - `model` / `hf_repo` — model file and the HF repo
@@ -66,6 +71,7 @@ Each track playbook is **self-contained** — it defines its own `vars:` block a
 
 Tracks that may serve more than one model group the model-specific knobs into a
 **profile dict** selected by `active_profile` (see `vllm-rccl-moe.yml`):
+
 ```yaml
 active_profile: "minimax-m2.7-awq-4bit"
 vllm_moe_profiles:
@@ -76,12 +82,14 @@ vllm_moe_profiles:
     max_tokens: 32768
     dtype: "bfloat16"
 ```
+
 Flat vars are derived from `{{ vllm_moe_profiles[active_profile] }}`, so a new
 model only adds an entry to the dict.
 
 ## Playbook structure
 
 ### Two-play pattern
+
 Every track playbook follows a two-play structure:
 
 1. **Bootstrap play** (`become: yes`, runs on target host):
@@ -96,6 +104,7 @@ Every track playbook follows a two-play structure:
    - Checks binary presence on localhost, warns if missing
 
 ### Tags
+
 - Bootstrap play: `[<track-tag>]` (matches host group name)
 - Deps: `[packages, rocm]` or `[packages, vulkan]`
 - Build: `[build]`
@@ -108,23 +117,27 @@ The orchestrator tag for the whole bootstrap is the playbook's `--tags` value �
 ## Shared vs isolated directories
 
 ### Shared (common) paths
+
 Legacy source-build tracks shared these as `llama_common_*`; the podman tracks are
 self-contained and `group_vars/all.yml` is an empty placeholder:
+
 - `llama_common_home`: `/home/{{ ansible_user }}`
 - `llama_common_models_dir`: `{{ llama_common_home }}/.local/share/llama-models`
 - `llama_common_repo_url`: `https://github.com/ggml-org/llama.cpp.git`
 
 ### Isolated per-track engines
+
 Each track clones llama.cpp into its own directory:
+
 - `qwen36-35b-ud-q8-k-xl` → `~/llama-cpp-qwen36`
 - `qwen38-27b-ud-q8-k-xl` → `~/llama-cpp-qwen38-27b`
-- `qwen38-flash-next-ap-q5-k-xl` → `~/llama-cpp-flash` (PR #27742 branch)
 
 This allows independent branching/PRs per track without conflicts.
 
 ## Build conventions
 
 ### ROCm/HIP builds
+
 - Use `rocm-build-deps.yml` (includes `libhip-dev`, `rocblas`, `hipblas`, `cmake`, etc.)
 - CMake flags: `-DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON -DGGML_VULKAN=OFF`
 - Release build: `-DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF`
@@ -132,12 +145,14 @@ This allows independent branching/PRs per track without conflicts.
 - HIP env guards in launch scripts: `HSA_ENABLE_SDMA=1`, `HSA_FORCE_FINE_GRAIN_PCIE=1`
 
 ### Vulkan builds
+
 - Use `vulkan-build-deps.yml` (idempotent via `ignore_errors: yes`, collection install handled by shell)
 - CMake flags: `-DGGML_HIP=OFF -DGGML_VULKAN=ON`
 - Device: `Vulkan0` (RADV), not `ROCm0`
 - Env: `VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"`
 
 ### PR builds (Flash track)
+
 - Clone PR refs: `version: "refs/pull/27742/head"`
 - Manual patches via `ansible.builtin.shell` with `grep -q` guard + `failed_when: false` for idempotency
 - Never use `ansible.builtin.patch` — it requires `community.general` collection
@@ -145,6 +160,7 @@ This allows independent branching/PRs per track without conflicts.
 ## Template conventions
 
 ### Bash launch script headers
+
 ```bash
 #!/bin/bash
 # =============================================================================
@@ -161,7 +177,9 @@ set -euo pipefail
 ```
 
 ### Environment variable defaults (Jinja2 → bash)
+
 Use bash default-value syntax with Jinja2 variables — **never** use bare `{{ }}` without a default, as missing vars will produce empty strings:
+
 ```bash
 VAR_NAME="${VAR_NAME:-{{ var_prefix_value }}}}"
 ```
@@ -169,21 +187,27 @@ VAR_NAME="${VAR_NAME:-{{ var_prefix_value }}}}"
 **Jinja2 gotcha**: Bash array length syntax `${#array[@]}` starts with `{#` which Jinja2 interprets as a comment. Avoid this pattern in templates; use `${#array[@]}` only where it won't be rendered.
 
 ### LD_LIBRARY_PATH
+
 For ROCm/HIP builds:
+
 ```bash
 LIB_PATH="${<VAR>_LIB:-$(dirname "$<VAR>_BIN")/../lib}"
 [ -d "$LIB_PATH" ] && export LD_LIBRARY_PATH="${LIB_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
+
 The `${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}` suffix preserves any existing `LD_LIBRARY_PATH` rather than replacing it entirely.
 
 ### Sanity checks
+
 Every launch script must validate before `exec`:
+
 ```bash
 [ -x "$BIN_PATH" ] || { echo "llama-server not found: $BIN_PATH (run bootstrap)" >&2; exit 1; }
 [ -f "$MODEL_PATH" ] || { echo "model not found: $MODEL_PATH" >&2; exit 1; }
 ```
 
 ### Pi config JSON format
+
 ```json
 {
   "providers": {
@@ -206,6 +230,7 @@ Every launch script must validate before `exec`:
 ```
 
 ### Pi config for vision tracks
+
 Multimodal tracks (image input) declare `"input": ["text", "image"]` instead of
 `["text"]`, and must ship the llama.cpp vision projector next to the quant
 (`--mmproj`) or the server answers text only — see
@@ -215,13 +240,17 @@ Multimodal tracks (image input) declare `"input": ["text", "image"]` instead of
 ## Ansible gotchas
 
 ### become on local runs
+
 Ubuntu 26.04's default `sudo-rs` reformats ansible's `-p` prompt, causing timeout. Always use:
+
 ```yaml
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 ```
 
 ### include_tasks for deps
+
 Shared dependency tasks live in `tasks/` and are included with `ansible.builtin.include_tasks` (not `import_tasks`) so they respect tags and can be conditionally skipped:
+
 ```yaml
 - name: Include ROCm build dependencies
   ansible.builtin.include_tasks:
@@ -230,7 +259,9 @@ Shared dependency tasks live in `tasks/` and are included with `ansible.builtin.
 ```
 
 ### git clone with PR refs
+
 For PR-based builds:
+
 ```yaml
 - name: Clone llama.cpp PR #NNNNN
   ansible.builtin.git:
@@ -242,6 +273,7 @@ For PR-based builds:
 ```
 
 ### Merged PRs need no PR build
+
 Before writing a PR-clone task, check whether the PR has since **merged**. The
 `qwen38-flash-next-*` tracks originally needed PR #27742 (`qwen4exp`) built from
 `refs/pull/27742/head` plus a hand-patch to `graph_max_nodes()`; that PR merged

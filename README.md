@@ -9,6 +9,7 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 ## Deployment Topology
 
 ### Single-Node Tracks (`ansible/single-node/`)
+
 All llama.cpp tracks run locally on a single machine:
 
 - **Qwen36-35B-A3B (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
@@ -69,6 +70,7 @@ All llama.cpp tracks run locally on a single machine:
   Qwen36-35B-A3B.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
+
 Cluster-based inference across multiple machines:
 
 - **vllm-rccl-moe** — multi-model vLLM + Ray + RCCL track for MoE models across
@@ -107,6 +109,7 @@ Cluster-based inference across multiple machines:
   a single-node inventory (no such group) skips it entirely.
 
 ### Shared Setup Playbooks (`ansible/shared/`)
+
 Host-level setup shared by both tracks (imported by each track's bootstrap):
 
 - `install-amdgpu.yml` — Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated)
@@ -118,6 +121,7 @@ Host-level setup shared by both tracks (imported by each track's bootstrap):
 ## Quick Start
 
 ### Single-Node (recommended for this host)
+
 ```bash
 # Full single-node bootstrap:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
@@ -127,7 +131,6 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-ud-q4-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-ap-q5-k-xl-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-haloq38-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
@@ -136,6 +139,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ```
 
 ### Multi-Node (cluster)
+
 ```bash
 # Full multi-node bootstrap:
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
@@ -175,7 +179,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-ud-q4-k-xl-podman.yml  Qwen3.8-27B (Podman Vulkan + MTP)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
-│   │   ├── qwen38-flash-next-ap-q5-k-xl-podman.yml  Qwen3.8-Flash-Next AP Q5_K_XL (Podman Vulkan + vision)
 │   │   ├── qwen38-flash-next-haloq38-podman.yml  Qwen3.8-Flash-Next (haloq38flash, built from source)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── containerfiles/        Containerfiles for the two built-from-source tracks
@@ -200,7 +203,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen38-27b-ud-q4-k-xl-start.sh.j2   Qwen3.8-27B Vulkan launch (with MTP)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
-│   │   │   │   ├── qwen38-flash-next-ap-q5-k-xl-start.sh.j2   Flash-Next AP Q5_K_XL launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
 │   │   │   ├── pi-configs/        PI agent JSON config templates
 │   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-podman.json.j2
@@ -208,7 +210,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── pi-qwen38-27b-ud-q4-k-xl-podman.json.j2
 │   │   │   │   ├── pi-qwen38-27b-laurentz-vulkan-podman.json.j2
 │   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   ├── pi-qwen38-flash-next-ap-q5-k-xl-podman.json.j2
 │   │   │   │   └── pi-qwen38-flash-next-haloq38-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
@@ -240,6 +241,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 ## Track Details
 
 ### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
+
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
@@ -247,6 +249,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Backend**: Vulkan/RADV
 
 ### Qwen36-35B-A3B MTP (UD-Q8_K_XL) — Podman Vulkan + MTP
+
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: `Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf` from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`
   (same filename/quant as the plain track — different repo)
@@ -260,6 +263,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **GPU layers**: `-ngl 99` (not 999, per the model card's own quickstart), `-fa on`
 
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
+
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
@@ -271,6 +275,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
 
 ### Qwen38-27B (LaurentZuijdwijk fork) — Vulkan, built from source, DFlash2
+
 - **Source**: `LaurentZuijdwijk/llama.cpp`, pinned commit
   `5e085d123eead2e89b5c19f824fccb05727da6a2` (2026-08-31, `master`) —
   **built on the target host** via `containerfiles/qwen38-27b-laurentz-vulkan.Containerfile`.
@@ -297,6 +302,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   structured output, 4.7x bare decode
 
 ### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
+
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
   `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
@@ -319,6 +325,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   ~240 pp @ ~100k ctx, 12–20 t/s decode.
 
 ### Qwen38-Flash-Next (haloq38flash) — Vulkan, built from source
+
 - **Source**: `julianmb/haloq38flash` — **built on the target host** via
   `containerfiles/qwen38-flash-next-haloq38.Containerfile`, itself building
   `Nathanw1014/llama.cpp` (branch `strix-halo-vulkan`, same lineage as the
@@ -346,6 +353,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   flag by hand if you want to try it
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
+
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
 - **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
@@ -358,6 +366,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   exists in the repo and could follow the qwen38-27b pattern later.
 
 ### vllm-rccl-moe (Multi-Node)
+
 - **Engine**: vLLM + Ray + RCCL (TP=2 across the two nodes)
 - **Profiles** (`-e active_profile=<name>` — each runs at the model's native
   max context, sized off the 2×128 GB KV pool):
@@ -368,6 +377,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   when up, else the 2.5Gbe NIC — see `setup-thunderbolt-net.yml`
 
 ### ds4-deepseek-v4-flash-mtp (Multi-Node)
+
 - **Engine**: `ds4` (antirez's DeepSeek V4 inference engine) in the toolbox
   container `ds4_cluster` — `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`
 - **Model**: `DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf`
@@ -437,6 +447,7 @@ target host. The bootstrap also drops PI agent configs into
 `ansible/pi-configs/` (rendered on the controller).
 
 ### Single-Node Launch Example
+
 ```bash
 # Qwen3.6-35B-A3B (Podman Vulkan)
 ~/scripts/qwen36-35b-ud-q8-k-xl-start.sh
@@ -450,9 +461,6 @@ target host. The bootstrap also drops PI agent configs into
 # Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 ~/scripts/qwen38-27b-laurentz-vulkan-start.sh
 
-# Qwen3.8-Flash-Next AP (Q5_K_XL, Podman Vulkan, image input)
-~/scripts/qwen38-flash-next-ap-q5-k-xl-start.sh
-
 # Qwen3.8-Flash-Next (haloq38flash, built from source)
 ~/scripts/qwen38-flash-next-haloq38-start.sh
 
@@ -461,6 +469,7 @@ target host. The bootstrap also drops PI agent configs into
 ```
 
 ### Multi-Node Launch Example (vllm-rccl-moe)
+
 ```bash
 # halo0 (head — Ray head + vLLM server):
 VLLM_RCCL_MOE_ROLE=head   ./ansible/scripts/vllm-rccl-moe-start.sh
@@ -469,6 +478,7 @@ VLLM_RCCL_MOE_ROLE=worker ./ansible/scripts/vllm-rccl-moe-start.sh
 ```
 
 ### Multi-Node Launch Example (ds4-deepseek-v4-flash-mtp)
+
 ```bash
 # halo0 (head — coordinator: layers 0:21, MTP drafter, OpenAI API):
 DS4_ROLE=head   ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
@@ -491,7 +501,6 @@ The bootstrap drops pi agent configs into `ansible/pi-configs/`:
   - `pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-ud-q4-k-xl-podman.json` — provider `qwen38-27b-ud-q4-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-flash-next-ap-q5-k-xl-podman.json` — provider `qwen38-flash-next-ap-q5-k-xl` → `http://<node_ip>:8080/v1`
   - `pi-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
   - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
@@ -504,23 +513,26 @@ you open `/model`; no restart needed).
 ## Config Variables (inventory / env)
 
 ### Single-Node Tracks
+
 All single-node playbooks are self-contained with inline vars — no group_vars needed.
 
 ### Multi-Node Tracks
+
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
 - ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars — TB static IP when the live TB link check says both ends are up, else LAN `ansible_host` on both; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
 - setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (172.20.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
+
 Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.
 The settings below are baked into the rendered script as plain shell variables
 (`CONTAINER`, `PORT`, `MODEL`, `IMAGE`, `CTX`, ...); edit the file in place and
 re-run it to change them.
+
 - `qwen36-35b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-ud-q4-k-xl-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/PARALLEL/BATCH/UBATCH/GPU_LAYERS/CACHE_K/CACHE_V/FLASH_ATTN/LOAD_MODE/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
-- `qwen38-flash-next-ap-q5-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/PARALLEL/GPU_LAYERS/N_CPU_MOE/FLASH_ATTN/LOAD_MODE/TEMP/TOP_P/TOP_K/MIN_P)
 - `qwen38-flash-next-haloq38-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/UBATCH/THREADS/FLASH_ATTN/CACHE_TYPE_K/CACHE_TYPE_V/SPEC_TYPE/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
