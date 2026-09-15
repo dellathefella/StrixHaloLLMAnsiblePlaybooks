@@ -72,7 +72,6 @@ model is chosen by which track playbook you run, not by group membership.
 | --- | --- | --- |
 | `qwen36-35b-ud-q8-k-xl-mtp-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-mtp-podman` |
 | `qwen38-27b-laurentz-vulkan-podman.yml` (builds image from source) | `vulkan` | `qwen38-27b-laurentz-vulkan-podman` |
-| `qwen38-flash-next-haloq38-podman.yml` (builds image from source) | `vulkan` | `qwen38-flash-next-haloq38-podman` |
 | `qwen38-flash-next-halogen-podman.yml` (prebuilt halogen-flash-server ROCm image, port 8731) | `rocm` | `qwen38-flash-next-halogen-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
@@ -156,7 +155,7 @@ provisioning on an already-built host.
 The Podman tracks are self-contained (no `group_vars`); each defines its own
 `_user_home` / `_models_dir` inline:
 
-- **Vulkan llama.cpp tracks** (qwen36-35b, qwen38-27b-laurentz, haloq38, gemma)
+- **Vulkan llama.cpp tracks** (qwen36-35b, qwen38-27b-laurentz, gemma)
   share `~/models`. Files are renamed on download via `dest_name` so two tracks
   never collide on a generic name like `mmproj-F16.gguf`.
 - **halogen** uses a dedicated `~/halogen-models` (bind-mounted at `/models:ro`)
@@ -169,8 +168,8 @@ those belonged to the retired host-source-build tracks.
 
 ## Build conventions
 
-Most tracks **pull** a prebuilt image (`--pull=newer`) and never build. The two
-built-from-source tracks (qwen38-27b-laurentz, haloq38) build via a
+Most tracks **pull** a prebuilt image (`--pull=newer`) and never build. The one
+built-from-source track (qwen38-27b-laurentz) builds via a
 **Containerfile** in `single-node/containerfiles/`, driven by
 `tasks/podman-build-image.yml` (skips the build if the tag already exists).
 The build is pinned by a commit/build arg (e.g. `LLAMA_CPP_COMMIT=<sha>`)

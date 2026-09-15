@@ -10,7 +10,6 @@
 #   ../shared/set-limine-ttm.yml               Limine kernel args: TTM, IOMMU, GTT size                   [limine-ttm]
 #   qwen36-35b-ud-q8-k-xl-mtp-podman.yml      Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)   [qwen36-35b-ud-q8-k-xl-mtp-podman]
 #   qwen38-27b-laurentz-vulkan-podman.yml     Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, BUILT FROM SOURCE) [qwen38-27b-laurentz-vulkan-podman]
-#   qwen38-flash-next-haloq38-podman.yml      Qwen3.8-Flash-Next (haloq38flash, BUILT FROM SOURCE)       [qwen38-flash-next-haloq38-podman]
 #   qwen38-flash-next-halogen-podman.yml     Qwen3.8-Flash-Next (halogen-flash-server, ROCm, PULLED)     [qwen38-flash-next-halogen-podman]
 #   gemma-4-26b-a4b-ud-q8-k-xl-podman.yml    Gemma 4 26B A4B (Podman Vulkan, image input)                [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 #   summary.yml                                final per-host completion summary                         [summary]
@@ -60,9 +59,6 @@
   import_playbook: qwen38-27b-laurentz-vulkan-podman.yml
   tags: [qwen38-27b-laurentz-vulkan-podman]
 
-- name: Track — Qwen3.8-Flash-Next (haloq38flash)
-  import_playbook: qwen38-flash-next-haloq38-podman.yml
-  tags: [qwen38-flash-next-haloq38-podman]
 
 - name: Track — Qwen3.8-Flash-Next (halogen)
   import_playbook: qwen38-flash-next-halogen-podman.yml

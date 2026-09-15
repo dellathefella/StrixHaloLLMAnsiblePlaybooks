@@ -49,19 +49,6 @@ halogen ROCm):
   defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0. Port 8080. Reported on a
   128 GB Strix Halo: ~450 pp @ 2048 ctx, ~240 pp @ ~100k ctx, 12–20 t/s decode, no MTP.
 
-- **Qwen38-Flash-Next (haloq38flash)** — julianmb's bugfixed
-  Qwen3.8-Flash-Next-IQ4_XS-GGUF quant + tuned launch flags, built from
-  Nathanw1014's own llama.cpp fork (`strix-halo-vulkan` branch — the same
-  source lineage the prebuilt image above comes from). **Built from source on
-  the target host** — haloq38flash publishes no registry image either, only
-  `docker compose up --build`. Default profile: IQ4_XS-PLE (~91 GB), ctx
-  32768, `-ctk/-ctv q8_0`, optional MTP sidecar wired in via the proven
-  `draft-mtp` flags. Caution: the previously-removed unsloth-quant IQ4_XS
-  track hit a quantized-KV assert on this same architecture — vars are
-  exposed to drop to f16 if this quant's claimed fix doesn't hold up. Port
-   8080. A second, larger-context quant (116 GB, ctx ≥ 128k, SSD-streaming
-   `--tensor-read-lazy`) is documented but not wired up as a profile.
-
 - **Qwen38-Flash-Next (halogen)** — Qwen3.8-Flash-Next W4B (~118 GB, 179.55B
    params @ 5.53 bpw) via peonist's **halogen-flash-server** — a closed-source,
    purpose-built **ROCm** engine (not a llama.cpp fork) shipped as the prebuilt
@@ -143,7 +130,6 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 # Run a single Podman track:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-haloq38-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-halogen-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
@@ -190,12 +176,10 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── summary.yml            final per-host completion summary           [summary]
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
-│   │   ├── qwen38-flash-next-haloq38-podman.yml  Qwen3.8-Flash-Next (haloq38flash, built from source)
 │   │   ├── qwen38-flash-next-halogen-podman.yml  Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
-│   │   ├── containerfiles/        Containerfiles for the two built-from-source tracks
+│   │   ├── containerfiles/        Containerfile for the built-from-source track
 │   │   │   ├── qwen38-27b-laurentz-vulkan.Containerfile
-│   │   │   └── qwen38-flash-next-haloq38.Containerfile
 │   │   ├── tasks/                 Shared task files included by the tracks above
 │   │   │   ├── podman-models-dir.yml            models dir + ownership
 │   │   │   ├── hf-download-files.yml            HF download loop (skip if present, optional rename)
@@ -213,13 +197,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
-│   │   │   │   ├── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
 │   │   │   │   └── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
 │   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
 │   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
 │   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
 │   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   ├── opencode-qwen38-flash-next-haloq38-podman.json.j2
 │   │   │   │   └── opencode-qwen38-flash-next-halogen-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
@@ -333,34 +315,6 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   `--parallel 1` (single slot), `-ngl 99` (not 999), `-fa on`
 - **Reported** on a 128 GB Strix Halo (v0.7.2, mmap): ~450 pp @ 2048 ctx,
   ~240 pp @ ~100k ctx, 12–20 t/s decode.
-
-### Qwen38-Flash-Next (haloq38flash) — Vulkan, built from source
-
-- **Source**: `julianmb/haloq38flash` — **built on the target host** via
-  `containerfiles/qwen38-flash-next-haloq38.Containerfile`, itself building
-  `Nathanw1014/llama.cpp` (branch `strix-halo-vulkan`, same lineage as the
-  prebuilt `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan` image other
-  tracks pull). No registry image exists — the upstream repo only offers
-  `docker compose up --build`.
-- **Model**: `Qwen3.8-Flash-Next-IQ4_XS-PLE.gguf` from
-  `julianmb/Qwen3.8-Flash-Next-IQ4_XS-GGUF` (~91 GB) — julianmb's README
-  claims a fixed converter bug vs. the unsloth quant the retired
-  `qwen38-flash-next-ud-iq4-xs` track used
-- **MTP sidecar** (optional upstream, wired in here): `mtp-Qwen3.8-Flash-Next-Q8_0.gguf`,
-  same repo, via `--model-draft --spec-type draft-mtp --spec-draft-n-max 3`
-- **Context**: 32768 (matches the upstream Dockerfile's own baked default)
-- **Port**: 8080
-- **Backend**: Vulkan/RADV (`qwen4exp` arch)
-- **KV cache**: `-ctk q8_0 -ctv q8_0` (upstream default) — **caution**: the
-  retired unsloth-quant track crashed with `quantized KV cache asserts and
-  dies on qwen4exp` on the same architecture; `cache_type_k`/`cache_type_v`
-  vars let you drop to f16 without touching the flags if julianmb's claimed
-  fix doesn't hold here too
-- **Loading**: `-ngl 999`, `-ub 2048`, `--threads 4`, `-fa on`, `--jinja`
-- **Not wired up**: a second, larger quant (`Qwen3.8-Flash-Next-IQ4_XS.gguf`,
-  ~116 GB) for ctx ≥ 128k via SSD-streaming (`--load-mode mmap
-  --tensor-read-lazy on`) — override `-e model=... -e ctx=262144` and add the
-  flag by hand if you want to try it
 
 ### Qwen38-Flash-Next (halogen) — Podman ROCm, prebuilt halogen-flash-server
 
@@ -503,8 +457,6 @@ target host. The rendered OpenCode configs land on the **controller** under
 # Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 ~/scripts/qwen38-27b-laurentz-vulkan-start.sh
 
-# Qwen3.8-Flash-Next (haloq38flash, built from source)
-~/scripts/qwen38-flash-next-haloq38-start.sh
 
 # Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
 ~/scripts/qwen38-flash-next-halogen-start.sh
@@ -546,7 +498,6 @@ Each track renders its OpenCode config to the controller's
 - **Podman tracks:**
   - `opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
   - `opencode-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
-  - `opencode-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
   - `opencode-qwen38-flash-next-halogen-podman.json` — provider `qwen38-flash-next-halogen` → `http://<node_ip>:8731/v1`
   - `opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
@@ -579,7 +530,6 @@ re-run it to change them.
 
 - `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
-- `qwen38-flash-next-haloq38-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/UBATCH/THREADS/FLASH_ATTN/CACHE_TYPE_K/CACHE_TYPE_V/SPEC_TYPE/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
 - `qwen38-flash-next-halogen-start.sh` (CONTAINER/PORT/CHECKPOINT/OVERLAY/IMAGE/CTX — pulls the prebuilt image if missing; ROCm flags per the upstream quickstart, ~20 min health wait)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
