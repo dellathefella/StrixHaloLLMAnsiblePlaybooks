@@ -11,7 +11,7 @@
   changed_when: false
   tags: [podman, deploy]
 
-- name: Wait for llama-server API to respond
+- name: Wait for the server health endpoint to respond
   ansible.builtin.uri:
     url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health"
     return_content: true
