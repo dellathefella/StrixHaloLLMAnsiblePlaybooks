@@ -11,6 +11,7 @@
 # Port:      {{ host_port }} (OpenAI-compatible /v1 + /health)
 # Weights:   {{ _models_dir }}/{{ _checkpoint_file }}
 #            {{ _models_dir }}/{{ _overlay_file }} (quality overlay, auto-loaded)
+#            {{ _models_dir }}/{{ _vision_file }} (vision tower, image input ON)
 #            {{ _models_dir }}/tokenizer/
 #
 # Profile:   ctx {{ _docker_ctx_len }} (HALOGEN_CTX default), greedy sampling
@@ -24,6 +25,7 @@ CONTAINER="{{ docker_container_name }}"
 PORT="{{ host_port }}"
 CHECKPOINT="{{ _models_dir }}/{{ _checkpoint_file }}"
 OVERLAY="{{ _models_dir }}/{{ _overlay_file }}"
+VISION="{{ _models_dir }}/{{ _vision_file }}"
 IMAGE="{{ docker_image }}"
 # CTX is informational only — the halogen engine auto-discovers its context
 # (HALOGEN_CTX default 262144); it is NOT passed to `podman run` here.
@@ -42,6 +44,7 @@ start_container() {
     --ipc=host \
     --ulimit memlock=-1:-1 \
     -v "${MODEL_DIR}:/models:ro" \
+    -e HALOGEN_VISION_TOWER="/models/{{ _vision_file }}" \
     -p ${PORT}:${PORT} \
     $IMAGE
     # Sampling — greedy by default. Uncomment to match the model card's
@@ -70,13 +73,20 @@ fi
 if [ ! -f "$CHECKPOINT" ]; then
   echo "ERROR: checkpoint not found: $CHECKPOINT" >&2
   echo "       re-run the {{ track_stem }}-podman playbook, or:" >&2
-  echo "       hf download {{ hf_repo }} --include {{ _checkpoint_file }} --include {{ _overlay_file }} --include 'tokenizer/*' --local-dir {{ _models_dir }}" >&2
+  echo "       hf download {{ hf_repo }} --include {{ _checkpoint_file }} --include {{ _overlay_file }} --include {{ _vision_file }} --include 'tokenizer/*' --local-dir {{ _models_dir }}" >&2
   exit 1
 fi
 if [ ! -f "$OVERLAY" ]; then
   echo "ERROR: quality overlay not found: $OVERLAY (halogen runs without it," >&2
   echo "       but the card's quality settings assume it). Fetch it with:" >&2
   echo "       hf download {{ hf_repo }} --include {{ _overlay_file }} --local-dir {{ _models_dir }}" >&2
+  exit 1
+fi
+if [ ! -f "$VISION" ]; then
+  echo "ERROR: vision tower not found: $VISION (image input needs it; halogen" >&2
+  echo "       would start text-only even with HALOGEN_VISION_TOWER set)." >&2
+  echo "       Fetch it with:" >&2
+  echo "       hf download {{ hf_repo }} --include {{ _vision_file }} --local-dir {{ _models_dir }}" >&2
   exit 1
 fi
 
@@ -100,6 +110,7 @@ for i in $(seq 1 240); do
     echo "Port:      $PORT"
     echo "Checkpoint: $CHECKPOINT"
     echo "Overlay:   $OVERLAY"
+    echo "Vision:    $VISION (image input enabled)"
     echo "API:       http://localhost:${PORT}/v1"
     echo "Smoke test: curl -s http://localhost:${PORT}/v1/models"
     exit 0

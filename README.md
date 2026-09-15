@@ -54,15 +54,17 @@ halogen ROCm):
    purpose-built **ROCm** engine (not a llama.cpp fork) shipped as the prebuilt
    image `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` (PULLED, never built).
    Weights are the repo's native `.hgn` format (loadable only by halogen): the
-   track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
-   `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) + `tokenizer/` into a
-   dedicated `~/halogen-models` dir bind-mounted at `/models:ro`, where the
-   engine auto-discovers them. OpenAI-compatible `/v1` + `/health` on port
-   **8731** (the only track not on 8080 — it targets the `rocm` group).
-   Greedy sampling by default; the card's thinking-mode settings (temp 1.0 /
-   top-p 0.95 / top-k 20) are a commented `HALOGEN_*` env block in the launch
-   script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
-   `/health`. Vision sidecar stays on HF (text-only without `HALOGEN_VISION_TOWER`).
+    track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
+    `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) +
+    `qwen38-flash-next-w4b.vision.hgn` (vision tower) + `tokenizer/` into a
+    dedicated `~/halogen-models` dir bind-mounted at `/models:ro`, where the
+    engine auto-discovers them. OpenAI-compatible `/v1` + `/health` on port
+    **8731** (the only track not on 8080 — it targets the `rocm` group).
+    Greedy sampling by default; the card's thinking-mode settings (temp 1.0 /
+    top-p 0.95 / top-k 20) are a commented `HALOGEN_*` env block in the launch
+    script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
+    `/health`. **Image input is enabled**: the vision tower is mounted and
+    `HALOGEN_VISION_TOWER` points the engine at it.
 
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
@@ -320,7 +322,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Reported** on a 128 GB Strix Halo (v0.7.2, mmap): ~450 pp @ 2048 ctx,
   ~240 pp @ ~100k ctx, 12–20 t/s decode.
 
-### Qwen38-Flash-Next (halogen) — Podman ROCm, prebuilt halogen-flash-server
+### Qwen38-Flash-Next (halogen) — Podman ROCm + image input, prebuilt halogen-flash-server
 
 - **Image**: `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` — **pulled** with
   `--pull=newer`, never built (closed-source, purpose-built ROCm engine;
@@ -330,10 +332,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   format — loadable only by halogen, not transformers/vLLM/llama.cpp). The track
   downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint, skip sentinel),
   `qwen38-flash-next-w4b.overlay.hgn` (2.40 GiB quality sidecar, auto-loaded
-  beside the checkpoint), and `tokenizer/` into a dedicated `~/halogen-models`
-  dir bind-mounted at `/models:ro`. Left on HF: the speed overlay (2.31 GiB),
-  vision tower (0.84 GiB — text-only without `HALOGEN_VISION_TOWER`), and the
-  MTP draft head (BYO-GGUF path only).
+  beside the checkpoint), `qwen38-flash-next-w4b.vision.hgn` (0.84 GiB vision
+  tower, enabled via `HALOGEN_VISION_TOWER=/models/qwen38-flash-next-w4b.vision.hgn`
+  for image input), and `tokenizer/` into a dedicated `~/halogen-models`
+  dir bind-mounted at `/models:ro`. Left on HF: the speed overlay (2.31 GiB)
+  and the MTP draft head (BYO-GGUF path only).
 - **Context**: 262144 (HALOGEN_CTX default)
 - **Port**: 8731 (`/v1/*` + `/v1/responses` + `/health`) — the only single-node
   track off 8080; it targets the `rocm` inventory group
@@ -594,7 +597,7 @@ re-run it to change them.
 - `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
-- `qwen38-flash-next-halogen-start.sh` (CONTAINER/PORT/CHECKPOINT/OVERLAY/IMAGE/CTX — pulls the prebuilt image if missing; ROCm flags per the upstream quickstart, ~20 min health wait)
+- `qwen38-flash-next-halogen-start.sh` (CONTAINER/PORT/CHECKPOINT/OVERLAY/VISION/IMAGE/CTX — pulls the prebuilt image if missing; ROCm flags per the upstream quickstart, ~20 min health wait)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
 ## Strix Halo Optimization Notes
