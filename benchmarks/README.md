@@ -19,6 +19,8 @@ benchmarks/
     ├── README.md
     └── task-01-http-server-from-scratch/
     └── task-02-real-time-chat/
+└── stress/                # Reliability tests (not scored coding tasks)
+    └── long-context/      # ~100k-token DeviceLost stress test
 ```
 
 ## Tier Definitions
@@ -61,10 +63,21 @@ For each task, score these dimensions:
 |---|---|---|---|---|---|
 | Qwen3.6-35B-A3B | | | | | UD-Q8_K_XL, ~65 t/s |
 | Gemma 4 26B-A4B | | | | | UD-Q8_K_XL, ~45 t/s |
+| Qwen3.8-Flash-Next 125B-A6B | | | | | UD-IQ4_XS, ~23 t/s decode, ~390 t/s pp512 |
+| Qwen3.8-Flash-Next-AP 125B-A6B | | | | | Q5_K_XL (agentionai), ~12–20 t/s decode, ~450 pp @ 2048, ~240 pp @ ~100k |
 | gpt-oss-120B | | | | | MXFP4, ~55 t/s |
 | | | | | | |
 
 ---
+
+## Reliability / Stress Tests
+
+The `stress/` tier is different from the scored coding tiers: these are repro /
+soak tests run against the deployed models, not tasks given to an LLM.
+
+| Test | What it checks | How to run |
+|---|---|---|
+| **long-context** | Long-prompt `DeviceLost` (llama.cpp #21724 / #24872 / #27306): does `GGML_VK_MAX_NODES_PER_SUBMIT=1` alone survive a ~110k-token prefill, or is the opt-in `amdgpu.lockup_timeout` kernel arg (and/or `--spec-type none`) also needed? | `python3 benchmarks/stress/long-context/long_context_stress.py` — see that directory's README for the A/B run procedure |
 
 ## General Rules
 

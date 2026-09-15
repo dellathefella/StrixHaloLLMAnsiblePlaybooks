@@ -1,22 +1,45 @@
-# Single-node test inventory for ansible/bootstrap.yml.
-# This HP Z2 G1a runs all single-node tracks (DS4-C-IQ2XXS + Qwen3 tracks).
-# Local connection + password-fed become (native, no NOPASSWD):
+# =============================================================================
+# hosts — SINGLE-NODE inventory (topology: one box, one model at a time)
+#
+# No Thunderbolt link here: there is no `multinode` group, so
+# ../multi-node/setup-thunderbolt-net.yml can never match anything in this file.
+# The 2-node TB4 RCCL cluster (halo0 head + halo1 worker) lives in the sibling
+# file: ../multi-node/inventory/hosts
+#
+# halo0 runs ONE model at a time. It is both a Vulkan and a ROCm host, so it is
+# listed in both capability groups below; the model you launch is chosen by
+# which track playbook you run (one at a time), not by group membership.
+#
+# Run the single-node bootstrap with this file:
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
+#
+# Password-fed become (native, no NOPASSWD):
 #   ansible_become_exe=/usr/bin/sudo.ws -> classic C sudo (writes -p prompt plain).
 #   Default sudo-rs on Ubuntu 26.04 wraps -p as '[sudo: ...] Password:'
 #   which ansible's become prompt-match never detects (times out).
+# =============================================================================
 
-[ds4-c-iq2xxs]
-# single-node DeepSeek V4 Flash (ds4.c engine + IQ2XXS quant, 126k ctx) — default on this controller
-localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+# Capability groups — hosts are grouped by GPU BACKEND so playbooks target a
+# backend (vulkan / rocm) instead of one model. `aiservers` is the union of all
+# inference hosts and is what the shared host-level plays target.
 
-[qwen36-35b-ud-q8-k-xl]
-# Qwen3.6-35B-A3B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
-localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+# Vulkan backend — Podman Vulkan (llama.cpp) tracks:
+#   qwen36-35b-ud-q8-k-xl-mtp,
+#   qwen38-27b-laurentz-vulkan (built from source),
+#   gemma-4-26b-a4b-ud-q8-k-xl
+[vulkan]
+#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
+halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
-[qwen38-27b]
-# Qwen3.8-27B via llama.cpp (ROCm/HIP + UD-Q8_K_XL quant)
-localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+# ROCm backend — Podman ROCm tracks:
+#   qwen38-flash-next-halogen (halogen-flash-server, prebuilt image)
+#   ornith15-ciru-halo-agent-vllm (Ciru vLLM/ROCm + DFlash2, image built here)
+# (Same box as vulkan for a single-machine setup; use a dedicated host if you
+# run ROCm on a separate machine.)
+[rocm]
+halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 
-[qwen38-flash-next]
-# Qwen3.8-Flash-Next via llama.cpp Vulkan (UD-IQ4_XS, 3-part GGUF, ~87 GB)
-localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
+[aiservers:children]
+vulkan
+rocm

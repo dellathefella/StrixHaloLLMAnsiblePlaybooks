@@ -1,161 +1,432 @@
-# ROCm / DS4-C-IQ2XXS + Qwen36-35B-UD-Q8-K-XL + Qwen35-397B-GPTQ-RCCL install — Ryzen AI Max (HP Z2 G1a)
+﻿# StrixHalo LLM Ansible Playbooks — Ryzen AI Max (HP Z2 G1a)
 
-Organized workspace for bootstrapping AMD ROCm inference on the Ryzen AI Max
-"Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs — no 10Gbps
-requirement). Ubuntu/Debian only. Tracks organized by **deployment topology**
-(single-node vs multi-node) with separate bootstrap orchestrators:
+Organized workspace for bootstrapping AMD ROCm / Vulkan LLM inference on the
+Ryzen AI Max "Strix Halo" APU, on **HP Z2 G1a** workstations (2.5Gbe NICs —
+no 10Gbps requirement; optional TB4 node-to-node link, see below).
+CachyOS (Arch-based) first, Ubuntu 26.04 second. Tracks organized by **deployment
+topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 
 ## Deployment Topology
 
 ### Single-Node Tracks (`ansible/single-node/`)
-All llama.cpp tracks run locally on a single machine:
-- **DS4-C-IQ2XXS** — DeepSeek V4 Flash via the `ds4.c` engine (ROCm-optimized). Default mode is single-node: IQ2XXS imatrix quant (~80.8 GB) at **126k context** on one 128 GB node.
-- **Qwen36-35B-UD-Q8-K-XL** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, 38.5 GB) via llama.cpp ROCm/HIP.
-- **Qwen38-27B-UD-Q4-K-XL** — Qwen3.8-27B (UD-Q8_K_XL, ~27 GB) via llama.cpp ROCm/HIP (KyaniteLabs Strix Halo profile).
-- **Qwen38-Flash-Next-UD-IQ4-XS** — Qwen3.8-Flash-Next (125B/6B MoE, 3-part GGUF ~87 GB) via llama.cpp Vulkan.
+
+All single-node tracks run locally on a single machine (llama.cpp Vulkan or
+halogen ROCm):
+
+- **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL,
+  ~38.5 GB) via Podman Vulkan container
+  (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`), but from the
+  `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` repo, which bakes MTP speculative
+  decoding **into the GGUF itself** (no separate drafter file).
+  Follows the model card's own quickstart: `-ngl 99` (not 999), `-fa on`,
+  `--parallel 1` (MTP doesn't support `-np > 1` yet), `--spec-type draft-mtp
+  --spec-draft-n-max 2`. Loading this GGUF without `--spec-type draft-mtp`
+  fails to load at all — it's not optional here. Port 8080, ctx 262144.
+
+- **Qwen38-27B (UD-Q4_K_XL)** — Qwen3.8-27B (UD-Q4_K_XL) via Podman Vulkan
+  container with **MTP speculative decoding** via the repo drafter
+  `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` (`draft-mtp`, draft n-max 3, f16 KV cache,
+  batch 2048 / ubatch 512, flash-attn on, mmap loading, single slot).
+  Port 8080, ctx 262144.
+
+- **Qwen38-27B (LaurentZuijdwijk fork, DFlash2)** — same ROCmFP4-FAST model as
+  the ROCmFPX track that used to exist, but on LaurentZuijdwijk/llama.cpp's
+  adaptive speculative decoding (`draft-dflash`, draft n 3–7, separate DFlash2
+  drafter GGUF from `agentionai`). **Built from source on the target host** —
+  the fork publishes no runnable image (its only GHCR package is CI
+  build-cache layers, no Vulkan tag). Experimental: the drafter is loaded via
+  `--model-draft`, inferred from upstream convention since the fork's own docs
+  only document HF auto-download, not a local-file flag. Port 8080, ctx 32768.
+
+- **Qwen38-Flash-Next AP (Q5_K_XL)** — Qwen3.8-Flash-Next-AP 125B-A6B (Q5_K_XL,
+  single ~112 GiB GGUF from `agentionai`) via Podman Vulkan container, with
+  **image recognition** (the `unsloth` `mmproj-F16.gguf` projector is downloaded
+  and passed as `--mmproj`). The only Flash-Next profile kept — the UD-Q2_K_XL
+  and UD-IQ4_XS quants were dropped for unreliable output quality: `-ngl 99`,
+  `--n-cpu-moe 0`, `-fa on`, `--load-mode
+  mmap` (112 GiB pages from disk so the KV cache fits), `--no-op-offload`,
+  `--override-tensor per_layer_token_embd=CPU`, `--jinja`, `--parallel 1`, sampler
+  defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0. Port 8080. Reported on a
+  128 GB Strix Halo: ~450 pp @ 2048 ctx, ~240 pp @ ~100k ctx, 12–20 t/s decode, no MTP.
+
+- **Qwen38-Flash-Next (halogen)** — Qwen3.8-Flash-Next W4B (~118 GB, 179.55B
+   params @ 5.53 bpw) via peonist's **halogen-flash-server** — a closed-source,
+   purpose-built **ROCm** engine (not a llama.cpp fork) shipped as the prebuilt
+   image `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` (PULLED, never built).
+   Weights are the repo's native `.hgn` format (loadable only by halogen): the
+    track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
+    `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) +
+    `qwen38-flash-next-vision.hgn` (vision tower) + `tokenizer/` into a
+    dedicated `~/halogen-models` dir bind-mounted at `/models:ro`, where the
+    engine auto-discovers them. OpenAI-compatible `/v1` + `/health` on port
+    **8731** (the only track not on 8080 — it targets the `rocm` group).
+    Greedy sampling by default; the card's thinking-mode settings (temp 1.0 /
+    top-p 0.95 / top-k 20) are a commented `HALOGEN_*` env block in the launch
+    script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
+    `/health`. **Image input is enabled**: the vision tower is mounted and
+    `HALOGEN_VISION_TOWER` points the engine at it.
+
+- **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
+  Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
+  projector is downloaded and passed as `--mmproj`, so `/v1/chat/completions`
+  accepts `image_url` content parts. Port 8080, ctx 262144 — same profile as
+  Qwen36-35B-A3B.
 
 ### Multi-Node Tracks (`ansible/multi-node/`)
+
 Cluster-based inference across multiple machines:
-- **Qwen35-397B-GPTQ-RCCL** — Qwen3.5-397B-A10B-GPTQ-Int4 across two nodes via vLLM + Ray + RCCL.
+
+- **vllm-rccl-moe** — multi-model vLLM + Ray + RCCL track for MoE models across
+  the two nodes (TP=2). Profiles via `-e active_profile=<name>`:
+  `minimax-m2.7-awq-4bit` (default — `cyankiwi/MiniMax-M2.7-AWQ-4bit`),
+  and `qwen3.5-122b-awq-4bit` (`cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit`).
+  The track **prefers the Thunderbolt link** (`tb*` from `setup-thunderbolt-net.yml`,
+  ~40 Gbps) for RCCL KV exchange and falls back to the 2.5Gbe NIC with a warning.
+  Reuses the `vllm_cluster` container name (one model at a time, `--replace`).
+  Port 8081; head/worker IPs derive from the inventory hostvars
+  (`vllm_moe_role` — TB static 172.20.0.1/.2 by default); override with
+  `-e vllm_moe_head_ip=... -e vllm_moe_worker_ip=...` (e.g. LAN IPs, TB down).
+
+- **ds4-deepseek-v4-flash-mtp** — DeepSeek V4 Flash on the dedicated `ds4`
+  engine, 2-node **pipeline parallel** (head/coordinator `--layers 0:21`,
+  worker `--layers 22:output`) + **MTP speculative decoding** on the head
+  (`--mtp --mtp-model <drafter> --mtp-draft 1`). Toolbox container `ds4_cluster`
+  (separate from `vllm_cluster`) on
+  `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`.
+  The ~153 GB Q4KExperts hybrid GGUF from `antirez/deepseek-v4-gguf` is
+  downloaded by the playbook into `~/ds4` on both nodes and bind-mounted
+  read-only into the container at the same path; the ~3.6 GB MTP drafter is
+  head-only. Pipeline channel on port 8081 (head listens, worker dials in)
+  rides the Thunderbolt link (`tb*`, ~40 Gbps) when up; the OpenAI API is on
+  port 8000 of the head. Head/worker IPs derive from the inventory hostvars
+  (`ds4_role` — TB static 172.20.0.1/.2 by default); override with
+  `-e ds4_head_ip=... -e ds4_worker_ip=...`. Start the head first, then the
+  worker (`DS4_ROLE=head|worker`).
+
+- **Thunderbolt networking** — `setup-thunderbolt-net.yml` sets up the
+  direct TB4 cable between the two Z2 G1a nodes: loads + persists
+  `thunderbolt-net`, assigns `172.20.0.<n>/24` (first inventory host = `.1`,
+  second = `.2`), persists via NetworkManager (`ipv4.never-default`), and
+  verifies speed (~40 Gbps) + peer ping. Distro-agnostic (CachyOS/Arch +
+  Ubuntu). **Multi-node only** — targets the `multinode` capability group, so
+  a single-node inventory (no such group) skips it entirely.
+
+### Shared Setup Playbooks (`ansible/shared/`)
+
+Host-level setup shared by both tracks (imported by each track's bootstrap):
+
+- `install-amdgpu.yml` — Ubuntu base: apt upgrade + ROCm via amdgpu-install (Ubuntu-gated)
+- `install-podman.yml` — cross-distro Podman installation (Fedora/Debian/Arch)
+- `install-hf-cli.yml` — HuggingFace CLI installation
+- `set-grub-ttm.yml` — GRUB kernel args: TTM, IOMMU, GTT size (+ opt-in GPU watchdog `amdgpu.lockup_timeout` via `-e lockup_timeout_enabled=true`)
+- `set-limine-ttm.yml` — Limine bootloader kernel args, same set (Limine hosts only)
 
 ## Quick Start
 
 ### Single-Node (recommended for this host)
+
 ```bash
 # Full single-node bootstrap:
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml
 
-# Run a single track:
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl.yml
+# Run a single Podman track:
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-halogen-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
-ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags base
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/bootstrap.yml --skip-tags install-amdgpu
 ```
 
 ### Multi-Node (cluster)
+
 ```bash
 # Full multi-node bootstrap:
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
-```
 
-### Root Bootstrap (imports both)
-```bash
-# Convenience wrapper (not recommended for production use):
-ansible-playbook -i ansible/inventory/hosts ansible/bootstrap.yml
+# Thunderbolt node-to-node link (run on both nodes, TB4 cable attached):
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/setup-thunderbolt-net.yml
+
+# vLLM + RCCL MoE track (both nodes) — head/worker IPs come from the
+# inventory hostvars (vllm_moe_role); -e overrides when TB is down:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-rccl-moe.yml
+
+# ds4 DeepSeek V4 Flash track (both nodes) — pipeline parallel + MTP;
+# launch per-node later with DS4_ROLE=head|worker:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
 ```
 
 ## Layout
 
 ```
 ├── README.md                      this file
-├── hf_token.txt                   HuggingFace token (gated model downloads)
+├── SYSTEM.md                      hardware spec & design rules
 ├── reference/
-│   ├── playbook.txt               AMD ds4 playbook (text extract)
-│   └── notes.md                   pi local-server / DS4 config snippets
+│   ├── cachyos-notes.md           CachyOS installation notes
+│   └── playbook.txt               AMD ds4 playbook (text extract)
 ├── ansible/
-│   ├── bootstrap.yml              ROOT: imports single-node/ and multi-node/ bootstraps
+│   ├── shared/                    Shared setup playbooks (imported by both tracks)
+│   │   ├── install-amdgpu.yml     Ubuntu base: apt upgrade + ROCm (Ubuntu-gated)
+│   │   ├── install-podman.yml     Podman installation (Fedora/Debian/Arch)
+│   │   ├── install-hf-cli.yml     HuggingFace CLI installation
+│   │   ├── set-grub-ttm.yml       GRUB TTM kernel args
+│   │   └── set-limine-ttm.yml     Limine bootloader TTM settings
 │   │
-│   ├── single-node/               Single-node tracks (all run on localhost)
+│   ├── single-node/               Single-node tracks (one host, one model at a time)
 │   │   ├── bootstrap.yml          ORCHESTRATOR: single-node playbooks
-│   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── ds4-c-iq2xxs.yml       DS4-C-IQ2XXS: single-node IQ2XXS default [ds4-c-iq2xxs]
-│   │   ├── qwen36-35b-ud-q8-k-xl.yml  Qwen3.6-35B-A3B (llama.cpp ROCm/HIP) [qwen36-35b]
-│   │   ├── qwen38-27b-ud-q8-k-xl.yml  Qwen3.8-27B (llama.cpp ROCm/HIP) [qwen38-27b]
-│   │   ├── qwen38-flash-next-ud-iq4-xs.yml  Qwen3.8-Flash-Next (llama.cpp Vulkan) [qwen38-flash-next]
+│   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
+│   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
+│   │   ├── qwen38-flash-next-halogen-podman.yml  Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
+│   │   ├── ornith15-ciru-halo-agent-vllm-podman.yml  Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, image built here)
+│   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
+│   │   ├── containerfiles/        Containerfile for the built-from-source track
+│   │   │   ├── qwen38-27b-laurentz-vulkan.Containerfile
+│   │   │   ├── ornith15-ciru-halo-agent-vllm.Containerfile
+│   │   ├── tasks/                 Shared task files included by the tracks above
+│   │   │   ├── podman-models-dir.yml            models dir + ownership
+│   │   │   ├── hf-download-files.yml            HF download loop (skip if present, optional rename)
+│   │   │   ├── podman-build-image.yml           podman build from a Containerfile (skip if tag exists)
+│   │   │   ├── podman-remove-container.yml      podman rm -f before (re)launch
+│   │   │   ├── podman-check-running.yml         start result + running check
+│   │   │   ├── podman-wait-health.yml           sleep + poll /health
+│   │   │   └── podman-render-launch-artifacts.yml  launch script + opencode config render
 │   │   ├── inventory/
-│   │   │   ├── hosts              single-node inventory (localhost)
-│   │   │   └── group_vars/
-│   │   │       └── all.yml        shared vars for single-node tracks
+│   │   │   ├── hosts              single-node inventory (vulkan/rocm → aiservers)
+│   │   │   ├── hosts.example      sample multi-machine inventory
+│   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates (rendered by each track)
-│   │   │   ├── ds4-c-iq2xxs-start.sh.j2          DS4-C-IQ2XXS launch template
-│   │   │   ├── qwen36-35b-ud-q8-k-xl-start.sh.j2   Qwen3.6-35B-A3B launch
-│   │   │   ├── qwen38-27b-ud-q8-k-xl-start.sh.j2   Qwen3.8-27B launch
-│   │   │   ├── qwen38-flash-next-ud-iq4-xs-start.sh.j2   Qwen3.8-Flash-Next launch
-│   │   │   ├── pi-ds4-c-iq2xxs.json.j2          pi agent config (DS4-C-IQ2XXS)
-│   │   │   ├── pi-qwen36-35b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.6-35B)
-│   │   │   ├── pi-qwen38-27b-ud-q8-k-xl.json.j2   pi agent config (Qwen3.8-27B)
-│   │   │   ├── pi-qwen38-flash-next-ud-iq4-xs.json.j2   pi agent config (Qwen3.8-Flash)
-│   │   │   └── pi-ds4-c-iq2xxs.json.j2              pi agent config (DS4-C-IQ2XXS)
-│   │   ├── tasks/                 shared task files
-│   │   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages
-│   │   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages
+│   │   │   ├── scripts/           Launch script templates
+│   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
+│   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
+│   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
+│   │   │   │   ├── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
+│   │   │   │   └── ornith15-ciru-halo-agent-vllm-start.sh.j2   Ciru Halo Agent launch (built vLLM/ROCm image)
+│   │   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
+│   │   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
+│   │   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
+│   │   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   │   ├── opencode-qwen38-flash-next-halogen-podman.json.j2
+│   │   │   │   │   └── opencode-ornith15-ciru-halo-agent-vllm-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
-│   │       └── pi-configs/        Rendered pi agent configs
+│   │       └── opencode-configs/  Rendered opencode configs
 │   │
 │   ├── multi-node/                Multi-node cluster tracks
-│   │   ├── bootstrap.yml          ORCHESTRATOR: multi-node playbooks
-│   │   ├── base.yml               base preflight, packages, toolchain, GRUB   [base]
+│   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
 │   │   ├── summary.yml            final per-host completion summary           [summary]
-│   │   ├── qwen35-397b-gptq-rccl.yml  Qwen3.5-397B GPTQ RCCL cluster [qwen35-397b]
+│   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node cluster link (multi-node only) + tb-net-diag
+│   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
+│   │   ├── ds4-deepseek-v4-flash-mtp.yml  2-node ds4 DeepSeek V4 Flash (pipeline parallel + MTP), TB link preferred
 │   │   ├── inventory/
-│   │   │   ├── hosts              multi-node inventory (localhost + workers)
-│   │   │   └── group_vars/
-│   │   │       └── all.yml        shared vars for multi-node tracks
+│   │   │   ├── hosts              multi-node inventory (halo0 head + halo1 worker, SSH; rocm → aiservers, multinode for TB)
+│   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
-│   │   │   ├── qwen35-397b-gptq-rccl-start.sh.j2   Qwen3.5-397B RCCL launch
-│   │   │   └── pi-qwen35-397b-gptq-rccl.json.j2   pi agent config (Qwen3.5-397B)
-│   │   ├── tasks/                 shared task files
-│   │   │   ├── rocm-build-deps.yml    ROCm runtime + dev packages
-│   │   │   └── vulkan-build-deps.yml  Vulkan/RADV runtime + dev packages
+│   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
+│   │   │   ├── opencode-vllm-rccl-moe.json.j2    opencode config (active profile)
+│   │   │   ├── ds4-deepseek-v4-flash-mtp-start.sh.j2  ds4 cluster launch (DS4_ROLE=head|worker)
+│   │   │   ├── opencode-ds4-deepseek-v4-flash-mtp.json.j2   opencode config
+│   │   │   └── tb-net-diag.sh.j2                   TB4 link diagnostics (iperf3 server/client/ping)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
-│   │       └── pi-configs/        Rendered pi agent configs
+│   │       └── opencode-configs/  Rendered opencode configs
 │   │
-│   ├── tasks/                     (legacy root tasks — not used, keep for reference)
-│   │   ├── rocm-build-deps.yml
-│   │   └── vulkan-build-deps.yml
-│   ├── templates/                 (legacy root templates — not used, keep for reference)
-│   └── inventory/                 (legacy root inventory — not used, keep for reference)
-│       ├── hosts
-│       └── hosts.example
-│
-├── scripts/                       Rendered launch scripts (from ansible/rendered/)
-│   ├── ds4-setup.sh               DS4-C-IQ2XXS host bootstrap (DS4 itself only)
-│   ├── install-pi.sh              local pi install (pi + plugins on this system)
-│   └── ds4-c-iq2xxs-start.sh      rendered DS4-C-IQ2XXS launch
-└── pi-configs/                    Rendered pi agent configs (from ansible/rendered/)
-    ├── pi-ds4-c-iq2xxs.json
-    └── pi-qwen36-35b-ud-q8-k-xl.json
+│   └── secrets/                   Secret files (gitignored)
+│       └── hf_token.txt           HuggingFace token for gated model downloads
 ```
 
 ## Track Details
 
-### DS4-C-IQ2XXS
-- **Engine**: `ds4.c` (Dwarf Star 4)
-- **Model**: DeepSeek V4 Flash IQ2XXS imatrix quant (~80.8 GB)
-- **Context**: 126k (single-node), 262k (multi-node)
-- **Port**: 8000
-- **Backend**: ROCm
+### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
 
-### Qwen36-35B-UD-Q8-K-XL
-- **Engine**: llama.cpp ROCm/HIP (independent clone in `~/llama-cpp-qwen36`)
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
-- **Port**: 8081
-- **Backend**: ROCm/HIP with MoE batching
+- **Port**: 8080
+- **Backend**: Vulkan/RADV
 
-### Qwen38-27B-UD-Q4-K-XL
-- **Engine**: llama.cpp ROCm/HIP (independent clone in `~/llama-cpp-qwen38-27b`)
-- **Model**: Qwen3.8-27B UD-Q8_K_XL (~27 GB)
-- **Context**: 262k (native ceiling)
-- **Port**: 8084
-- **Backend**: ROCm/HIP + MTP speculation
+### Qwen36-35B-A3B MTP (UD-Q8_K_XL) — Podman Vulkan + MTP
 
-### Qwen38-Flash-Next-UD-IQ4-XS
-- **Engine**: llama.cpp Vulkan (PR #27742, independent clone in `~/llama-cpp-flash`)
-- **Model**: Qwen3.8-Flash-Next UD-IQ4_XS (3-part GGUF ~87 GB)
-- **Context**: 131k
-- **Port**: 8085
-- **Backend**: Vulkan/RADV (no ROCm kernels for this arch)
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Model**: `Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf` from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`
+  (same file name/quant, different repo)
+- **MTP**: **built into the model** — `--spec-type draft-mtp --spec-draft-n-max 2`,
+  no separate `--model-draft` drafter file. Loading this GGUF without
+  `--spec-type draft-mtp` fails to load, per the model card.
+- **Context**: 262144 (native ceiling), `--parallel 1` (model card: `-np > 1`
+  not yet supported with MTP)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV
+- **GPU layers**: `-ngl 99` (not 999, per the model card's own quickstart), `-fa on`
 
-### Qwen35-397B-GPTQ-RCCL (Multi-Node)
-- **Engine**: vLLM + RCCL
-- **Model**: Qwen3.5-397B-A10B-GPTQ-Int4
-- **Context**: 65536 (cluster-wide)
-- **Port**: 7000 (head node)
-- **Backend**: ROCm (tensor parallel across nodes)
+### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
+
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
+- **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
+  (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
+- **Context**: 262144 (native ceiling), `--parallel 1` (single slot)
+- **Port**: 8080
+- **Backend**: Vulkan/RADV
+- **Speculation**: `--spec-type draft-mtp --spec-draft-n-max 3`, KV cache f16 (K+V)
+- **Batching / loading**: `-b 2048`, `-ub 512`, `-fa on`, `--load-mode mmap`, `-ngl 999`
+
+### Qwen38-27B (LaurentZuijdwijk fork) — Vulkan, built from source, DFlash2
+
+- **Source**: `LaurentZuijdwijk/llama.cpp`, pinned commit
+  `5e085d123eead2e89b5c19f824fccb05727da6a2` (2026-08-31, `master`) —
+  **built on the target host** via `containerfiles/qwen38-27b-laurentz-vulkan.Containerfile`.
+  No runnable image exists to pull: the fork's only GHCR package
+  (`ghcr.io/laurentzuijdwijk/llama.cpp`) has only `buildcache-*` CI layer
+  caches for CUDA/ROCm — not bootable, and no Vulkan tag despite that being
+  the fork's whole point on this hardware.
+- **Model**: `Qwen3.8-27B-ROCmFP4-FAST.gguf` from
+  `julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF` (same model repo the retired
+  ROCmFPX track used)
+- **Drafter (DFlash2)**: `Qwen3.8-27B-DFlash2-Q4_0_ROCMFP4_FAST.gguf` from
+  `agentionai/Qwen3.8-27B-DFlash2-ROCmFP4-FAST-GGUF`, passed as `--model-draft`
+  — **unverified**: the fork's README only documents loading it via the
+  HF auto-download `-hfd` shorthand, never a local-file flag. If the
+  coordinator ignores the drafter, check `llama-server --help` in the
+  container for the real flag name.
+- **Context**: 32768 (per the fork's own benchmark config)
+- **Port**: 8080
+- **Backend**: Vulkan/RADV
+- **Speculation**: `--spec-type draft-dflash --spec-draft-adaptive
+  --spec-draft-n-min 3 --spec-draft-n-max 7`, `--spec-draft-ngl 99`
+- **Batching**: `-ngl 999`, `-b 2048`, `-ub 512`, `-fa on`
+- **Claimed** (fork's README, not independently verified here): 65.6 t/s
+  structured output, 4.7x bare decode
+
+### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
+
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
+  `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
+  (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/AP-Q5_K_XL/...`)
+- **Vision projector**: `mmproj-F16.gguf` from `unsloth/Qwen3.8-Flash-Next-GGUF`
+  → `~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf`, passed as `--mmproj`
+  (image input ON)
+- **Why Q5_K_XL**: the Q4/IQ4 quants had quality issues — this is the agentionai
+  "AP" fine-tune at a higher quant
+- **Context**: 131072 (the one knob the profile leaves free — tune with `-e ctx=...`)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV (`qwen4exp` arch — same pinned-image requirement as the
+  other Flash-Next profiles; no MTP)
+- **Loading**: `--load-mode mmap` (112 GiB pages from disk so the KV cache fits),
+  `--n-cpu-moe 0` (all MoE experts on GPU), `--no-op-offload`,
+  `--override-tensor per_layer_token_embd=CPU` (token embedding pinned to CPU)
+- **Sampling**: `--jinja`, defaults temp 1.0 / top-p 0.95 / top-k 20 / min-p 0.0,
+  `--parallel 1` (single slot), `-ngl 99` (not 999), `-fa on`
+- **Reported** on a 128 GB Strix Halo (v0.7.2, mmap): ~450 pp @ 2048 ctx,
+  ~240 pp @ ~100k ctx, 12–20 t/s decode.
+
+### Qwen38-Flash-Next (halogen) — Podman ROCm + image input, prebuilt halogen-flash-server
+
+- **Image**: `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` — **pulled** with
+  `--pull=newer`, never built (closed-source, purpose-built ROCm engine;
+  `--device=/dev/kfd --device=/dev/dri --group-add keep-groups --ipc=host
+  --ulimit memlock=-1:-1` per the upstream quickstart, no `--privileged`).
+- **Weights**: `peonist-ai/halogen-qwen3.8-flash-next` (HF, ~118 GiB, `.hgn`
+  format — loadable only by halogen, not transformers/vLLM/llama.cpp). The track
+  downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint, skip sentinel),
+  `qwen38-flash-next-w4b.overlay.hgn` (2.40 GiB quality sidecar, auto-loaded
+  beside the checkpoint), `qwen38-flash-next-vision.hgn` (0.84 GiB vision
+  tower, enabled via `HALOGEN_VISION_TOWER=/models/qwen38-flash-next-vision.hgn`
+  for image input), and `tokenizer/` into a dedicated `~/halogen-models`
+  dir bind-mounted at `/models:ro`. Left on HF: the speed overlay (2.31 GiB)
+  and the MTP draft head (BYO-GGUF path only).
+- **Context**: 262144 (HALOGEN_CTX default)
+- **Port**: 8731 (`/v1/*` + `/v1/responses` + `/health`) — the only single-node
+  track off 8080; it targets the `rocm` inventory group
+- **Backend**: ROCm gfx1151 (native kfd access, keep-groups)
+- **Sampling**: greedy by default; the model card's thinking-mode settings are
+  `HALOGEN_TEMPERATURE=1.0 HALOGEN_TOP_P=0.95 HALOGEN_TOP_K=20` (commented env
+  block in the launch script)
+- **Wait**: the ~118 GiB cold load into the GPU pool is slow — the playbook
+  polls `/health` for up to ~10 min (`podman_health_retries: 120`), and the
+  launch script for up to ~20 min.
+- **Claimed** (upstream README, not independently verified here): ~4x faster
+  end-to-end than EngramHalo.cpp / ROCmFP4 / CIRU at 5.53 bpw
+
+### Ornith1.5 Ciru Halo Agent (vLLM/ROCm + DFlash2) — Podman + image input
+
+- **Image**: `localhost/ornith15-ciru-halo-agent-vllm:1.0.2` — **built here**
+  (Ciru publishes no container image). The Containerfile wraps the repo's
+  bundled runtime installer: Ubuntu 24.04 + apt prereqs + uv +
+  `runtime/INSTALL-ORNITH-RUNTIME.sh` → `/opt/ciru/installed-runtime`
+  (pinned vLLM `0.1.0rc2.dev9+rocm100`, AITER, PyTorch 2.13 rocm10.0.0,
+  ROCm SDK 10.0.0, Python 3.14). Stock `pip install vllm` cannot serve
+  these weights.
+- **Weights**: `jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo` (HF,
+  ~24.3 GB assets) downloaded to `~/ciru-halo-agent`; the `bundle/` dir
+  (packed IU4 checkpoint + DFlash2 drafter + native BF16 vision tensors +
+  serve scripts) is bind-mounted at `/bundle` **read-write** (the server
+  needs `bundle/cache` writable). `ORNITH_RUNTIME_ROOT` points the launcher
+  at the baked runtime.
+- **Serve**: `bundle/serve-vision.sh` (vision ON by default — one image per
+  request, 1,048,576-pixel budget, ≤8 active requests; no `mmproj` needed,
+  the projector ships inside the checkpoint) or `bundle/serve.sh`
+  (`vision_enabled: false`, text-only).
+- **Context**: 262,144 tokens/request | 8 active sequences | 44 GiB shared
+  KV/state pool | prefix caching with recurrent-state reuse (subsequent
+  agents sharing a history load faster).
+- **Speculation**: adaptive DFlash2 (15/7/off under 32K computed tokens;
+  7-token drafting at C2–8).
+- **Port**: 8741 (`/v1/*` + `/health`), model id `ciru-halo-agent`;
+  targets the `rocm` inventory group.
+- **Memory**: ~100 GB budget loaded (recorded whole-host peak 95.35 GB on
+  128 GB Strix Halo) — one server at a time.
+- **Claimed** (model card, AMD-sponsored build): ~178 tok/s C1 coding
+  decode, ~295 tok/s aggregate at C8, ~1,287 tok/s cold prefill at 64K /
+  ~668 tok/s near 256K (~5 min to fill 256K), ~123 tok/s cached C1 decode
+  at 63K history.
+
+### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
+
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
+- **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
+  `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
+  `libmtmd`; the projector is GPU-offloaded by default)
+- **Context**: 262144 (native ceiling)
+- **Port**: 8080 (shared with the other Podman tracks — one server at a time)
+- **Backend**: Vulkan/RADV
+- **Note**: no MTP speculation wired up, although `MTP/mtp-gemma-4-26B-A4B-it-*.gguf`
+  exists in the repo and could follow the qwen38-27b pattern later.
+
+### vllm-rccl-moe (Multi-Node)
+
+- **Engine**: vLLM + Ray + RCCL (TP=2 across the two nodes)
+- **Profiles** (`-e active_profile=<name>` — each runs at the model's native
+  max context, sized off the 2×128 GB KV pool):
+  - `minimax-m2.7-awq-4bit` (default) — `cyankiwi/MiniMax-M2.7-AWQ-4bit`, ctx 196608
+  - `qwen3.5-122b-awq-4bit` — `cyankiwi/Qwen3.5-122B-A10B-AWQ-4bit`, ctx 262144
+- **Port**: 8081 (head node)
+- **Backend**: ROCm; RCCL traffic rides the Thunderbolt link (`tb*`, ~40 Gbps)
+  when up, else the 2.5Gbe NIC — see `setup-thunderbolt-net.yml`
+
+### ds4-deepseek-v4-flash-mtp (Multi-Node)
+
+- **Engine**: `ds4` (antirez's DeepSeek V4 inference engine) in the toolbox
+  container `ds4_cluster` — `docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4`
+- **Model**: `DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf`
+  (~153 GB hybrid quant, `antirez/deepseek-v4-gguf`) at `~/ds4` on both nodes
+- **MTP**: drafter `DeepSeek-V4-Flash-MTP-Q4K-Q8_0-F32.gguf` (~3.6 GB) on the
+  head only — `--mtp --mtp-model <file> --mtp-draft 1`. Optional: if the
+  drafter isn't present, the launch script starts the coordinator without it
+  (plain, non-speculative) rather than refusing to serve the 153 GB model.
+- **Parallelism**: 2-node pipeline (layer slicing) — head/coordinator
+  `--layers 0:21 --listen <head_ip> 8081`, worker `--layers 22:output
+  --coordinator <head_ip> 8081`; the pipeline channel rides the Thunderbolt
+  link (`tb*`, ~40 Gbps) when up
+- **Context**: 262144 (256k, per the toolbox multi-node example)
+- **Ports**: 8081 (pipeline, head listens) + 8000 (OpenAI API on the head)
+- **Launch order**: head first (`DS4_ROLE=head`), then worker
+  (`DS4_ROLE=worker`) via the rendered script
+- **Backend**: ROCm 7.2.4 (the multi-node binary ships only in the
+  `multi-node-rocm-7.2.4` toolbox image tag)
 
 ## Model Downloads (hf CLI)
 
@@ -167,74 +438,167 @@ model. The same commands work manually if you want to re-fetch a model outside
 ansible:
 
 ```bash
-# Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL, ~38.5 GB)
-hf download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
-  --local-dir ~/.local/share/llama-models
+# Qwen3.6-35B-A3B MTP (UD-Q8_K_XL, ~38.5 GB)
+hf download unsloth/Qwen3.6-35B-A3B-MTP-GGUF Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf \
+  --local-dir ~/models
 
-# DS4-C-IQ2XXS single-node IQ2XXS (~80.8 GB) into ~/ds4-c-iq2xxs
-hf download antirez/deepseek-v4-gguf DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf \
-  --local-dir ~/ds4-c-iq2xxs
-```
+# Qwen3.8-27B (UD-Q4_K_XL) + MTP drafter
+hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q4_K_XL.gguf \
+  --local-dir ~/models
+hf download unsloth/Qwen3.8-27B-GGUF MTP/mtp-Qwen3.8-27B-Q4_0.gguf \
+  --local-dir ~/models    # lands as ~/models/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
 
-Verify integrity after download (HF publishes sha256, not md5):
-```bash
-sha256sum <file>.gguf   # compare against the repo's file listing
+# Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) + vision projector
+hf download unsloth/gemma-4-26B-A4B-it-GGUF gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf \
+  --local-dir ~/models
+hf download unsloth/gemma-4-26B-A4B-it-GGUF mmproj-F16.gguf \
+  --local-dir ~/models       # lands as ~/models/mmproj-F16.gguf,
+                             # renamed to gemma-4-26B-A4B-it-mmproj-F16.gguf
+
+# Qwen3.8-Flash-Next (UD-IQ4_XS, 3 shards, ~87 GiB)
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf --local-dir ~/models
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf --local-dir ~/models
+hf download unsloth/Qwen3.8-Flash-Next-GGUF UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf --local-dir ~/models
+                             # land in ~/models/UD-IQ4_XS/, renamed by the
+                             # playbook to ~/models/Qwen3.8-Flash-Next-UD-IQ4_XS/
+
+# Qwen3.8-Flash-Next-AP (Q5_K_XL, single ~112 GiB GGUF) + vision projector
+hf download agentionai/Qwen3.8-Flash-Next-AP-GGUF AP-Q5_K_XL/Qwen3.8-Flash-Next-AP-Q5_K_XL.gguf \
+  --local-dir ~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF
+                             # lands under the repo name: ~/models/agentionai/.../AP-Q5_K_XL/...
+hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
+  --local-dir ~/models/unsloth/Qwen3.8-Flash-Next-GGUF
+                             # lands under the repo name: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
+
+# Qwen3.8-Flash-Next halogen weights (W4B .hgn — ~118 GiB repo; this track
+# pulls the checkpoint + quality overlay + vision tower + tokenizer)
+hf download peonist-ai/halogen-qwen3.8-flash-next \
+  --include qwen38-flash-next-w4b.hgn \
+  --include qwen38-flash-next-w4b.overlay.hgn \
+  --include qwen38-flash-next-vision.hgn \
+  --include 'tokenizer/*' \
+  --local-dir ~/halogen-models
+                             # the halogen engine auto-discovers them at /models
+                             # (bind mount of ~/halogen-models, read-only)
+
+# Ornith1.5 Ciru Halo Agent (full repo: bundle/ weights + runtime/ installer,
+# ~24.3 GB assets) — the whole repo is needed, not individual files
+hf download jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo \
+  --local-dir ~/ciru-halo-agent
+                             # bundle/ is bind-mounted at /bundle (RW) in the
+                             # container built by this track
 ```
 
 ## Launch Scripts
 
-After the bootstrap + REBOOT (if GRUB changed), the rendered launch scripts
-are in `ansible/rendered/scripts/`. Copy them to each node and run:
+After the bootstrap, the rendered launch scripts are in `~/scripts/` on the
+target host. The rendered OpenCode configs land on the **controller** under
+`ansible/<topology>/rendered/opencode-configs/` (e.g.
+`ansible/single-node/rendered/opencode-configs/`).
 
 ### Single-Node Launch Example
-```bash
-# Qwen3.6-35B-A3B
-./ansible/rendered/scripts/qwen36-35b-ud-q8-k-xl-start.sh
 
-# DS4-C-IQ2XXS (single-node mode)
-./ansible/rendered/scripts/ds4-c-iq2xxs-start.sh
+```bash
+# Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
+~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
+
+# Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
+~/scripts/qwen38-27b-laurentz-vulkan-start.sh
+
+
+# Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
+~/scripts/qwen38-flash-next-halogen-start.sh
+
+# Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, built image)
+~/scripts/ornith15-ciru-halo-agent-vllm-start.sh
+
+# Gemma 4 26B A4B (Podman Vulkan, image input)
+~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
 ```
 
-### Multi-Node Launch Example (Qwen3.5-397B)
+### Multi-Node Launch Example (vllm-rccl-moe)
+
 ```bash
-# Machine 1 (head — Ray head + vLLM server):
-QWEN35_397B_GPTQ_RCCL_ROLE=head   ./ansible/rendered/scripts/qwen35-397b-gptq-rccl-start.sh
-# Machine 2 (worker — joins Ray):
-QWEN35_397B_GPTQ_RCCL_ROLE=worker ./ansible/rendered/scripts/qwen35-397b-gptq-rccl-start.sh
+# halo0 (head — Ray head + vLLM server):
+VLLM_RCCL_MOE_ROLE=head   ./ansible/scripts/vllm-rccl-moe-start.sh
+# halo1 (worker — joins Ray):
+VLLM_RCCL_MOE_ROLE=worker ./ansible/scripts/vllm-rccl-moe-start.sh
 ```
 
-## Pi Agent Config
+### Multi-Node Launch Example (ds4-deepseek-v4-flash-mtp)
 
-The bootstrap drops pi agent configs into `ansible/rendered/pi-configs/`:
-- `pi-ds4-c-iq2xxs.json` — `ds4-c-iq2xxs` provider → `http://127.0.0.1:8000/v1`, model `deepseek-v4-flash` (single-node IQ2XXS).
-- `pi-qwen36-35b-ud-q8-k-xl.json` — `qwen36-35b-ud-q8-k-xl` provider → `http://127.0.0.1:8081/v1`, model `qwen3.6-35b-ud-q8-k-xl`.
-- `pi-qwen38-27b-ud-q8-k-xl.json` — `qwen38-27b-ud-q8-k-xl` provider → `http://127.0.0.1:8084/v1`, model `qwen3.8-27b-ud-q4-k-xl`.
-- `pi-qwen38-flash-next-ud-iq4-xs.json` — `qwen38-flash-next-ud-iq4-xs` provider → `http://127.0.0.1:8085/v1`, model `qwen3.8-flash-next-ud-iq4-xs`.
-- `pi-qwen35-397b-gptq-rccl.json` — `qwen35-397b-gptq-rccl` provider → `http://<head_ip>:7000/v1`, model `Qwen3.5-397B-A10B-GPTQ-Int4`.
+```bash
+# halo0 (head — coordinator: layers 0:21, MTP drafter, OpenAI API):
+DS4_ROLE=head   ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
+# halo1 (worker — pipeline worker: layers 22:output, joins the coordinator):
+DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 
-Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
-you open `/model`; no restart needed). `scripts/install-pi.sh` installs pi + the pi
-plugins present on this system (pi-web-access, rpiv-ask-user-question,
-pi-background-tasks, pi-permission-system, pi-ds4) and merges
-the pi provider configs.
+# Once warm: OpenAI endpoint http://<head_ip>:8000/v1
+# The playbook downloads the ~153 GB main GGUF on both nodes and the ~3.6 GB
+# MTP drafter on the head into ~/ds4 BEFORE this script runs; the container
+# bind-mounts that same host path read-only, so the script only checks the
+# files are present.
+```
+
+## OpenCode Agent Config
+
+Each track renders its OpenCode config to the controller's
+`ansible/<topology>/rendered/opencode-configs/` (the committed
+`ansible/opencode-configs/` holds the multi-node ds4 fragment):
+
+- **Podman tracks:**
+  - `opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen38-flash-next-halogen-podman.json` — provider `qwen38-flash-next-halogen` → `http://<node_ip>:8731/v1`
+  - `opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
+
+- `opencode-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
+- `opencode-ds4-deepseek-v4-flash-mtp.json` — `ds4-deepseek-v4-flash-mtp` provider → `http://<head_ip>:8000/v1`
+
+Each file is a standalone opencode config fragment (schema at
+`https://opencode.ai/config.json`) declaring one provider on the
+`@ai-sdk/openai-compatible` adapter. Merge the `provider` block(s) into
+`~/.config/opencode/opencode.json`, or point `OPENCODE_CONFIG` at the file.
+
+### Combining multiple providers (several models in one config)
+
+The per-track configs each ship a single `provider`. To point the CLI at more
+than one model at once, nest their `provider` blocks under one top-level
+`provider:` map — each block is an independent provider keyed by its own name
+(`qwen36-35b-...`, `ornith15-ciru-halo-agent-vllm`, `gemma-4-...`, etc.). See
+the worked example at [`opencode-multi-provider.example.json`](ansible/opencode-configs/opencode-multi-provider.example.json). Key rules:
+
+- one `provider` block per model track; the **key** is the provider name, the
+  nested **models** entry is the model id you pass to the API.
+- every provider needs its own `baseURL` (node IP + the track's port: `8080`
+  for llama.cpp, `8731` for halogen, `8741` for this Ciru track) and `apiKey`.
+- two tracks can share a port but still be distinct providers as long as their
+  `baseURL`/`models` differ (they just can't run at the same time).
 
 ## Config Variables (inventory / env)
 
 ### Single-Node Tracks
-- DS4-C-IQ2XXS: `ds4_c_iq2xxs_mode` (single default), `ds4_c_iq2xxs_ctx_single` (126000), `ds4_c_iq2xxs_port` (8000), `ds4_c_iq2xxs_host` (127.0.0.1)
-- Qwen36-35B: `qwen36_35b_ud_q8_k_xl_ctx` (262144), `qwen36_35b_ud_q8_k_xl_port` (8081), `qwen36_35b_ud_q8_k_xl_host/device/threads`
-- Qwen38-27B: `qwen38_27b_ud_q8_k_xl_ctx` (262144), `qwen38_27b_ud_q8_k_xl_port` (8084), `qwen38_27b_ud_q8_k_xl_host/device/threads`
-- Qwen38-Flash-Next: `qwen38_flash_next_ud_iq4_xs_ctx` (131072), `qwen38_flash_next_ud_iq4_xs_port` (8085), `qwen38_flash_next_ud_iq4_xs_host/device`
+
+All single-node playbooks are self-contained with inline vars — no group_vars needed.
 
 ### Multi-Node Tracks
-- Qwen35-397B-GPTQ-RCCL: `qwen35_397b_gptq_rccl_head_ip`, `qwen35_397b_gptq_rccl_worker_ip`, `qwen35_397b_gptq_rccl_max_model_len` (65536), `qwen35_397b_gptq_rccl_tp_size` (2), `qwen35_397b_gptq_rccl_port` (7000)
+
+- vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
+- ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars — TB static IP when the live TB link check says both ends are up, else LAN `ansible_host` on both; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
+- setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (172.20.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
-- `DS4_C_IQ2XXS_ROLE` (single|coordinator|worker), `DS4_C_IQ2XXS_USE_MTP`, `DS4_C_IQ2XXS_CTX_SINGLE`
-- `QWEN36_35B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
-- `QWEN38_27B_UD_Q8_K_XL_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE/THREADS)
-- `QWEN38_FLASH_NEXT_UD_IQ4_XS_*` (BIN/MODEL/CTX/PORT/HOST/DEVICE)
-- `QWEN35_397B_GPTQ_RCCL_ROLE` (head|worker)
+
+Each single-node track renders one launch script to `~/scripts/<stem>-start.sh`.
+The settings below are baked into the rendered script as plain shell variables
+(`CONTAINER`, `PORT`, `MODEL`, `IMAGE`, `CTX`, ...); edit the file in place and
+re-run it to change them.
+
+- `qwen36-35b-ud-q8-k-xl-mtp-start.sh` (CONTAINER/PORT/MODEL/IMAGE/CTX/PARALLEL/BATCH/GPU_LAYERS/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MAX)
+- `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
+- `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `qwen38-flash-next-halogen-start.sh` (CONTAINER/PORT/CHECKPOINT/OVERLAY/VISION/IMAGE/CTX — pulls the prebuilt image if missing; ROCm flags per the upstream quickstart, ~20 min health wait)
+- `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
 ## Strix Halo Optimization Notes
 
@@ -245,9 +609,13 @@ nightlies, latest llama.cpp from source):
 - **ROCm/HIP dominates prompt processing** on gfx1151 — 4.7× faster and 65%
   less energy than Vulkan. We build llama.cpp **ROCm-only** (HIP graphs
   enabled).
-- **MoE models need 2^n batching** — `batch=256` for qwen36-35b-ud-q8-k-xl (38.5 GB, fits KV cache).
+- **MoE models need 2^n batching** — `batch=256` for qwen36-35b-ud-q8-k-xl-mtp (38.5 GB, fits KV cache).
 - **`--flash-attn on`** and **`--no-mmap`** (weights fully in the unified
   128 GB shared pool).
+- **`qwen4exp` (Qwen3.8-Flash-Next) must keep an f16 KV cache** — quantized KV
+  asserts and dies on that arch. The UD-IQ4_XS profile therefore pins
+  `-ctk/-ctv f16`, `--load-mode none` and ctx 131072 (~91 GB resident); the
+  native 262144 does not fit next to the weights in 128 GB.
 - **Token generation is memory-bandwidth bound** (~215 GB/s). Qwen3.6 ~3B active
   ≈ 3 GB/token ≈ 65-70 t/s at 8-bit UD-Q8_K_XL.
 
@@ -260,10 +628,68 @@ treats 2.5Gbe as acceptable — there is no 10Gbps requirement.
 `amd-ttm --set` is used** anywhere in the ansible — set BIOS UMA VRAM to
 Auto/minimum, append the GRUB args, reboot.
 
-**ROCm version:** PLAY 1 installs **ROCm 7.2.4** via AMD's `repo.radeon.com`
-(noble packages, used on this resolute/26.04 host) — *not* the Ubuntu `rocm`
-package (7.1.0). ROCm is needed for DS4-C-IQ2XXS, qwen36-35b, and qwen38-27b tracks. Vulkan is needed for the qwen38-flash-next track.
+**ROCm version:** the shared `install-amdgpu.yml` track installs ROCm via
+AMD's `repo.radeon.com` `amdgpu-install` deb (currently 7.2.1, noble) with
+`--usecase=rocm --no-dkms` — *not* the Ubuntu `rocm` package (7.1.0). The
+single-node Podman tracks only need podman + recent Mesa (Vulkan); ROCm is
+needed for the multi-node vllm-rccl-moe / ds4-deepseek-v4-flash-mtp tracks.
+
+**Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
+vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
+local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+Vulkan container instead. MTP speculation args are baked into both the container
+`run` command and the rendered launch script.
 
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
 downloads model weights. It NEVER launches servers.
+
+## Troubleshooting
+
+### `vk::DeviceLostError` / "context is lost" mid-prompt (Vulkan tracks)
+
+**Symptom** — the server dies during a long prompt (tens of thousands of
+tokens) with:
+
+```
+# host kernel log (journalctl -k)
+amdgpu: ring comp_1.2.0 timeout, signaled seq=…, emitted seq=…
+amdgpu: Ring comp_1.2.0 reset succeeded
+# container log (podman logs <container>)
+radv/amdgpu: The CS has been cancelled because the context is lost. This context is guilty of a hard recovery.
+terminate called after throwing an instance of 'vk::DeviceLostError'
+  what():  vk::Queue::submit: ErrorDeviceLost
+```
+
+**Cause** — a single `vkQueueSubmit` runs longer than the amdgpu compute-ring
+watchdog (`amdgpu.lockup_timeout`), so the kernel resets the ring and RADV
+reports a lost device. Long-context FLASH_ATTN submits are the usual trigger
+(llama.cpp #21724 / #20515 / #20889, ollama/ollama#17870 on the same chip);
+MTP speculation makes it worse because `common_speculative_process` runs an
+extra full-width draft decode after **every** prompt ubatch — with
+`--spec-type draft-mtp` repros die around 55k tokens even with one node per
+submit, while MTP-off survives 125k+ (llama.cpp #27306).
+
+**Mitigations (layered — the playbooks always apply 2; 1 is opt-in and only
+needed if the rest proves insufficient):**
+
+1. **Kernel watchdog (opt-in, last resort)** — run `set-grub-ttm.yml` /
+   `set-limine-ttm.yml` with `-e lockup_timeout_enabled=true` (reboot
+   required). Quick no-reboot test:
+   `echo 60000 | sudo tee /sys/module/amdgpu/parameters/lockup_timeout`.
+   Trade-off: a genuinely hung GPU takes longer to auto-recover.
+2. **Submit batching pin** — `-e GGML_VK_MAX_NODES_PER_SUBMIT=1` (upstream fix
+   #24872; default 1 on UMA since). No current track exposes this as a
+   playbook var (the ROCmFP4 track that did was retired) — set it via
+   `podman run -e GGML_VK_MAX_NODES_PER_SUBMIT=1` directly if needed.
+3. **Smaller ubatches** — lower `--ubatch-size` (e.g. 512 or 128) shrinks the
+   work per submit; costs prefill speed.
+4. **MTP off for long prompts** — UD-Q4_K_XL / UD-Q8_K_XL-MTP tracks: drop
+   `--spec-type draft-mtp` (and `--model-draft`/`--mtp-model` if present)
+   from the start script.
+
+**Evidence to capture if it persists** — `journalctl -k | grep -E 'amdgpu.*(timeout|reset)'`,
+`podman logs <container>`, and the exact prompt length / argv at which it dies;
+that distinguishes the watchdog class above from the separate
+checkpoint/`get_tensor` DeviceLost class (which happens with prompt-cache
+checkpoints armed).

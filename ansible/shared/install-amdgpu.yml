@@ -1,0 +1,79 @@
+---
+# =============================================================================
+# install-amdgpu.yml
+# Ubuntu base: system upgrade + ROCm on Ryzen via AMD's amdgpu-install deb.
+#
+# Follows: https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryzen/native_linux/install-ryzen.html
+#
+# Shared playbook: lives in ansible/shared/ so any track can import it.
+# Ubuntu-only — the play is gated to Ubuntu and is skipped (no-op) on
+# any other distro.
+#
+# Steps:
+#   1. apt upgrade
+#   2. Install amdgpu-install from AMD repo
+#   3. Install ROCm via amdgpu-install --usecase=rocm --no-dkms
+#
+# Usage (with either track's inventory):
+#   ansible-playbook -i ansible/single-node/inventory/hosts ansible/shared/install-amdgpu.yml
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/install-amdgpu.yml
+# =============================================================================
+
+- name: "Install-amdgpu — Ubuntu base: system upgrade + ROCm on Ryzen"
+  hosts: aiservers
+  gather_facts: true
+  become: true
+  tags: [install-amdgpu]
+  vars:
+    amdgpu_install_url: "https://repo.radeon.com/amdgpu-install/7.2.1/ubuntu/noble/amdgpu-install_7.2.1.70201-1_all.deb"
+
+  tasks:
+    # --- 0. Ubuntu-only gate. Play-level `when` is not valid in Ansible, so
+    #        the play is gated with a first-task meta: end_host. Tagged so the
+    #        gate still applies under `--tags install-amdgpu`. ---
+    - name: Skip non-Ubuntu hosts (this play is Ubuntu-only)
+      ansible.builtin.meta: end_host
+      when: ansible_facts['distribution'] | default('') | lower != "ubuntu"
+      tags: [install-amdgpu]
+
+    # --- 1. System upgrade ---
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: true
+        autoclean: true
+      tags: [install-amdgpu, apt]
+
+    # --- 2. Install amdgpu-install ---
+    - name: Download amdgpu-install deb
+      ansible.builtin.get_url:
+        url: "{{ amdgpu_install_url }}"
+        dest: /tmp/amdgpu-install.deb
+        mode: "0644"
+      tags: [install-amdgpu, amdgpu]
+
+    - name: Install amdgpu-install deb
+      ansible.builtin.apt:
+        deb: /tmp/amdgpu-install.deb
+      tags: [install-amdgpu, amdgpu]
+
+    - name: Install ROCm (non-interactive, no DKMS)
+      ansible.builtin.command:
+        cmd: amdgpu-install -y --usecase=rocm --no-dkms
+      tags: [install-amdgpu, amdgpu]
+
+    - name: Clean up amdgpu-install deb
+      ansible.builtin.file:
+        path: /tmp/amdgpu-install.deb
+        state: absent
+      tags: [install-amdgpu, amdgpu]
+
+    # --- 3. Summary ---
+    - name: Print install-amdgpu summary
+      ansible.builtin.debug:
+        msg: |
+          ==== install-amdgpu complete on {{ inventory_hostname }} ====
+          - System upgraded
+          - amdgpu-install installed (AMD repo 7.2.1)
+          - ROCm installed (--usecase=rocm --no-dkms)
+      tags: [info]

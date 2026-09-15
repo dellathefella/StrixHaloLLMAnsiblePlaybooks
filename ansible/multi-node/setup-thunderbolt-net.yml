@@ -1,0 +1,412 @@
+---
+# =============================================================================
+# setup-thunderbolt-net.yml
+# Thunderbolt (TB4) node-to-node networking for the 2x HP Z2 G1a cluster.
+#
+# The Z2 G1a (Ryzen AI Max "Strix Halo") exposes TB4/USB4 40 Gbps Type-C ports.
+# A direct TB4 cable between the two nodes gives ~40 Gbps for any multi-node
+# workload (RCCL, pipeline parallel, Ray, etc.) — 16x the 2.5Gbe NIC the
+# cluster falls back on when the TB link is down.
+#
+# Distro-agnostic: works on CachyOS/Arch (current fleet) and Ubuntu 26.04.
+# The link itself uses only the stock kernel (no packages needed):
+#   - thunderbolt / thunderbolt-net kernel modules (both distros ship them)
+#   - `ip` for runtime addressing
+#   - NetworkManager (nmcli) for persistence (default on both distros)
+# The only package installed is iperf3 (diagnostics; optional via tb_net_install_iperf).
+#
+# What it does per host:
+#   1. Detects a Thunderbolt/USB4 controller (USB4 Host Router in lspci or
+#      thunderbolt kernel modules loaded)
+#   2. Loads + persists the thunderbolt-net module (/etc/modules-load.d/),
+#      if the modules are already loaded on the kernel this step is a no-op
+#   3. Detects the TB4 net interface (either `tb*` or `thunderbolt*`, created
+#      when the TB4 cable is attached and both peers have the modules loaded)
+#   4. Assigns a static IP: 172.20.0.<n>/24 where <n> is the host's 1-based
+#      position in the play batch (first inventory host = .1 = head,
+#      second = .2 = worker). Override per host with -e tb_net_ip=x.x.x.x
+#   5. Persists the address via an nmcli connection (ipv4.never-default yes —
+#      the TB link must NEVER become the default route)
+#   6. Verifies: link state, ethtool speed (expect ~40000 Mb/s on TB4),
+#      and a ping of the auto-derived peer (2-host batches)
+#   7. Diagnostics: installs iperf3, deploys `tb-net-diag` to /usr/local/bin,
+#      and (2-host batches) runs a cross-node iperf3 throughput test (tb_net_iperf_test)
+#
+# Args (all overridable with -e):
+#   tb_net_enabled        default true — set false to skip the whole play
+#   tb_net_cidr           default "172.20.0.0/24"
+#   tb_net_ip             default "" (derived from inventory position)
+#   tb_net_peer_ip        default "" (derived for 2-host batches)
+#   tb_net_install_iperf  default true — install iperf3 for diagnostics
+#   tb_net_iperf_test     default true — run the cross-node iperf3 test (2-host)
+#   tb_net_iperf_port     default 5201
+#   tb_net_iperf_parallel default 4 (parallel streams)
+#   tb_net_iperf_time     default 10 (seconds)
+#
+# Prerequisites (physical/BIOS — the playbook warns, it cannot fix these):
+#   - TB4 cable connected node-to-node (no hub/switch)
+#   - BIOS: Thunderbolt enabled on BOTH nodes
+#   - thunderbolt-net loaded on BOTH nodes (this play does it, run on both)
+#
+# Scoping (multi-node only):
+#   The play targets the `multinode` capability group — the TB4-linked cluster,
+#   defined only in the multi-node inventory. A single-node inventory has no
+#   such group, so the play matches zero hosts and skips: Thunderbolt is never
+#   configured on a standalone box.
+#
+# Usage:
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/setup-thunderbolt-net.yml
+# (also imported by ansible/multi-node/bootstrap.yml)
+# =============================================================================
+
+- name: "Setup-thunderbolt-net — TB4 node-to-node cluster link"
+  hosts: multinode
+  gather_facts: true
+  become: true
+  tags: [thunderbolt, tb-net, network]
+  vars:
+    tb_net_enabled: true
+    tb_net_cidr: "172.20.0.0/24"
+    tb_net_ip: "" # per-host override; empty = 172.20.0.<play-batch-position>
+    tb_net_peer_ip: "" # explicit peer; empty = auto-derived for 2-host batches
+    # --- diagnostics (iperf3) ---
+    tb_net_install_iperf: true
+    tb_net_iperf_test: true
+    tb_net_iperf_port: 5201
+    tb_net_iperf_parallel: 4
+    tb_net_iperf_time: 10
+    tb_net_prefixlen: "{{ tb_net_cidr.split('/')[1] }}"
+    tb_net_base: "{{ tb_net_cidr.split('/')[0].split('.')[:3] | join('.') }}"
+    # 1-based position of this host in the play batch (1 = head/.1, 2 = worker/.2)
+    tb_net_pos: "{{ ansible_play_batch.index(inventory_hostname) + 1 }}"
+    tb_net_ip_effective: >-
+      {{ tb_net_ip if (tb_net_ip | length > 0)
+         else (tb_net_base ~ '.' ~ (tb_net_pos | int)) }}
+    tb_net_peer_ip_effective: >-
+      {{ tb_net_peer_ip
+         if (tb_net_peer_ip | length > 0)
+         else (tb_net_base ~ '.2' if ((ansible_play_batch | length) == 2 and (tb_net_pos | int) == 1)
+               else (tb_net_base ~ '.1' if ((ansible_play_batch | length) == 2 and (tb_net_pos | int) == 2)
+                     else '')) }}
+
+  tasks:
+    - name: Skip this host when the TB link is disabled (tb_net_enabled=false)
+      ansible.builtin.meta: end_host
+      when: not (tb_net_enabled | bool)
+      tags: [thunderbolt, tb-net]
+
+    # -----------------------------------------------------------------------
+    # 1. Detect Thunderbolt/USB4 controller
+    # -----------------------------------------------------------------------
+    - name: Check for USB4 Host Router in lspci
+      ansible.builtin.shell:
+        cmd: "lspci 2>/dev/null | grep -ciE 'usb4|thunderbolt' || true"
+      register: tb_lspci_count
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, detect]
+
+    - name: Check if thunderbolt modules are loaded
+      ansible.builtin.shell:
+        cmd: "lsmod 2>/dev/null | grep -ci thunderbolt || true"
+      register: tb_mod_loaded
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, detect]
+
+    - name: Load thunderbolt modules if not already loaded
+      ansible.builtin.shell:
+        cmd: "modprobe thunderbolt && modprobe thunderbolt_net && echo loaded"
+      register: tb_mod_result
+      changed_when: true
+      failed_when: false
+      when: (tb_mod_loaded.stdout | default('0') | int) == 0
+      tags: [thunderbolt, tb-net, detect]
+
+    - name: Fail soft if no USB4 controller or thunderbolt modules found
+      ansible.builtin.debug:
+        msg: |
+          WARNING [tb-net] no USB4 Host Router found in lspci (count: {{ tb_lspci_count.stdout | default('0') }})
+          and thunderbolt modules not loaded (loaded: {{ tb_mod_loaded.stdout | default('0') }}).
+          Check: lspci | grep -iE 'usb4|thunderbolt' and modprobe thunderbolt.
+          Skipping TB setup.
+      when:
+        - (tb_lspci_count.stdout | default('0') | int) == 0
+        - (tb_mod_loaded.stdout | default('0') | int) == 0
+      tags: [info]
+
+    - name: Skip remaining tasks without a controller
+      ansible.builtin.meta: end_host
+      when:
+        - (tb_lspci_count.stdout | default('0') | int) == 0
+        - (tb_mod_loaded.stdout | default('0') | int) == 0
+      tags: [thunderbolt, tb-net]
+
+    - name: Print controller detection result
+      ansible.builtin.debug:
+        msg: "TB4 controller detected: lspci={{ tb_lspci_count.stdout | default('?') }}, modules={{ tb_mod_loaded.stdout | default('?') }}"
+      tags: [info]
+
+    # -----------------------------------------------------------------------
+    # 2. Load + persist the thunderbolt-net module
+    # -----------------------------------------------------------------------
+    - name: Check thunderbolt-net module exists in this kernel
+      ansible.builtin.shell:
+        cmd: "modinfo -F filename thunderbolt-net 2>/dev/null"
+      register: tb_net_modinfo
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, module]
+
+    - name: Warn if the kernel lacks thunderbolt-net
+      ansible.builtin.debug:
+        msg: |
+          WARNING [tb-net] this kernel has no thunderbolt-net module.
+          On CachyOS/Arch it ships with the linux kernel (try: sudo modprobe
+          thunderbolt-net — a newer kernel or linux-lts may be needed). Skipping.
+      when: tb_net_modinfo.stdout | length == 0
+      tags: [info]
+
+    - name: Load thunderbolt-net
+      ansible.builtin.command:
+        cmd: modprobe thunderbolt-net
+      failed_when: false
+      changed_when: false
+      when: tb_net_modinfo.stdout | length > 0
+      tags: [thunderbolt, tb-net, module]
+
+    - name: Persist thunderbolt-net across reboots
+      ansible.builtin.copy:
+        content: "thunderbolt-net\n"
+        dest: /etc/modules-load.d/thunderbolt-net.conf
+        owner: root
+        group: root
+        mode: "0644"
+      when: tb_net_modinfo.stdout | length > 0
+      tags: [thunderbolt, tb-net, module]
+
+    # -----------------------------------------------------------------------
+    # 3. Detect the tb* network interface
+    # -----------------------------------------------------------------------
+    - name: Detect first TB4 net interface (tb0, thunderbolt0, tb1, ...)
+      ansible.builtin.shell:
+        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^(tb[0-9]+|thunderbolt[0-9]+)$/ {print $1; exit}'"
+      register: tb_if
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, detect]
+
+    - name: Warn if no tb* interface is present
+      ansible.builtin.debug:
+        msg: |
+          WARNING [tb-net] thunderbolt modules are loaded but no TB4 interface (tb* or thunderbolt*) exists
+          on {{ inventory_hostname }}. The interface appears when: (a) a TB4
+          cable connects the two nodes, (b) BOTH nodes have thunderbolt-net
+          loaded, (c) BIOS Thunderbolt is enabled. Re-run this playbook after.
+      when: tb_if.stdout | length == 0
+      tags: [info]
+
+    - name: Skip IP setup without a tb* interface
+      ansible.builtin.meta: end_host
+      when: tb_if.stdout | length == 0
+      tags: [thunderbolt, tb-net]
+
+    # -----------------------------------------------------------------------
+    # 4. Static addressing (runtime) + NetworkManager persistence
+    # -----------------------------------------------------------------------
+    - name: Check whether the static IP is already assigned
+      ansible.builtin.shell:
+        cmd: "ip -4 addr show dev {{ tb_if.stdout }} 2>/dev/null | grep -c '{{ tb_net_ip_effective }}' || true"
+      register: tb_ip_present
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, addr]
+
+    - name: "Assign static IP {{ tb_if.stdout ~ ' ' ~ tb_net_ip_effective ~ '/' ~ tb_net_prefixlen }}"
+      ansible.builtin.shell:
+        cmd: >-
+          ip addr add {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }} dev {{ tb_if.stdout }}
+          && ip link set {{ tb_if.stdout }} up
+      changed_when: true
+      when: (tb_ip_present.stdout | default('0') | int) == 0
+      tags: [thunderbolt, tb-net, addr]
+
+    - name: Check if NetworkManager is running
+      ansible.builtin.shell:
+        cmd: "nmcli -t -f RUNNING general 2>/dev/null"
+      register: tb_nm_running
+      changed_when: false
+      failed_when: false
+      become: false
+      tags: [thunderbolt, tb-net, persist]
+
+    - name: Check for an existing NM connection on the TB interface
+      ansible.builtin.shell:
+        cmd: "nmcli -t -f NAME,DEVICE con show 2>/dev/null | awk -F: '$2 ~ /^(tb[0-9]+|thunderbolt[0-9]+)$/ {print $1; exit}'"
+      register: tb_nm_con
+      changed_when: false
+      failed_when: false
+      become: false
+      when: tb_nm_running.stdout == "running"
+      tags: [thunderbolt, tb-net, persist]
+
+    - name: Create NM connection (manual IP, never-default) for persistence
+      ansible.builtin.command:
+        cmd: >-
+          nmcli con add type ethernet
+          con-name tb-net-{{ tb_if.stdout }} ifname {{ tb_if.stdout }}
+          ipv4.method manual ipv4.addresses {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }}
+          ipv4.never-default yes connection.autoconnect yes
+      become: false
+      changed_when: true
+      when:
+        - tb_nm_running.stdout == "running"
+        - (tb_nm_con.stdout | default('') | length) == 0
+      tags: [thunderbolt, tb-net, persist]
+
+    - name: Bring the NM connection up
+      ansible.builtin.command:
+        cmd: "nmcli con up tb-net-{{ tb_if.stdout }}"
+      become: false
+      changed_when: false
+      failed_when: false
+      when:
+        - tb_nm_running.stdout == "running"
+        - (tb_nm_con.stdout | default('') | length) == 0
+      tags: [thunderbolt, tb-net, persist]
+
+    - name: Warn when persistence is unavailable (no NetworkManager)
+      ansible.builtin.debug:
+        msg: |
+          WARNING [tb-net] NetworkManager is not running on {{ inventory_hostname }}
+          — the {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }} address on {{ tb_if.stdout }}
+          is runtime-only and will be lost on reboot. Add a NetworkManager
+          connection or a systemd-networkd drop-in to persist it.
+      when: tb_nm_running.stdout != "running"
+      tags: [info]
+
+    # -----------------------------------------------------------------------
+    # 5. Verification — link state, speed, peer ping
+    # -----------------------------------------------------------------------
+    - name: Read link state of {{ tb_if.stdout }}
+      ansible.builtin.shell:
+        cmd: "ip -br link show {{ tb_if.stdout }} | awk '{print $2}'"
+      register: tb_link_state
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, verify]
+
+    - name: Read negotiated link speed (expect ~40000 Mb/s on TB4)
+      ansible.builtin.shell:
+        cmd: "ethtool {{ tb_if.stdout }} 2>/dev/null | grep -Eo 'Speed: [0-9]+' | awk '{print $2}'"
+      register: tb_link_speed
+      changed_when: false
+      failed_when: false
+      tags: [thunderbolt, tb-net, verify]
+
+    - name: Ping the auto-derived peer over the TB link
+      ansible.builtin.command:
+        cmd: "ping -I {{ tb_if.stdout }} -c 2 -W 2 {{ tb_net_peer_ip_effective }}"
+      register: tb_peer_ping
+      changed_when: false
+      failed_when: false
+      when: tb_net_peer_ip_effective | length > 0
+      tags: [thunderbolt, tb-net, verify]
+
+    # -----------------------------------------------------------------------
+    # 6. Diagnostics — iperf3 install, tb-net-diag script, cross-node test
+    # -----------------------------------------------------------------------
+    - name: Install iperf3 on Debian/Ubuntu (diagnostics)
+      ansible.builtin.apt:
+        name: iperf3
+        state: present
+        update_cache: true
+      when:
+        - tb_net_install_iperf | bool
+        - (ansible_facts['os_family'] | lower == "debian") or (ansible_facts['os_family'] | lower == "ubuntu")
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Install iperf3 on Arch Linux (diagnostics)
+      community.general.pacman:
+        name: iperf3
+        state: present
+      when:
+        - tb_net_install_iperf | bool
+        - ansible_os_family | lower == "archlinux"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Install iperf3 on Fedora (diagnostics)
+      ansible.builtin.dnf:
+        name: iperf3
+        state: present
+      when:
+        - tb_net_install_iperf | bool
+        - ansible_os_family | lower == "fedora"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Verify iperf3 is available
+      ansible.builtin.command:
+        cmd: iperf3 --version
+      register: tb_iperf3_version
+      changed_when: false
+      failed_when: false
+      when: tb_net_install_iperf | bool
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Deploy tb-net-diag diagnostics script to /usr/local/bin
+      ansible.builtin.template:
+        src: tb-net-diag.sh.j2
+        dest: /usr/local/bin/tb-net-diag
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Start iperf3 server on the TB IP [head only, 2-host batch]
+      ansible.builtin.shell: |
+        pkill -f "iperf3 -s -p {{ tb_net_iperf_port }}" 2>/dev/null || true
+        setsid timeout 120 iperf3 -s -B {{ tb_net_ip_effective }} -p {{ tb_net_iperf_port }} -P {{ tb_net_iperf_parallel }} -1 > /tmp/tb-iperf3-server.log 2>&1 < /dev/null &
+      register: tb_iperf3_server
+      changed_when: true
+      failed_when: false
+      when:
+        - tb_net_iperf_test | bool
+        - tb_net_peer_ip_effective | length > 0
+        - tb_net_pos | int == 1
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Run iperf3 client against the peer over the TB link [worker only, 2-host batch]
+      ansible.builtin.shell: |
+        result=""
+        for i in $(seq 1 60); do
+          if iperf3 -c {{ tb_net_peer_ip_effective }} -B {{ tb_net_ip_effective }} -p {{ tb_net_iperf_port }} -t {{ tb_net_iperf_time }} -P {{ tb_net_iperf_parallel }} -J > /tmp/tb-iperf3-client.json 2>/dev/null; then
+            mbps=$(python3 -c 'import json; print(int(json.load(open("/tmp/tb-iperf3-client.json"))["end"]["sum_received"]["bits_per_second"] // 1000000))' 2>/dev/null || echo "")
+            if [ -n "$mbps" ]; then result="iperf3 {{ tb_net_peer_ip_effective }}: ${mbps} Mb/s"; break; fi
+          fi
+          sleep 1
+        done
+        if [ -z "$result" ]; then result="iperf3 {{ tb_net_peer_ip_effective }}: NO RESULT (server unreachable — check the link)"; fi
+        echo "$result"
+      register: tb_iperf3_client
+      changed_when: false
+      failed_when: false
+      when:
+        - tb_net_iperf_test | bool
+        - tb_net_peer_ip_effective | length > 0
+        - tb_net_pos | int == 2
+      tags: [thunderbolt, tb-net, iperf]
+
+    - name: Print Thunderbolt net summary
+      ansible.builtin.debug:
+        msg: |
+          ==== Thunderbolt net on {{ inventory_hostname }} ====
+          interface:   {{ tb_if.stdout }} (state: {{ tb_link_state.stdout | default('?') }},
+                       speed: {{ tb_link_speed.stdout | default('N/A') }}Mb/s — expect ~40000 on TB4)
+          static IP:   {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }} (never-default)
+          peer ping:   {{ 'OK' if (tb_peer_ping is not skipped and tb_peer_ping.rc == 0) else ('skipped' if tb_peer_ping is skipped else 'FAILED — check cable + module on the other node') }}
+          iperf3:      {{ (tb_iperf3_client is succeeded | bool and tb_iperf3_client.stdout) | default('n/a on this host — the worker prints it (or: sudo tb-net-diag client <peer>)') }}
+          tb-net:        any multi-node track can use this link.
+                        Auto-detect: NCCL_SOCKET_IFNAME=tb* GLOO_SOCKET_IFNAME=tb*
+                        Manual override: NCCL_SOCKET_IFNAME={{ tb_if.stdout }} GLOO_SOCKET_IFNAME={{ tb_if.stdout }}
+          manual test: sudo tb-net-diag server (head)  /  sudo tb-net-diag client {{ tb_net_peer_ip_effective }} (worker)
+      tags: [info]

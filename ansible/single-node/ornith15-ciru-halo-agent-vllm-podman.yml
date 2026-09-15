@@ -1,0 +1,320 @@
+---
+# =============================================================================
+# ornith15-ciru-halo-agent-vllm-podman.yml
+# Ornith1.5 Ciru Halo Agent (35B-A3B IU4 + DFlash2) — Ciru's custom
+# vLLM/ROCm runtime, containerized via Podman (image BUILT HERE).
+#
+# Ciru publishes no container image — the HF repo ships a packed IU4
+# checkpoint + a self-contained runtime installer (pinned vLLM/AITER wheels,
+# native kernels, DFlash2 drafter). Stock `pip install vllm` CANNOT serve
+# these weights. So this track BUILDS a local Podman image that wraps the
+# bundled runtime (see containerfiles/<stem>.Containerfile: Ubuntu base +
+# apt prereqs + uv + INSTALL-ORNITH-RUNTIME.sh -> /opt/ciru/installed-runtime),
+# then bind-mounts the downloaded bundle/ at /bundle (READ-WRITE — the
+# server needs bundle/cache writable).
+#
+#   image           localhost/ornith15-ciru-halo-agent-vllm:1.0.2 (built here,
+#                   tag = Ciru runtime version; bump on a new runtime release)
+#   weights+bundle  jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo (HF,
+#                   ~24.3 GB assets) -> ~/ciru-halo-agent, bundle/ mounted at /bundle
+#   serve           bash /bundle/serve.sh | /bundle/serve-vision.sh
+#                   (ORNITH_RUNTIME_ROOT=/opt/ciru/installed-runtime)
+#   API             OpenAI-compatible /v1/* + /health on port 8741,
+#                   model id "ciru-halo-agent"
+#   launch script   ~/scripts/ornith15-ciru-halo-agent-vllm-start.sh
+#
+# Profile (per the model card): 262,144-token request context, 8 active
+# sequences, 44 GiB shared KV/state pool, prefix caching (recurrent-state
+# reuse), adaptive DFlash2 speculation (15/7/off under 32K computed tokens).
+# Built for concurrent agents: ~178 tok/s C1 coding decode, ~295 tok/s
+# aggregate at C8, ~668 tok/s cold prefill near 256K (~5 min to fill 256K).
+#
+# Vision: runtime 1.0.2 ships the native BF16 vision encoder + projector
+# INSIDE the checkpoint (model.visual.* tensors — no llama.cpp mmproj).
+# vision_enabled: true (default) launches /bundle/serve-vision.sh: one image
+# per request, 1,048,576-pixel budget, up to 8 active requests. Set
+# vision_enabled: false for the text-only /bundle/serve.sh profile.
+#
+# Memory: budget ~100 GB available for the loaded production profile
+# (recorded whole-host peak 95.35 GB on 128 GB Strix Halo). One server at
+# a time — stop the other tracks first.
+#
+# NOTE: the container runs as root inside; files written into the mounted
+# bundle/cache land root-owned on the host (same pattern as the other
+# rootful podman tracks in this repo).
+# =============================================================================
+
+- name: "Podman — build Ciru runtime image + deploy Ornith1.5 Ciru Halo Agent (ROCm, DFlash2)"
+  hosts: rocm
+  gather_facts: true
+  become: true
+  tags: [ornith15-ciru-halo-agent-vllm-podman]
+  vars:
+    # =====================================================================
+    # Ciru Halo Agent track vars — self-contained, no group_vars
+    # =====================================================================
+    track_stem: "ornith15-ciru-halo-agent-vllm"
+
+    hf_repo: "jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo"
+    model_id: "ciru-halo-agent"
+
+    # Ciru runtime version — the image tag. Bump when a new Ciru runtime
+    # release lands (the tag is the rebuild sentinel).
+    ciru_runtime_version: "1.0.2"
+    docker_image: "localhost/{{ track_stem }}:{{ ciru_runtime_version }}"
+    docker_container_name: "{{ track_stem }}"
+
+    host_port: 8741
+    ctx: 262144
+
+    # true  -> /bundle/serve-vision.sh (image input, native BF16 vision tower)
+    # false -> /bundle/serve.sh        (text-only profile)
+    vision_enabled: true
+    _serve_script: "{{ '/bundle/serve-vision.sh' if vision_enabled else '/bundle/serve.sh' }}"
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _base_dir: "{{ _user_home }}/ciru-halo-agent"
+
+    # Where the Containerfile bakes the runtime inside the image.
+    _image_runtime_root: "/opt/ciru/installed-runtime"
+
+    # Skip sentinel for the repo download: the target checkpoint shard that
+    # holds the model + native vision tensors. (To force a re-download after
+    # a runtime release, remove this file or run `hf download` manually.)
+    _download_sentinel: "{{ _base_dir }}/bundle/models/target/protected-00.safetensors"
+
+    # Model download settings — read token on controller (repo is public,
+    # so the no-token path is what normally runs)
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
+
+    _containerfile_path: "containerfiles/{{ track_stem }}.Containerfile"
+
+    # First startup compiles/loads GPU kernels and builds bundle/cache —
+    # wait generously (120 x 5s = ~10 min).
+    podman_health_retries: 120
+
+    # Environment for the user-run hf download (sudo -u does not set HOME).
+    _user_env:
+      HOME: "{{ _user_home }}"
+      PATH: "{{ _user_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    # Everything after the run-mode flags (-d --name X / -it), shared between
+    # the real launch and the manual debug hint below — keeps them from
+    # drifting. Device flags follow the halogen track: kfd + dri with
+    # keep-groups (no --privileged), host IPC, unlimited memlock. The bundle
+    # mount is RW: the server writes its cache under /bundle/cache.
+    _podman_common_args: >-
+      --device=/dev/kfd
+      --device=/dev/dri
+      --group-add keep-groups
+      --ipc=host
+      --ulimit memlock=-1:-1
+      -v {{ _base_dir }}/bundle:/bundle
+      -e ORNITH_RUNTIME_ROOT={{ _image_runtime_root }}
+      -p {{ host_port }}:{{ host_port }}
+      {{ docker_image }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Download the full bundle + runtime repo (~24.3 GB assets)
+    #    (skip sentinel: protected-00.safetensors)
+    # -----------------------------------------------------------------------
+    - name: Ensure Ciru base directory exists
+      ansible.builtin.file:
+        path: "{{ _base_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      tags: [podman, model]
+
+    - name: "Hf-download: stat Ciru checkpoint shard"
+      ansible.builtin.stat:
+        path: "{{ _download_sentinel }}"
+      register: _ciru_sentinel_stat
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch Ciru Halo Agent repo (with token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }}
+          --token "{{ hf_token_lookup }}"
+          --local-dir {{ _base_dir }}
+      environment: "{{ _user_env }}"
+      become_user: "{{ ansible_user }}"
+      when:
+        - not _ciru_sentinel_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: _ciru_download_token
+      changed_when: true
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch Ciru Halo Agent repo (public, no token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }}
+          --local-dir {{ _base_dir }}
+      environment: "{{ _user_env }}"
+      become_user: "{{ ansible_user }}"
+      when:
+        - not _ciru_sentinel_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: _ciru_download_public
+      changed_when: true
+      tags: [podman, model]
+
+    - name: Re-stat Ciru checkpoint shard after download
+      ansible.builtin.stat:
+        path: "{{ _download_sentinel }}"
+      register: _ciru_sentinel_after
+      tags: [podman, model]
+
+    - name: Fail if Ciru checkpoint shard is missing
+      ansible.builtin.fail:
+        msg: >-
+          Download failed — {{ _download_sentinel }} is not present.
+          Check `hf download {{ hf_repo }} --local-dir {{ _base_dir }}` manually.
+      when: not _ciru_sentinel_after.stat.exists
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 2. Build the Ciru runtime image (skipped if the version tag exists)
+    #    Custom build (not the shared podman-build-image task): the build
+    #    context must be the downloaded repo dir so the Containerfile can
+    #    COPY runtime/ — .containerignore keeps bundle/ (the weights) and
+    #    installed-runtime/ out of the context.
+    # -----------------------------------------------------------------------
+    - name: "Podman-build: check if image already exists locally ({{ docker_image }})"
+      ansible.builtin.command:
+        cmd: "podman image exists {{ docker_image }}"
+      register: _ciru_image_exists
+      changed_when: false
+      failed_when: false
+      tags: [podman, build]
+
+    - name: "Podman-build: copy Containerfile into the Ciru base dir"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/{{ _containerfile_path }}"
+        dest: "{{ _base_dir }}/{{ track_stem }}.Containerfile"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: _ciru_image_exists.rc != 0
+      tags: [podman, build]
+
+    - name: "Podman-build: write .containerignore (keep the 24 GB bundle out of the build context)"
+      ansible.builtin.copy:
+        dest: "{{ _base_dir }}/.containerignore"
+        content: |
+          bundle/
+          installed-runtime/
+          *.Containerfile
+          serve.pid
+          serve.log
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: _ciru_image_exists.rc != 0
+      tags: [podman, build]
+
+    - name: "Podman-build: install Ciru runtime into the image (downloads pinned vLLM/AITER wheels + ROCm SDK — can take a while) ({{ docker_image }})"
+      ansible.builtin.command:
+        cmd: >-
+          podman build -t {{ docker_image }}
+          -f {{ _base_dir }}/{{ track_stem }}.Containerfile
+          {{ _base_dir }}
+      when: _ciru_image_exists.rc != 0
+      register: _ciru_build_result
+      changed_when: true
+      tags: [podman, build]
+
+    - name: "Podman-build: image already built, skipping ({{ docker_image }})"
+      ansible.builtin.debug:
+        msg: >-
+          {{ docker_image }} already exists locally — skipping rebuild.
+          Remove it (podman rmi {{ docker_image }}) to force a rebuild.
+      when: _ciru_image_exists.rc == 0
+      tags: [podman, build]
+
+    # -----------------------------------------------------------------------
+    # 3. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+
+    - name: Run Ciru Halo Agent container (Podman, ROCm, DFlash2)
+      ansible.builtin.command:
+        cmd: >-
+          podman run -d --name {{ docker_container_name }} --rm --pull=never
+          {{ _podman_common_args }}
+          {{ _serve_script }} --host 0.0.0.0 --port {{ host_port }}
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }} {{ _serve_script }} --host 0.0.0.0 --port {{ host_port }}
+
+          First startup compiles/loads GPU kernels — also check the log:
+            podman logs --tail 100 {{ docker_container_name }}
+
+          Check GPU access: ls -la /dev/kfd /dev/dri
+          If the launcher can't find the runtime, check ORNITH_RUNTIME_ROOT
+          (baked at {{ _image_runtime_root }}) and the bundle mount at /bundle.
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+
+    # -----------------------------------------------------------------------
+    # 4. Write launch script + opencode config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + opencode config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== Ornith1.5 Ciru Halo Agent (Podman, ROCm, DFlash2) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }} (built here from the bundled Ciru runtime installer)
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1  (model: {{ model_id }})
+          Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health
+          Bundle: {{ _base_dir }}/bundle -> /bundle (RW — server cache lives there)
+          Runtime in image: {{ _image_runtime_root }} (ORNITH_RUNTIME_ROOT)
+          Launcher: {{ _serve_script }} (vision {{ 'ON' if vision_enabled else 'OFF' }})
+          Context: {{ ctx }} | 8 active sequences | 44 GiB shared KV/state pool | prefix caching ON
+          Speculation: adaptive DFlash2 (15/7/off under 32K computed tokens; 7-token drafting at C2-8)
+          Memory: ~100 GB budget loaded (host peak 95.35 GB recorded) — one server at a time
+          NOTE: bound to 0.0.0.0 with NO auth — LAN-exposed. Firewalls are your job.
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Smoke test ===
+          curl -s http://localhost:{{ host_port }}/v1/models
+          curl -s http://localhost:{{ host_port }}/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"{{ model_id }}","messages":[{"role":"user","content":"Write a Python function that merges overlapping intervals."}],"temperature":0.6,"top_p":0.95,"max_tokens":4096,"chat_template_kwargs":{"enable_thinking":false}}'
+
+          === Concurrency smoke (the point of this track) ===
+          for i in 1 2 3 4; do
+            curl -s http://localhost:{{ host_port }}/v1/chat/completions \
+              -H 'Content-Type: application/json' \
+              -d '{"model":"{{ model_id }}","messages":[{"role":"user","content":"def hello(): pass — explain in one line"}],"max_tokens":128}' &
+          done; wait
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]
