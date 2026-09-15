@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Gemma 4 26B A4B (UD-Q8_K_XL, vision)",
       "options": {
-        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
         "apiKey": "gemma-4-26b-a4b-local"
       },
       "models": {

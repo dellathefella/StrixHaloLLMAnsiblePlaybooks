@@ -19,12 +19,11 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/install-amdgpu.yml
 # =============================================================================
 
-- name: "install-amdgpu — Ubuntu base: system upgrade + ROCm on Ryzen"
+- name: "Install-amdgpu — Ubuntu base: system upgrade + ROCm on Ryzen"
   hosts: aiservers
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [install-amdgpu]
-
   vars:
     amdgpu_install_url: "https://repo.radeon.com/amdgpu-install/7.2.1/ubuntu/noble/amdgpu-install_7.2.1.70201-1_all.deb"
 
@@ -41,8 +40,8 @@
     - name: Upgrade all packages
       ansible.builtin.apt:
         upgrade: dist
-        autoremove: yes
-        autoclean: yes
+        autoremove: true
+        autoclean: true
       tags: [install-amdgpu, apt]
 
     # --- 2. Install amdgpu-install ---

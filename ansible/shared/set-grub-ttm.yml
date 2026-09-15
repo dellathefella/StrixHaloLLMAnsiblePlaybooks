@@ -27,12 +27,11 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/set-grub-ttm.yml
 # =============================================================================
 
-- name: "set-grub-ttm — configure TTM kernel args and reboot"
+- name: "Set-grub-ttm — configure TTM kernel args and reboot"
   hosts: aiservers
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [grub, ttm]
-
   vars:
     # Fixed TTM values for Strix Halo
     ttm_pages: 32505856
@@ -70,7 +69,7 @@
     # 2. Check if TTM args already present
     # -----------------------------------------------------------------------
     - name: Check if TTM args already in GRUB
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'ttm.pages_limit={{ ttm_pages }}' /etc/default/grub"
       register: ttm_already_set
       changed_when: false
@@ -78,7 +77,7 @@
       tags: [grub, ttm]
 
     - name: Check if page_pool_size arg already in GRUB
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'ttm.page_pool_size={{ ttm_pages }}' /etc/default/grub"
       register: pool_already_set
       changed_when: false
@@ -86,7 +85,7 @@
       tags: [grub, ttm]
 
     - name: Check if amd_iommu arg already in GRUB
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'amd_iommu=off' /etc/default/grub"
       register: iommu_already_set
       changed_when: false
@@ -94,7 +93,7 @@
       tags: [grub, ttm]
 
     - name: Check if amdgpu.lockup_timeout arg already in GRUB
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'amdgpu.lockup_timeout=' /etc/default/grub"
       register: lockup_already_set
       changed_when: false
@@ -148,9 +147,9 @@
         timeout: 300
         connect_timeout: 5
       delegate_to: localhost
-      become: no
+      become: false
       when: ttm_already_set.rc != 0 or iommu_already_set.rc != 0 or pool_already_set.rc != 0 or (lockup_timeout_enabled | bool and lockup_already_set.rc != 0)
-      ignore_errors: yes
+      ignore_errors: true
       tags: [grub, ttm, reboot]
 
     # -----------------------------------------------------------------------

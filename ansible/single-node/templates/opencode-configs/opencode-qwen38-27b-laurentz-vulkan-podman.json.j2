@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Qwen3.8-27B ROCmFP4-FAST (LaurentZuijdwijk fork, DFlash2)",
       "options": {
-        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
         "apiKey": "qwen38-27b-laurentz-local"
       },
       "models": {

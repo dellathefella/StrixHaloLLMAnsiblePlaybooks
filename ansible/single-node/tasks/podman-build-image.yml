@@ -15,7 +15,7 @@
 #                         --build-arg (e.g. "LLAMA_CPP_COMMIT=abc123...")
 # =============================================================================
 ---
-- name: "podman-build: check if {{ docker_image }} already exists locally"
+- name: "Podman-build: check if image already exists locally ({{ docker_image }})"
   ansible.builtin.command:
     cmd: "podman image exists {{ docker_image }}"
   register: _build_image_exists
@@ -23,7 +23,7 @@
   failed_when: false
   tags: [podman, build]
 
-- name: "podman-build: ensure ~/.cache exists and is user-owned"
+- name: "Podman-build: ensure ~/.cache exists and is user-owned"
   # becomes root under become: yes — a root-created ~/.cache would make it
   # impossible for the user to add anything else there without sudo.
   ansible.builtin.file:
@@ -34,7 +34,7 @@
     mode: "0755"
   tags: [podman, build]
 
-- name: "podman-build: copy Containerfile to remote host"
+- name: "Podman-build: copy Containerfile to remote host"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/{{ _containerfile_path }}"
     dest: "{{ _user_home }}/.cache/{{ track_stem }}.Containerfile"
@@ -45,7 +45,7 @@
   when: _build_image_exists.rc != 0
   tags: [podman, build]
 
-- name: "podman-build: build {{ docker_image }} from source (can take a while — compiling llama.cpp + Vulkan shaders)"
+- name: "Podman-build: build from source, can take a while — compiling llama.cpp + Vulkan shaders ({{ docker_image }})"
   ansible.builtin.command:
     cmd: >-
       podman build -t {{ docker_image }}
@@ -57,7 +57,7 @@
   changed_when: true
   tags: [podman, build]
 
-- name: "podman-build: {{ docker_image }} already built, skipping"
+- name: "Podman-build: image already built, skipping ({{ docker_image }})"
   ansible.builtin.debug:
     msg: >-
       {{ docker_image }} already exists locally — skipping rebuild.

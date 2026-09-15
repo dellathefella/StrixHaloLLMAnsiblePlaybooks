@@ -29,11 +29,19 @@
 #     (head/worker IPs from inventory hostvars; -e ds4_head_ip/... to override)
 # =============================================================================
 
-- import_playbook: ../shared/install-amdgpu.yml
-- import_playbook: ../shared/install-podman.yml
-- import_playbook: ../shared/install-hf-cli.yml
-- import_playbook: ../shared/set-grub-ttm.yml
-- import_playbook: setup-thunderbolt-net.yml
-- import_playbook: vllm-rccl-moe.yml
-- import_playbook: ds4-deepseek-v4-flash-mtp.yml
-- import_playbook: summary.yml
+- name: Import shared — amdgpu/ROCm base
+  import_playbook: ../shared/install-amdgpu.yml
+- name: Import shared — Podman
+  import_playbook: ../shared/install-podman.yml
+- name: Import shared — HuggingFace CLI
+  import_playbook: ../shared/install-hf-cli.yml
+- name: Import shared — GRUB TTM args
+  import_playbook: ../shared/set-grub-ttm.yml
+- name: Track — Thunderbolt node-to-node link
+  import_playbook: setup-thunderbolt-net.yml
+- name: Track — vLLM + RCCL MoE
+  import_playbook: vllm-rccl-moe.yml
+- name: Track — ds4 DeepSeek V4 Flash (pipeline + MTP)
+  import_playbook: ds4-deepseek-v4-flash-mtp.yml
+- name: Final per-host summary
+  import_playbook: summary.yml

@@ -490,8 +490,9 @@ hf download peonist-ai/halogen-qwen3.8-flash-next \
 ## Launch Scripts
 
 After the bootstrap, the rendered launch scripts are in `~/scripts/` on the
-target host. The bootstrap also drops OpenCode configs into
-`ansible/opencode-configs/` (rendered on the controller).
+target host. The rendered OpenCode configs land on the **controller** under
+`ansible/<topology>/rendered/opencode-configs/` (e.g.
+`ansible/single-node/rendered/opencode-configs/`).
 
 ### Single-Node Launch Example
 
@@ -538,8 +539,9 @@ DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 
 ## OpenCode Agent Config
 
-The bootstrap drops opencode configs into `ansible/opencode-configs/`
-(single-node renders also land in `ansible/single-node/rendered/opencode-configs/`):
+Each track renders its OpenCode config to the controller's
+`ansible/<topology>/rendered/opencode-configs/` (the committed
+`ansible/opencode-configs/` holds the multi-node ds4 fragment):
 
 - **Podman tracks:**
   - `opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`

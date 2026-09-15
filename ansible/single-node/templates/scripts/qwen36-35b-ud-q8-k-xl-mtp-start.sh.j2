@@ -9,7 +9,7 @@
 #
 # Image:     {{ docker_image }}
 # Container: {{ docker_container_name }}
-# Port:      {{ port }}
+# Port:      {{ host_port }}
 # Model:     {{ _models_dir }}/{{ model }}
 #
 # Profile:   ctx {{ _docker_ctx_len }}, -ngl {{ n_gpu | d(99) }},
@@ -21,7 +21,7 @@ set -euo pipefail
 
 # --- config ---
 CONTAINER="{{ docker_container_name }}"
-PORT="{{ port }}"
+PORT="{{ host_port }}"
 MODEL="{{ _models_dir }}/{{ model }}"
 IMAGE="{{ docker_image }}"
 CTX="{{ _docker_ctx_len }}"

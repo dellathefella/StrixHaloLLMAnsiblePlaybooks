@@ -9,12 +9,11 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/install-podman.yml
 # =============================================================================
 
-- name: "install-podman — detect OS and install podman"
+- name: "Install-podman — detect OS and install podman"
   hosts: aiservers
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [podman]
-
   tasks:
     - name: Print specific OS and IP facts
       ansible.builtin.debug:
@@ -41,10 +40,9 @@
         name:
           - podman
         state: present
-        update_cache: yes
+        update_cache: true
       when:
-        - (ansible_facts['os_family']   | lower == "debian") or
-          (ansible_facts['os_family']   | lower == "ubuntu")
+        - (ansible_facts['os_family']   | lower == "debian") or (ansible_facts['os_family']   | lower == "ubuntu")
       tags: [podman, debian, ubuntu]
 
     # -----------------------------------------------------------------------

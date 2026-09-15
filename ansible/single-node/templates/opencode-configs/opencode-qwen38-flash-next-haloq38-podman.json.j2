@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Qwen3.8-Flash-Next IQ4_XS-PLE (haloq38flash, Strix Halo)",
       "options": {
-        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
         "apiKey": "qwen38-flash-haloq38-local"
       },
       "models": {

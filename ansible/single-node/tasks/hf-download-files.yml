@@ -17,7 +17,7 @@
 #   hf_token_lookup      HF token string ("" => public/no-token download)
 # =============================================================================
 ---
-- name: "hf-download: stat target files"
+- name: "Hf-download: stat target files"
   ansible.builtin.stat:
     path: "{{ item.dest_dir }}/{{ item.dest_name | default(item.file | basename) }}"
   loop: "{{ hf_download_items }}"
@@ -26,7 +26,7 @@
   register: _hf_target_stat
   tags: [model]
 
-- name: "hf-download: fetch missing files (with token)"
+- name: "Hf-download: fetch missing files (with token)"
   ansible.builtin.command:
     cmd: >-
       hf download {{ item.item.repo }} {{ item.item.file }}
@@ -41,7 +41,7 @@
   changed_when: "'Downloaded' in _hf_download_with_token.stdout or 'Updated' in _hf_download_with_token.stdout"
   tags: [model]
 
-- name: "hf-download: fetch missing files (public, no token)"
+- name: "Hf-download: fetch missing files (public, no token)"
   ansible.builtin.command:
     cmd: >-
       hf download {{ item.item.repo }} {{ item.item.file }}
@@ -59,7 +59,7 @@
 # Only fires for items that declared dest_name AND were just downloaded this
 # run (already-present files were caught by the target-file stat above and
 # never reach here under their generic repo name).
-- name: "hf-download: rename downloads to dest_name"
+- name: "Hf-download: rename downloads to dest_name"
   ansible.builtin.command:
     cmd: "mv {{ item.item.dest_dir }}/{{ item.item.file | basename }} {{ item.item.dest_dir }}/{{ item.item.dest_name }}"
   loop: "{{ _hf_target_stat.results }}"

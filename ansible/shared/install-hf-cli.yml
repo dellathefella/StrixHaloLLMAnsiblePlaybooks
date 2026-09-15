@@ -11,10 +11,10 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/install-hf-cli.yml
 # =============================================================================
 
-- name: "install-hf-cli — install HuggingFace CLI"
+- name: "Install-hf-cli — install HuggingFace CLI"
   hosts: aiservers
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [hf-cli]
   tasks:
     # -----------------------------------------------------------------------
@@ -33,10 +33,9 @@
         name:
           - python3-pip
         state: present
-        update_cache: yes
+        update_cache: true
       when:
-        - (ansible_os_family | lower == "debian") or
-          (ansible_os_family | lower == "ubuntu")
+        - (ansible_os_family | lower == "debian") or (ansible_os_family | lower == "ubuntu")
       tags: [hf-cli, packages]
 
     - name: Install pip on Arch Linux
@@ -57,10 +56,8 @@
         state: present
         extra_args: --break-system-packages
       when:
-        - ansible_os_family | lower != "fedora" and
-          ansible_os_family | lower != "debian" and
-          ansible_os_family | lower != "ubuntu" and
-          ansible_os_family | lower != "archlinux"
+        - ansible_os_family | lower != "fedora" and ansible_os_family | lower != "debian" and ansible_os_family | lower != "ubuntu" and ansible_os_family |
+          lower != "archlinux"
       tags: [hf-cli, packages]
 
     - name: Install huggingface_hub via pip on Arch Linux

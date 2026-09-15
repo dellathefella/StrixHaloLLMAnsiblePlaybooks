@@ -32,35 +32,46 @@
 # --skip-tags install-amdgpu skips the amdgpu/base play on an already-provisioned host.
 # =============================================================================
 
-- import_playbook: ../shared/install-amdgpu.yml
+- name: Import shared — amdgpu/ROCm base
+  import_playbook: ../shared/install-amdgpu.yml
   tags: install-amdgpu
 
-- import_playbook: ../shared/install-podman.yml
+- name: Import shared — Podman
+  import_playbook: ../shared/install-podman.yml
   tags: install-podman
 
-- import_playbook: ../shared/install-hf-cli.yml
+- name: Import shared — HuggingFace CLI
+  import_playbook: ../shared/install-hf-cli.yml
   tags: install-hf-cli
 
-- import_playbook: ../shared/set-grub-ttm.yml
+- name: Import shared — GRUB TTM args
+  import_playbook: ../shared/set-grub-ttm.yml
   tags: grub-ttm
 
-- import_playbook: ../shared/set-limine-ttm.yml
+- name: Import shared — Limine TTM args
+  import_playbook: ../shared/set-limine-ttm.yml
   tags: limine-ttm
 
-- import_playbook: qwen36-35b-ud-q8-k-xl-mtp-podman.yml
+- name: Track — Qwen3.6-35B-A3B MTP
+  import_playbook: qwen36-35b-ud-q8-k-xl-mtp-podman.yml
   tags: [qwen36-35b-ud-q8-k-xl-mtp-podman]
 
-- import_playbook: qwen38-27b-laurentz-vulkan-podman.yml
+- name: Track — Qwen3.8-27B (LaurentZuijdwijk DFlash2)
+  import_playbook: qwen38-27b-laurentz-vulkan-podman.yml
   tags: [qwen38-27b-laurentz-vulkan-podman]
 
-- import_playbook: qwen38-flash-next-haloq38-podman.yml
+- name: Track — Qwen3.8-Flash-Next (haloq38flash)
+  import_playbook: qwen38-flash-next-haloq38-podman.yml
   tags: [qwen38-flash-next-haloq38-podman]
 
-- import_playbook: qwen38-flash-next-halogen-podman.yml
+- name: Track — Qwen3.8-Flash-Next (halogen)
+  import_playbook: qwen38-flash-next-halogen-podman.yml
   tags: [qwen38-flash-next-halogen-podman]
 
-- import_playbook: gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
+- name: Track — Gemma 4 26B A4B
+  import_playbook: gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
   tags: [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 
-- import_playbook: summary.yml
+- name: Final per-host summary
+  import_playbook: summary.yml
   tags: summary

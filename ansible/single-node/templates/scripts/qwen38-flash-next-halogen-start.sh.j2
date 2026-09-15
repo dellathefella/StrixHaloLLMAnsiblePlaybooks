@@ -8,7 +8,7 @@
 #
 # Image:     {{ docker_image }}
 # Container: {{ docker_container_name }}
-# Port:      {{ port }} (OpenAI-compatible /v1 + /health)
+# Port:      {{ host_port }} (OpenAI-compatible /v1 + /health)
 # Weights:   {{ _models_dir }}/{{ _checkpoint_file }}
 #            {{ _models_dir }}/{{ _overlay_file }} (quality overlay, auto-loaded)
 #            {{ _models_dir }}/tokenizer/
@@ -21,10 +21,12 @@ set -euo pipefail
 
 # --- config ---
 CONTAINER="{{ docker_container_name }}"
-PORT="{{ port }}"
+PORT="{{ host_port }}"
 CHECKPOINT="{{ _models_dir }}/{{ _checkpoint_file }}"
 OVERLAY="{{ _models_dir }}/{{ _overlay_file }}"
 IMAGE="{{ docker_image }}"
+# CTX is informational only — the halogen engine auto-discovers its context
+# (HALOGEN_CTX default 262144); it is NOT passed to `podman run` here.
 CTX="{{ _docker_ctx_len }}"
 
 MODEL_DIR="{{ _models_dir }}"

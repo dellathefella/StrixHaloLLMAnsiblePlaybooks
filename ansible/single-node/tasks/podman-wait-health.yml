@@ -1,7 +1,7 @@
 # =============================================================================
 # podman-wait-health.yml
 # Include with:
-#   port                     host port the server listens on (/health)
+#   host_port                  host port the server listens on (/health)
 #   podman_health_retries    OPTIONAL retry count (default 60 => ~5 min)
 # =============================================================================
 ---
@@ -13,8 +13,8 @@
 
 - name: Wait for llama-server API to respond
   ansible.builtin.uri:
-    url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health"
-    return_content: yes
+    url: "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health"
+    return_content: true
     status_code: 200
   register: health_check
   retries: "{{ podman_health_retries | default(60) }}"

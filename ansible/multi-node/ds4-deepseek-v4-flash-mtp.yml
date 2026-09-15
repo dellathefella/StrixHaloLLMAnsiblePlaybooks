@@ -37,12 +37,11 @@
 # force a specific pair (e.g. pin to LAN even though TB is up).
 # =============================================================================
 
-- name: "ds4-deepseek-v4-flash-mtp — 2-node ds4 pipeline + MTP track (TB link preferred)"
+- name: "Ds4-deepseek-v4-flash-mtp — 2-node ds4 pipeline + MTP track (TB link preferred)"
   hosts: rocm
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [ds4-deepseek-v4-flash-mtp]
-
   vars:
     _user_home: "/home/{{ ansible_user }}"
     ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:multi-node-rocm-7.2.4"
@@ -59,7 +58,7 @@
     ds4_api_port: 8000
     ds4_max_tokens: 65536
     # HF token (optional — repo is public but token allows higher rate limits)
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
     # ------------------------------------------------------------------
     # Head/worker IPs — resolution order (highest first):
     #   1. -e ds4_head_ip=... / -e ds4_worker_ip=... (extra vars win —
@@ -78,8 +77,10 @@
     # ------------------------------------------------------------------
     ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
     ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
-    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
-    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
+    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''),
+      true) }}"
+    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first
+      | default(''), true) }}"
     ds4_link_up: >-
       {{ (ds4_head_host | length > 0) and (ds4_worker_host | length > 0)
          and (hostvars[ds4_head_host]['ds4_tb_if']['stdout'] | default('') | length > 0)
@@ -164,7 +165,7 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0755"
-      become: yes
+      become: true
       tags: [ds4-deepseek-v4-flash-mtp, container]
 
     # -----------------------------------------------------------------------
@@ -259,7 +260,7 @@
           -v {{ ds4_models_dir }}:{{ ds4_models_dir }}:ro
           --shm-size=16g
           --entrypoint=bin/bash {{ ds4_container }}
-      become: yes
+      become: true
       changed_when: false
       failed_when: false
       tags: [ds4-deepseek-v4-flash-mtp, container]
@@ -267,7 +268,7 @@
     - name: Verify ds4 cluster container is running
       ansible.builtin.command:
         cmd: "podman ps --filter name={{ ds4_cluster_name }} --format '{{ '{{.Names}}' }}'"
-      become: yes
+      become: true
       register: ds4_pod
       changed_when: false
       failed_when: false
@@ -297,13 +298,12 @@
 # -----------------------------------------------------------------------------
 # Launch render — drop local ds4 launch script + opencode config
 # -----------------------------------------------------------------------------
-- name: "ds4-deepseek-v4-flash-mtp — drop local launch script + opencode config"
+- name: "Ds4-deepseek-v4-flash-mtp — drop local launch script + opencode config"
   hosts: rocm
-  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
-  become: no
-  run_once: yes
+  gather_facts: true # local/controller render; facts supply ansible_date_time for templates
+  become: false
+  run_once: true
   tags: [launch, ds4-deepseek-v4-flash-mtp]
-
   vars:
     _user_home: "/home/{{ ansible_user }}"
     # Mirror of play-1 vars — play vars do NOT carry across plays, and the
@@ -328,8 +328,10 @@
     # play does not need to redetect the link itself.
     ds4_group_hosts: "{{ groups['ds4-deepseek-v4-flash-mtp'] | default([]) }}"
     ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
-    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''), true) }}"
-    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first | default(''), true) }}"
+    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''),
+      true) }}"
+    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first
+      | default(''), true) }}"
     ds4_link_up: >-
       {{ (ds4_head_host | length > 0) and (ds4_worker_host | length > 0)
          and (hostvars[ds4_head_host]['ds4_tb_if']['stdout'] | default('') | length > 0)
@@ -353,7 +355,7 @@
         mode: "0755"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-      become: yes
+      become: true
       tags: [launch]
 
     - name: Ensure opencode-configs output directory exists on controller
@@ -369,7 +371,7 @@
         src: templates/ds4-deepseek-v4-flash-mtp-start.sh.j2
         dest: "{{ _user_home }}/scripts/ds4-deepseek-v4-flash-mtp-start.sh"
         mode: "0755"
-      become: no
+      become: false
       tags: [launch]
 
     - name: Render opencode config (opencode-ds4-deepseek-v4-flash-mtp.json) into opencode-configs/
@@ -382,7 +384,9 @@
 
     - name: Warn if head/worker IPs not supplied (worker join + opencode config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the opencode config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the opencode config
+          baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=...
+          -e ds4_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (ds4_head_ip | length == 0) or (ds4_worker_ip | length == 0)
       tags: [info, ds4-deepseek-v4-flash-mtp]

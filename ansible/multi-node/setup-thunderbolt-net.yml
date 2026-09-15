@@ -59,17 +59,16 @@
 # (also imported by ansible/multi-node/bootstrap.yml)
 # =============================================================================
 
-- name: "setup-thunderbolt-net — TB4 node-to-node cluster link"
+- name: "Setup-thunderbolt-net — TB4 node-to-node cluster link"
   hosts: multinode
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [thunderbolt, tb-net, network]
-
   vars:
     tb_net_enabled: true
     tb_net_cidr: "172.20.0.0/24"
-    tb_net_ip: ""        # per-host override; empty = 172.20.0.<play-batch-position>
-    tb_net_peer_ip: ""   # explicit peer; empty = auto-derived for 2-host batches
+    tb_net_ip: "" # per-host override; empty = 172.20.0.<play-batch-position>
+    tb_net_peer_ip: "" # explicit peer; empty = auto-derived for 2-host batches
     # --- diagnostics (iperf3) ---
     tb_net_install_iperf: true
     tb_net_iperf_test: true
@@ -223,7 +222,7 @@
       failed_when: false
       tags: [thunderbolt, tb-net, addr]
 
-    - name: Assign static IP on {{ tb_if.stdout }} ({{ tb_net_ip_effective }}/{{ tb_net_prefixlen }})
+    - name: "Assign static IP {{ tb_if.stdout ~ ' ' ~ tb_net_ip_effective ~ '/' ~ tb_net_prefixlen }}"
       ansible.builtin.shell:
         cmd: >-
           ip addr add {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }} dev {{ tb_if.stdout }}
@@ -238,7 +237,7 @@
       register: tb_nm_running
       changed_when: false
       failed_when: false
-      become: no
+      become: false
       tags: [thunderbolt, tb-net, persist]
 
     - name: Check for an existing NM connection on the TB interface
@@ -247,18 +246,18 @@
       register: tb_nm_con
       changed_when: false
       failed_when: false
-      become: no
+      become: false
       when: tb_nm_running.stdout == "running"
       tags: [thunderbolt, tb-net, persist]
 
     - name: Create NM connection (manual IP, never-default) for persistence
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: >-
           nmcli con add type ethernet
           con-name tb-net-{{ tb_if.stdout }} ifname {{ tb_if.stdout }}
           ipv4.method manual ipv4.addresses {{ tb_net_ip_effective }}/{{ tb_net_prefixlen }}
           ipv4.never-default yes connection.autoconnect yes
-      become: no
+      become: false
       changed_when: true
       when:
         - tb_nm_running.stdout == "running"
@@ -268,7 +267,7 @@
     - name: Bring the NM connection up
       ansible.builtin.command:
         cmd: "nmcli con up tb-net-{{ tb_if.stdout }}"
-      become: no
+      become: false
       changed_when: false
       failed_when: false
       when:
@@ -306,7 +305,7 @@
       tags: [thunderbolt, tb-net, verify]
 
     - name: Ping the auto-derived peer over the TB link
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "ping -I {{ tb_if.stdout }} -c 2 -W 2 {{ tb_net_peer_ip_effective }}"
       register: tb_peer_ping
       changed_when: false
@@ -321,7 +320,7 @@
       ansible.builtin.apt:
         name: iperf3
         state: present
-        update_cache: yes
+        update_cache: true
       when:
         - tb_net_install_iperf | bool
         - (ansible_facts['os_family'] | lower == "debian") or (ansible_facts['os_family'] | lower == "ubuntu")
@@ -411,4 +410,3 @@
                         Manual override: NCCL_SOCKET_IFNAME={{ tb_if.stdout }} GLOO_SOCKET_IFNAME={{ tb_if.stdout }}
           manual test: sudo tb-net-diag server (head)  /  sudo tb-net-diag client {{ tb_net_peer_ip_effective }} (worker)
       tags: [info]
-

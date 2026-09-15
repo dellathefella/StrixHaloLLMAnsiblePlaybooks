@@ -28,12 +28,11 @@
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/shared/set-limine-ttm.yml
 # =============================================================================
 
-- name: "set-limine-ttm — configure TTM kernel args in Limine and reboot"
+- name: "Set-limine-ttm — configure TTM kernel args in Limine and reboot"
   hosts: aiservers
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [limine, ttm]
-
   vars:
     # Fixed TTM values for Strix Halo
     ttm_pages: 32505856
@@ -71,7 +70,7 @@
     # 2. Check if TTM args already present
     # -----------------------------------------------------------------------
     - name: Check if TTM args already in Limine config
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'ttm.pages_limit={{ ttm_pages }}' {{ limine_conf_path }}"
       register: ttm_already_set
       changed_when: false
@@ -79,7 +78,7 @@
       tags: [limine, ttm]
 
     - name: Check if page_pool_size already in Limine config
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'ttm.page_pool_size={{ ttm_pages }}' {{ limine_conf_path }}"
       register: pool_already_set
       changed_when: false
@@ -87,7 +86,7 @@
       tags: [limine, ttm]
 
     - name: Check if amdgpu.lockup_timeout already in Limine config
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "grep -q 'amdgpu.lockup_timeout=' {{ limine_conf_path }}"
       register: lockup_already_set
       changed_when: false
@@ -128,7 +127,7 @@
         path: "{{ limine_conf_path }}"
         line: "KERNEL_CMDLINE[default]+={{ limine_ttm_args }}"
         state: present
-        create: no
+        create: false
       when: need_limine_ttm | default(false)
       tags: [limine, ttm]
 
@@ -169,9 +168,9 @@
         timeout: 300
         connect_timeout: 5
       delegate_to: localhost
-      become: no
+      become: false
       when: need_limine_ttm | default(false)
-      ignore_errors: yes
+      ignore_errors: true
       tags: [limine, ttm, reboot]
 
     # -----------------------------------------------------------------------

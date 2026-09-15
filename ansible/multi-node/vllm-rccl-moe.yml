@@ -29,12 +29,11 @@
 # the LAN IPs of the two nodes when the Thunderbolt link is down.
 # =============================================================================
 
-- name: "vllm-rccl-moe — vLLM + Ray + RCCL MoE track (TB link preferred)"
+- name: "Vllm-rccl-moe — vLLM + Ray + RCCL MoE track (TB link preferred)"
   hosts: rocm
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [vllm-rccl-moe]
-
   vars:
     active_profile: "minimax-m2.7-awq-4bit"
     vllm_moe_container: "oci-registry.ryai.dev/ryai-vllm:latest"
@@ -55,10 +54,14 @@
     # ------------------------------------------------------------------
     vllm_moe_group_hosts: "{{ groups['vllm-rccl-moe'] | default([]) }}"
     vllm_moe_role_by_host: "{{ dict(zip(vllm_moe_group_hosts, vllm_moe_group_hosts | map('extract', hostvars, 'vllm_moe_role', default('')) | list)) }}"
-    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts | first | default(''), true) }}"
-    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
-    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
-    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts
+      | first | default(''), true) }}"
+    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2]
+      | first | default(''), true) }}"
+    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host,
+      true) if vllm_moe_head_host else '' }}"
+    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host,
+      true) if vllm_moe_worker_host else '' }}"
     # LAN IP of the head — used for opencode config baseUrl
     vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     # ------------------------------------------------------------------
@@ -167,7 +170,7 @@
         path: "{{ vllm_moe_models_dir }}"
         state: directory
         mode: "0755"
-      become: no
+      become: false
       tags: [vllm-rccl-moe, container]
 
     - name: Launch vLLM cluster container (detached bash, RCCL env on selected link)
@@ -181,7 +184,7 @@
           -e NCCL_SOCKET_IFNAME={{ vllm_moe_rccl_if }}
           -e GLOO_SOCKET_IFNAME={{ vllm_moe_rccl_if }}
           --entrypoint=bin/bash {{ vllm_moe_container }}
-      become: no
+      become: false
       changed_when: false
       failed_when: false
       tags: [vllm-rccl-moe, container]
@@ -190,7 +193,7 @@
       ansible.builtin.command:
         cmd: "sudo podman ps --filter name=vllm_cluster --format '{{ '{{.Names}}' }}'"
       register: vllm_moe_pod
-      become: no
+      become: false
       changed_when: false
       failed_when: false
       tags: [vllm-rccl-moe, container]
@@ -218,13 +221,12 @@
 # -----------------------------------------------------------------------------
 # Launch render — drop local vllm-rccl-moe launch script + opencode config
 # -----------------------------------------------------------------------------
-- name: "vllm-rccl-moe — drop local launch script + opencode config"
+- name: "Vllm-rccl-moe — drop local launch script + opencode config"
   hosts: rocm
-  gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
-  become: no
-  run_once: yes
+  gather_facts: true # local/controller render; facts supply ansible_date_time for templates
+  become: false
+  run_once: true
   tags: [launch, vllm-rccl-moe]
-
   vars:
     # Mirror of play-1 vars — play vars do NOT carry across plays, and the
     # templates below render from this play's scope. -e overrides apply to
@@ -239,10 +241,14 @@
     _user_home: "/home/{{ ansible_user }}"
     vllm_moe_group_hosts: "{{ groups['vllm-rccl-moe'] | default([]) }}"
     vllm_moe_role_by_host: "{{ dict(zip(vllm_moe_group_hosts, vllm_moe_group_hosts | map('extract', hostvars, 'vllm_moe_role', default('')) | list)) }}"
-    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts | first | default(''), true) }}"
-    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
-    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
-    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
+    vllm_moe_head_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(vllm_moe_group_hosts
+      | first | default(''), true) }}"
+    vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2]
+      | first | default(''), true) }}"
+    vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host,
+      true) if vllm_moe_head_host else '' }}"
+    vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host,
+      true) if vllm_moe_worker_host else '' }}"
     # LAN IP of the head — used for opencode config baseUrl
     vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_profiles:
@@ -270,7 +276,7 @@
         mode: "0755"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-      become: yes
+      become: true
       tags: [launch]
 
     - name: Ensure opencode-configs output directory exists on controller
@@ -286,7 +292,7 @@
         src: templates/vllm-rccl-moe-start.sh.j2
         dest: "{{ _user_home }}/scripts/vllm-rccl-moe-start.sh"
         mode: "0755"
-      become: no
+      become: false
       tags: [launch]
 
     - name: Render opencode config (opencode-vllm-rccl-moe.json) into opencode-configs/
@@ -299,8 +305,9 @@
 
     - name: Warn if head/worker IPs not supplied (worker join + opencode config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the opencode config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the opencode config baseUrl
+          is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=...
+          -e vllm_moe_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (vllm_moe_head_ip | length == 0) or (vllm_moe_worker_ip | length == 0)
       tags: [info]
-

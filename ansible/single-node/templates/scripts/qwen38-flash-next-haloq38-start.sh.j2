@@ -9,7 +9,7 @@
 #
 # Image:     {{ docker_image }}
 # Container: {{ docker_container_name }}
-# Port:      {{ port }}
+# Port:      {{ host_port }}
 # Model:     {{ _models_dir }}/{{ model }}
 # MTP:       {{ _models_dir }}/{{ mtp_draft_file }} (optional per upstream,
 #            wired in here via --model-draft / --spec-type draft-mtp)
@@ -24,7 +24,7 @@ set -euo pipefail
 
 # --- config ---
 CONTAINER="{{ docker_container_name }}"
-PORT="{{ port }}"
+PORT="{{ host_port }}"
 MODEL="{{ _models_dir }}/{{ model }}"
 DRAFT="{{ _models_dir }}/{{ mtp_draft_file }}"
 IMAGE="{{ docker_image }}"

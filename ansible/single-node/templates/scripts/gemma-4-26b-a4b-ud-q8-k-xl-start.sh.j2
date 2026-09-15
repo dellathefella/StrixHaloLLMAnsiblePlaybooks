@@ -7,7 +7,7 @@
 #
 # Image:     {{ docker_image }}
 # Container: {{ docker_container_name }}
-# Port:      {{ port }}
+# Port:      {{ host_port }}
 # Model:     {{ _models_dir }}/{{ model }}
 # Projector: {{ _models_dir }}/{{ mmproj_local }} — required for image input
 #
@@ -22,7 +22,7 @@ set -euo pipefail
 
 # --- config ---
 CONTAINER="{{ docker_container_name }}"
-PORT="{{ port }}"
+PORT="{{ host_port }}"
 MODEL="{{ _models_dir }}/{{ model }}"
 MMPROJ="{{ _models_dir }}/{{ mmproj_local }}"
 IMAGE="{{ docker_image }}"

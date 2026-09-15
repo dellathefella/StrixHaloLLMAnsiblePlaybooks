@@ -20,12 +20,11 @@
 #   launch script   ~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp container (UD-Q8_K_XL, MTP)"
+- name: "Podman — setup + deploy llama.cpp container (UD-Q8_K_XL, MTP)"
   hosts: vulkan
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [qwen36-35b-ud-q8-k-xl-mtp-podman]
-
   vars:
     # =====================================================================
     # Qwen36-35B-A3B MTP (UD-Q8_K_XL) track vars — self-contained, no group_vars
@@ -44,7 +43,7 @@
     # baked into the GGUF. --parallel MUST stay 1: the model card says
     # -np > 1 isn't supported with MTP yet.
     ctx: 262144
-    port: 8080
+    host_port: 8080
     parallel: 1
     batch: 256
     model: "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
@@ -61,17 +60,13 @@
     # Use ansible_user (original login user) to compute the correct home dir.
     _user_home: "/home/{{ ansible_user }}"
     _models_dir: "{{ _user_home }}/models"
-    _docker_ctx_len: "{{ ctx | d('8192') }}"
+    _docker_ctx_len: "{{ ctx | d('262144') }}"
 
     # Model download settings — read token on controller
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
 
     hf_download_items:
-      - {
-          repo: "{{ hf_repo }}",
-          file: "{{ model }}",
-          dest_dir: "{{ _models_dir }}",
-        }
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
 
     # Everything after the run-mode flags (-d --name X / -it), shared between
     # the real launch and the manual debug hint below — keeps them from drifting.
@@ -81,11 +76,11 @@
       --privileged
       --entrypoint llama-server
       -v {{ _models_dir }}:{{ _models_dir }}:ro
-      -p {{ port }}:{{ port }}
+      -p {{ host_port }}:{{ host_port }}
       {{ docker_image }}
       --model {{ _models_dir }}/{{ model }}
       --host 0.0.0.0
-      --port {{ port }}
+      --port {{ host_port }}
       --ctx-size {{ _docker_ctx_len }}
       --parallel {{ parallel | d(1) }}
       --n-gpu-layers {{ n_gpu | d(99) }}
@@ -154,7 +149,7 @@
           ==== llama.cpp (Podman) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }}
           Container: {{ docker_container_name }}
-          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
           Model: {{ _models_dir }}/{{ model }} (MTP built-in, {{ spec_type }} n-max {{ spec_draft_n_max | d(2) }})
           GPU layers: {{ n_gpu | d(99) }} | Flash-attn: {{ flash_attn | d('on') }} | Parallel: {{ parallel | d(1) }}
           Context: {{ _docker_ctx_len }}

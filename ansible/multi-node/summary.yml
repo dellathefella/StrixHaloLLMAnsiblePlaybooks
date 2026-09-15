@@ -1,9 +1,9 @@
-- name: "bootstrap — final summary"
+---
+- name: "Bootstrap — final summary"
   hosts: aiservers
-  gather_facts: no   # local/controller runs skip facts; uses inventory_hostname/groups
-  become: yes
+  gather_facts: false # local/controller runs skip facts; uses inventory_hostname/groups
+  become: true
   tags: [summary]
-
   tasks:
     - name: Print completion summary
       ansible.builtin.debug:

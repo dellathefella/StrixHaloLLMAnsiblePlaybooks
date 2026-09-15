@@ -37,12 +37,11 @@
 # --tensor-read-lazy on to _podman_common_args by hand.
 # =============================================================================
 
-- name: "podman — build from source + deploy llama.cpp container (haloq38flash)"
+- name: "Podman — build from source + deploy llama.cpp container (haloq38flash)"
   hosts: vulkan
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [qwen38-flash-next-haloq38-podman]
-
   vars:
     # =====================================================================
     # Qwen3.8-Flash-Next haloq38flash track vars — self-contained, no group_vars
@@ -59,7 +58,7 @@
     # Model settings — mirrors haloq38flash's own Dockerfile CMD default
     # exactly (same ctx, same KV quant, same ubatch/threads).
     ctx: 65536
-    port: 8080
+    host_port: 8080
     n_gpu: 999
     ubatch: 2048
     threads: 4
@@ -82,7 +81,7 @@
     _docker_ctx_len: "{{ ctx | d('32768') }}"
 
     # Model download settings — read token on controller
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
 
     hf_download_items:
       - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
@@ -102,12 +101,12 @@
       --entrypoint /app/llama-server
       --pull=never
       -v {{ _models_dir }}:{{ _models_dir }}:ro
-      -p {{ port }}:{{ port }}
+      -p {{ host_port }}:{{ host_port }}
       {{ docker_image }}
       --model {{ _models_dir }}/{{ model }}
       --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
       --host 0.0.0.0
-      --port {{ port }}
+      --port {{ host_port }}
       --ctx-size {{ _docker_ctx_len }}
       --n-gpu-layers {{ n_gpu | d(999) }}
       --flash-attn {{ flash_attn | d('on') }}
@@ -185,7 +184,7 @@
           ==== llama.cpp (Podman, haloq38flash) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }} (built from source — Nathanw1014/llama.cpp, strix-halo-vulkan branch)
           Container: {{ docker_container_name }}
-          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
           Model: {{ _models_dir }}/{{ model }}
           MTP sidecar: {{ _models_dir }}/{{ mtp_draft_file }} ({{ spec_type }}, n-max {{ spec_draft_n_max | d(3) }})
           KV cache: {{ cache_type_k }} (K) / {{ cache_type_v }} (V) — see header comment if this crashes

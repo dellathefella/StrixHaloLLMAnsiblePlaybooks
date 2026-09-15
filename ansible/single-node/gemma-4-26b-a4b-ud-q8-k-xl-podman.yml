@@ -20,12 +20,11 @@
 # --cache-type-k/--cache-type-v q8_0 the way the qwen38-27b track does.
 # =============================================================================
 
-- name: "podman — setup + deploy llama.cpp container with vision (UD-Q8_K_XL)"
+- name: "Podman — setup + deploy llama.cpp container with vision (UD-Q8_K_XL)"
   hosts: vulkan
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [gemma-4-26b-a4b-ud-q8-k-xl-podman]
-
   vars:
     # =====================================================================
     # Gemma 4 26B A4B (UD-Q8_K_XL) track vars — self-contained, no group_vars
@@ -42,7 +41,7 @@
 
     # Model settings — single GGUF at the repo root, native ctx 262144
     ctx: 262144
-    port: 8080
+    host_port: 8080
     batch: 256
     model: "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf"
     hf_repo: "unsloth/gemma-4-26B-A4B-it-GGUF"
@@ -60,26 +59,17 @@
     # Use ansible_user (original login user) to compute the correct home dir.
     _user_home: "/home/{{ ansible_user }}"
     _models_dir: "{{ _user_home }}/models"
-    _docker_ctx_len: "{{ ctx | d('8192') }}"
+    _docker_ctx_len: "{{ ctx | d('262144') }}"
 
     # Model download settings — read token on controller (repo is public,
     # so the no-token path is what normally runs)
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
 
     # hf writes the projector under its generic repo name; dest_name renames
     # it so a later vision track can never overwrite it.
     hf_download_items:
-      - {
-          repo: "{{ hf_repo }}",
-          file: "{{ model }}",
-          dest_dir: "{{ _models_dir }}",
-        }
-      - {
-          repo: "{{ hf_repo }}",
-          file: "{{ mmproj_file }}",
-          dest_dir: "{{ _models_dir }}",
-          dest_name: "{{ mmproj_local }}",
-        }
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
+      - { repo: "{{ hf_repo }}", file: "{{ mmproj_file }}", dest_dir: "{{ _models_dir }}", dest_name: "{{ mmproj_local }}" }
 
     # Everything after the run-mode flags (-d --name X / -it), shared between
     # the real launch and the manual debug hint below — keeps them from drifting.
@@ -89,12 +79,12 @@
       --privileged
       --entrypoint llama-server
       -v {{ _models_dir }}:{{ _models_dir }}:ro
-      -p {{ port }}:{{ port }}
+      -p {{ host_port }}:{{ host_port }}
       {{ docker_image }}
       --model {{ _models_dir }}/{{ model }}
       --mmproj {{ _models_dir }}/{{ mmproj_local }}
       --host 0.0.0.0
-      --port {{ port }}
+      --port {{ host_port }}
       --ctx-size {{ _docker_ctx_len }}
       --n-gpu-layers {{ n_gpu | d(999) }}
       --batch-size {{ batch | d(256) }}
@@ -181,7 +171,7 @@
           ==== llama.cpp (Podman) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }}
           Container: {{ docker_container_name }}
-          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
           Model: {{ _models_dir }}/{{ model }}
           Vision projector: {{ _models_dir }}/{{ mmproj_local }} (image input ON)
           GPU layers: {{ n_gpu | d(999) }}
@@ -190,7 +180,7 @@
           Launch script: ~/scripts/{{ track_stem }}-start.sh
 
           === Image smoke test ===
-          curl -s http://localhost:{{ port }}/v1/models | grep -o multimodal
+          curl -s http://localhost:{{ host_port }}/v1/models | grep -o multimodal
           Send an image through /v1/chat/completions with an "image_url" content part.
 
           === Container log commands ===

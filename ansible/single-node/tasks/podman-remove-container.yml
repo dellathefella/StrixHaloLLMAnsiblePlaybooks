@@ -7,6 +7,6 @@
 - name: Remove any existing container with the same name
   ansible.builtin.command:
     cmd: "podman rm -f {{ docker_container_name }}"
-  ignore_errors: yes
+  ignore_errors: true
   changed_when: false
   tags: [podman, deploy]

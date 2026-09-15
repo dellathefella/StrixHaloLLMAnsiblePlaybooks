@@ -28,12 +28,11 @@
 #   launch script   ~/scripts/qwen38-27b-laurentz-vulkan-start.sh
 # =============================================================================
 
-- name: "podman — build from source + deploy llama.cpp container (LaurentZuijdwijk fork, DFlash2)"
+- name: "Podman — build from source + deploy llama.cpp container (LaurentZuijdwijk fork, DFlash2)"
   hosts: vulkan
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [qwen38-27b-laurentz-vulkan-podman]
-
   vars:
     # =====================================================================
     # Qwen3.8-27B LaurentZuijdwijk/DFlash2 track vars — self-contained, no group_vars
@@ -49,9 +48,9 @@
 
     # Model settings — per the fork's own "65.6 t/s" benchmark config.
     ctx: 65536
-    port: 8080
+    host_port: 8080
     n_gpu: 999
-    spec_draft_ngl: 99          # GPU layers for the DFlash2 draft model specifically
+    spec_draft_ngl: 99 # GPU layers for the DFlash2 draft model specifically
     batch: 2048
     ubatch: 512
     flash_attn: "on"
@@ -74,7 +73,7 @@
     _docker_ctx_len: "{{ ctx | d('32768') }}"
 
     # Model download settings — read token on controller
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
 
     hf_download_items:
       - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
@@ -95,12 +94,12 @@
       --entrypoint /app/llama-server
       --pull=never
       -v {{ _models_dir }}:{{ _models_dir }}:ro
-      -p {{ port }}:{{ port }}
+      -p {{ host_port }}:{{ host_port }}
       {{ docker_image }}
       --model {{ _models_dir }}/{{ model }}
       --model-draft {{ _models_dir }}/{{ mtp_draft_file }}
       --host 0.0.0.0
-      --port {{ port }}
+      --port {{ host_port }}
       --ctx-size {{ _docker_ctx_len }}
       --n-gpu-layers {{ n_gpu | d(999) }}
       --spec-draft-ngl {{ spec_draft_ngl | d(99) }}
@@ -179,7 +178,7 @@
           ==== llama.cpp (Podman, LaurentZuijdwijk fork) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }} (built from source, commit {{ llama_cpp_commit }})
           Container: {{ docker_container_name }}
-          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/completion
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
           Model: {{ _models_dir }}/{{ model }}
           Drafter: {{ _models_dir }}/{{ mtp_draft_file }} ({{ spec_type }}, adaptive n {{ spec_draft_n_min | d(3) }}-{{ spec_draft_n_max | d(7) }})
           GPU layers: {{ n_gpu | d(999) }} (main) / {{ spec_draft_ngl | d(99) }} (draft)

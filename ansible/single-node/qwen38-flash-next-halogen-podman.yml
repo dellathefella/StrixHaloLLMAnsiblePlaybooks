@@ -29,12 +29,11 @@
 # podman_health_retries: 120 (~10 min) for this track.
 # =============================================================================
 
-- name: "podman — pull + deploy halogen-flash-server container (ROCm)"
+- name: "Podman — pull + deploy halogen-flash-server container (ROCm)"
   hosts: rocm
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   tags: [qwen38-flash-next-halogen-podman]
-
   vars:
     # =====================================================================
     # Qwen3.8-Flash-Next halogen track vars — self-contained, no group_vars
@@ -50,13 +49,13 @@
     # Model settings — halogen serves the whole checkpoint/overlay set; ctx is
     # the engine default (HALOGEN_CTX), exposed here for the launch script.
     ctx: 262144
-    port: 8731
+    host_port: 8731
 
     # Directories — when become: yes is set, ansible_env.HOME becomes /root.
     # Use ansible_user (original login user) to compute the correct home dir.
     _user_home: "/home/{{ ansible_user }}"
     _models_dir: "{{ _user_home }}/halogen-models"
-    _docker_ctx_len: "{{ ctx | d('32768') }}"
+    _docker_ctx_len: "{{ ctx | d('262144') }}"
 
     # Weight files in peonist-ai/halogen-qwen3.8-flash-next (~118 GiB total
     # across the full repo; this track pulls checkpoint + quality overlay +
@@ -67,7 +66,7 @@
 
     # Model download settings — read token on controller (repo is public,
     # so the no-token path is what normally runs)
-    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
 
     # 118 GiB cold load needs a longer /health wait than the llama.cpp
     # tracks' default 60 retries (~5 min).
@@ -84,7 +83,7 @@
       --ipc=host
       --ulimit memlock=-1:-1
       -v {{ _models_dir }}:/models:ro
-      -p {{ port }}:{{ port }}
+      -p {{ host_port }}:{{ host_port }}
       {{ docker_image }}
 
   tasks:
@@ -98,13 +97,13 @@
     # 2. Download checkpoint + quality overlay + tokenizer if not present
     #    (skip sentinel: the 115.55 GiB checkpoint file)
     # -----------------------------------------------------------------------
-    - name: "hf-download: stat halogen checkpoint"
+    - name: "Hf-download: stat halogen checkpoint"
       ansible.builtin.stat:
         path: "{{ _models_dir }}/{{ _checkpoint_file }}"
       register: _halogen_checkpoint_stat
       tags: [podman, model]
 
-    - name: "hf-download: fetch halogen weights (with token)"
+    - name: "Hf-download: fetch halogen weights (with token)"
       ansible.builtin.command:
         cmd: >-
           hf download {{ hf_repo }}
@@ -120,7 +119,7 @@
       changed_when: "'Downloaded' in _halogen_download_token.stdout or 'Updated' in _halogen_download_token.stdout"
       tags: [podman, model]
 
-    - name: "hf-download: fetch halogen weights (public, no token)"
+    - name: "Hf-download: fetch halogen weights (public, no token)"
       ansible.builtin.command:
         cmd: >-
           hf download {{ hf_repo }}
@@ -203,8 +202,8 @@
           ==== halogen-flash-server (Podman, ROCm) deployed on {{ inventory_hostname }} ====
           Image: {{ docker_image }} (prebuilt — pulled with --pull=newer, never built)
           Container: {{ docker_container_name }}
-          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1
-          Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
+          Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health
           Model: {{ _models_dir }}/{{ _checkpoint_file }} (+ {{ _overlay_file }} overlay, {{ _models_dir }}/tokenizer)
           Context: {{ _docker_ctx_len }} (HALOGEN_CTX default)
           Sampling: greedy by default — the card's thinking-mode settings (temp 1.0,
@@ -212,8 +211,8 @@
           Launch script: ~/scripts/{{ track_stem }}-start.sh
 
           === Smoke test ===
-          curl -s http://localhost:{{ port }}/v1/models
-          curl -s http://localhost:{{ port }}/v1/chat/completions \
+          curl -s http://localhost:{{ host_port }}/v1/models
+          curl -s http://localhost:{{ host_port }}/v1/chat/completions \
             -H 'Content-Type: application/json' \
             -d '{"model":"halogen-qwen3.8-flash-next","messages":[{"role":"user","content":"ping"}]}'
 

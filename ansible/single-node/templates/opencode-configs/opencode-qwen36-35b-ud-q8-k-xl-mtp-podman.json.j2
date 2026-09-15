@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Qwen3.6-35B-A3B MTP (UD-Q8_K_XL, KyaniteLabs Strix Halo)",
       "options": {
-        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
         "apiKey": "qwen36-35b-mtp-local"
       },
       "models": {

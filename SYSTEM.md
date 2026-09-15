@@ -10,26 +10,52 @@
 
 ## Directory layout
 
+The repo is organized **topology-first**: `single-node/` and `multi-node/` each
+carry their own bootstrap, tracks, inventory, and templates. There is **no**
+top-level `ansible/tasks/` or `ansible/templates/` — shared pieces live either
+under `shared/` (host setup plays) or under each topology's own `tasks/` /
+`templates/`.
+
 ```
 ansible/
-  bootstrap.yml                orchestrator — static import_playbook of all tracks
-  shared/                      shared setup playbooks: install-amdgpu (ROCm), install-podman,
-                               install-hf-cli, set-grub-ttm, set-limine-ttm
-  summary.yml                  final per-host completion summary
-  <track>.yml                  per-track playbook (see track naming below)
-  tasks/
-    rocm-build-deps.yml        shared ROCm + dev packages (HIP, CMake, etc.)
-    vulkan-build-deps.yml      shared Vulkan/RADV + dev packages
-  templates/
-    <track>-start.sh.j2        launch script — rendered to scripts/
-    opencode-<track>.json.j2   opencode config — rendered to opencode-configs/
-  single-node/ + multi-node/   per-track playbooks, bootstrap, inventory, templates
-    inventory/hosts            real inventory — capability groups (vulkan / rocm → aiservers;
-                               multi-node inventory adds `multinode` for the TB link)
-    inventory/hosts.example    sample multi-machine inventory (single-node only)
-    inventory/group_vars/all   placeholder (empty) — tracks define their vars inline
-scripts/                       rendered launch scripts + local installers
-  opencode-configs/              rendered opencode provider configs
+  shared/                      host-level setup plays (imported by both bootstraps)
+    install-amdgpu.yml           Ubuntu base: apt upgrade + ROCm (Ubuntu-gated)
+    install-podman.yml           cross-distro Podman install
+    install-hf-cli.yml           HuggingFace CLI install
+    set-grub-ttm.yml             GRUB TTM / IOMMU / GTT kernel args
+    set-limine-ttm.yml           Limine TTM kernel args (Limine hosts only)
+  single-node/                 one box, one model at a time
+    bootstrap.yml                ORCHESTRATOR: shared/ + all single-node tracks
+    summary.yml                  final per-host completion summary
+    <track>-podman.yml           per-track playbook (see track naming below)
+    containerfiles/              Containerfiles for the built-from-source tracks
+    tasks/                       shared task files included by the tracks:
+      podman-models-dir.yml                models dir + ownership
+      hf-download-files.yml                HF download loop (skip if present, optional rename)
+      podman-build-image.yml               podman build from a Containerfile (skip if tag exists)
+      podman-remove-container.yml          podman rm -f before (re)launch
+      podman-check-running.yml             start result + running check
+      podman-wait-health.yml               sleep + poll /health
+      podman-render-launch-artifacts.yml   launch script + opencode config render
+    inventory/
+      hosts                      real inventory (vulkan / rocm → aiservers)
+      hosts.example              sample inventory template
+      group_vars/all.yml         placeholder (empty) — tracks define vars inline
+    templates/
+      scripts/<track_stem>-start.sh.j2                 launch script template
+      opencode-configs/opencode-<track_stem>-podman.json.j2  opencode config template
+    rendered/                    rendered output (gitignored)
+  multi-node/                  2-node cluster tracks
+    bootstrap.yml, summary.yml
+    setup-thunderbolt-net.yml    TB4 node-to-node link (multinode group only)
+    vllm-rccl-moe.yml            vLLM + Ray + RCCL MoE track
+    ds4-deepseek-v4-flash-mtp.yml  2-node ds4 pipeline parallel + MTP track
+    inventory/                   hosts (halo0 head + halo1 worker; + multinode for TB)
+    templates/                   *.sh.j2, opencode-*.json.j2, tb-net-diag.sh.j2
+    rendered/                    rendered output (gitignored)
+  opencode-configs/            committed rendered opencode configs (controller-side)
+  scripts/                     committed rendered launch scripts (controller-side)
+  secrets/                     hf_token.txt (gitignored) + PUT_HF_TOKEN_HERE placeholder
 ```
 
 ## Track naming convention
@@ -55,8 +81,16 @@ model is chosen by which track playbook you run, not by group membership.
 
 ### Template naming
 
-- Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`
-- OpenCode config: `templates/opencode-<playbook-name>.json.j2` → renders to `opencode-configs/opencode-<playbook-name>.json`
+Templates live under the topology's `templates/` dir and are rendered by
+`tasks/podman-render-launch-artifacts.yml` using `track_stem`:
+
+- Launch script: `templates/scripts/<track_stem>-start.sh.j2` → renders to the
+  **target host's** `~/scripts/<track_stem>-start.sh`
+- OpenCode config: `templates/opencode-configs/opencode-<track_stem>-podman.json.j2`
+  → renders to the **controller's** `rendered/opencode-configs/opencode-<track_stem>-podman.json`
+
+Note the `-podman` suffix on the opencode config template/filename (the
+`track_stem` itself does not carry it).
 
 ### Variable conventions
 
@@ -87,73 +121,69 @@ model only adds an entry to the dict.
 
 ## Playbook structure
 
-### Two-play pattern
+### Single-play pattern (Podman tracks)
 
-Every track playbook follows a two-play structure:
+Each `*-podman.yml` track is a **single play** (`hosts: vulkan|rocm`,
+`gather_facts: yes`, `become: yes`) that does everything in order by including
+shared task files from `tasks/`:
 
-1. **Bootstrap play** (`become: yes`, runs on target host):
-   - Includes task file for build deps (`rocm-build-deps.yml` or `vulkan-build-deps.yml`)
-   - Clones and builds llama.cpp (or other engine) into the track-specific directory
-   - Downloads model weights from HuggingFace via `hf`
-   - Verifies binary + model files, emits summary
+1. `podman-models-dir.yml` — ensure the models dir exists + is user-owned
+2. `hf-download-files.yml` — download weights (skips files already present)
+3. `podman-remove-container.yml` → `podman run` → `podman-check-running.yml`
+4. `podman-wait-health.yml` — sleep + poll `/health`
+5. `podman-render-launch-artifacts.yml` — render the launch script to the
+   target's `~/scripts/` and the opencode config to the controller's
+   `rendered/opencode-configs/`
 
-2. **Render play** (`become: no`, `run_once: yes`, `delegate_to: localhost`):
-   - Renders `*-start.sh.j2` → `scripts/<track>-start.sh` (mode `0755`)
-   - Renders `opencode-<track>.json.j2` → `opencode-configs/opencode-<track>.json` (mode `0644`)
-   - Checks binary presence on localhost, warns if missing
+The render tasks use `delegate_to: localhost` + `become: no` **inline** — there
+is no separate render play. (The old bootstrap/render split belonged to the
+retired host-source-build tracks.)
 
 ### Tags
 
-- Bootstrap play: `[<track-tag>]` (matches host group name)
-- Deps: `[packages, rocm]` or `[packages, vulkan]`
-- Build: `[build]`
-- Model: `[model, <track-tag>]`
-- Info/summary: `[info]`
-- Render play: `[launch, <track-tag>]`
+- Play: `[<track>-podman]` (e.g. `qwen36-35b-ud-q8-k-xl-mtp-podman`)
+- Models dir + download: `[podman, model]`
+- Container run + health: `[podman, deploy]`
+- Render artifacts: `[podman, launch]`
 
-The orchestrator tag for the whole bootstrap is the playbook's `--tags` value — use the **short track tag** (e.g., `qwen38-27b`), not the full playbook name.
+Run one whole track with its play tag: `--tags <track>-podman`. The shared host
+plays carry their own tags (`install-amdgpu`, `install-podman`, `install-hf-cli`,
+`grub-ttm`, `limine-ttm`), so `--skip-tags install-amdgpu` skips base
+provisioning on an already-built host.
 
-## Shared vs isolated directories
+## Per-track directories
 
-### Shared (common) paths
+The Podman tracks are self-contained (no `group_vars`); each defines its own
+`_user_home` / `_models_dir` inline:
 
-Legacy source-build tracks shared these as `llama_common_*`; the podman tracks are
-self-contained and `group_vars/all.yml` is an empty placeholder:
+- **Vulkan llama.cpp tracks** (qwen36-35b, qwen38-27b-laurentz, haloq38, gemma)
+  share `~/models`. Files are renamed on download via `dest_name` so two tracks
+  never collide on a generic name like `mmproj-F16.gguf`.
+- **halogen** uses a dedicated `~/halogen-models` (bind-mounted at `/models:ro`)
+  because its `.hgn` checkpoint + overlay + tokenizer set is engine-specific and
+  shouldn't mix with the GGUF pool.
+- **ds4** uses `~/ds4` on both nodes (bind-mounted at the same path).
 
-- `llama_common_home`: `/home/{{ ansible_user }}`
-- `llama_common_models_dir`: `{{ llama_common_home }}/.local/share/llama-models`
-- `llama_common_repo_url`: `https://github.com/ggml-org/llama.cpp.git`
-
-### Isolated per-track engines
-
-Each track clones llama.cpp into its own directory:
-
-- `qwen38-27b-ud-q8-k-xl` → `~/llama-cpp-qwen38-27b`
-
-This allows independent branching/PRs per track without conflicts.
+There is no shared `llama_common_*` var set and no per-track llama.cpp clone dir —
+those belonged to the retired host-source-build tracks.
 
 ## Build conventions
 
-### ROCm/HIP builds
+Most tracks **pull** a prebuilt image (`--pull=newer`) and never build. The two
+built-from-source tracks (qwen38-27b-laurentz, haloq38) build via a
+**Containerfile** in `single-node/containerfiles/`, driven by
+`tasks/podman-build-image.yml` (skips the build if the tag already exists).
+The build is pinned by a commit/build arg (e.g. `LLAMA_CPP_COMMIT=<sha>`)
+passed as `_build_arg`.
 
-- Use `rocm-build-deps.yml` (includes `libhip-dev`, `rocblas`, `hipblas`, `cmake`, etc.)
-- CMake flags: `-DGGML_HIP=ON -DGGML_HIP_GRAPHS=ON -DGGML_VULKAN=OFF`
-- Release build: `-DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF`
-- Install prefix: `{{ <track>_engine_prefix }}`
-- HIP env guards in launch scripts: `HSA_ENABLE_SDMA=1`, `HSA_FORCE_FINE_GRAIN_PCIE=1`
+- **Pull tracks** (qwen36-35b, gemma, halogen): no build step; the launch
+  script re-pulls only if the registry tag is newer.
+- **Build tracks**: `podman build -f containerfiles/<track>.Containerfile` with
+  the pinned commit arg; the playbook checks `podman image exists` before
+  running so a re-run is a no-op.
 
-### Vulkan builds
-
-- Use `vulkan-build-deps.yml` (idempotent via `ignore_errors: yes`, collection install handled by shell)
-- CMake flags: `-DGGML_HIP=OFF -DGGML_VULKAN=ON`
-- Device: `Vulkan0` (RADV), not `ROCm0`
-- Env: `VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"`
-
-### PR builds (Flash track)
-
-- Clone PR refs: `version: "refs/pull/27742/head"`
-- Manual patches via `ansible.builtin.shell` with `grep -q` guard + `failed_when: false` for idempotency
-- Never use `ansible.builtin.patch` — it requires `community.general` collection
+(There are no CMake / `*-build-deps.yml` conventions anymore — the retired
+tracks that compiled llama.cpp directly on the host are gone.)
 
 ## Template conventions
 
@@ -179,7 +209,7 @@ set -euo pipefail
 Use bash default-value syntax with Jinja2 variables — **never** use bare `{{ }}` without a default, as missing vars will produce empty strings:
 
 ```bash
-VAR_NAME="${VAR_NAME:-{{ var_prefix_value }}}}"
+VAR_NAME="${VAR_NAME:-{{ var_prefix_value }}}"
 ```
 
 **Jinja2 gotcha**: Bash array length syntax `${#array[@]}` starts with `{#` which Jinja2 interprets as a comment. Avoid this pattern in templates; use `${#array[@]}` only where it won't be rendered.
@@ -255,26 +285,27 @@ Ubuntu 26.04's default `sudo-rs` reformats ansible's `-p` prompt, causing timeou
 localhost ansible_connection=local ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws
 ```
 
-### include_tasks for deps
+### include_tasks for shared steps
 
-Shared dependency tasks live in `tasks/` and are included with `ansible.builtin.include_tasks` (not `import_tasks`) so they respect tags and can be conditionally skipped:
+Shared steps live in the topology's `tasks/` dir and are included with
+`ansible.builtin.include_tasks` (not `import_tasks`) so they respect tags and
+can be conditionally skipped:
 
 ```yaml
-- name: Include ROCm build dependencies
-  ansible.builtin.include_tasks:
-    file: tasks/rocm-build-deps.yml
-  tags: [packages, rocm]
+- name: Set up models directory
+  ansible.builtin.include_tasks: tasks/podman-models-dir.yml
 ```
 
 ### git clone with PR refs
 
-For PR-based builds:
+Only relevant if a track clones engine source directly (the current build tracks
+build inside a Containerfile instead). For a PR-based clone:
 
 ```yaml
 - name: Clone llama.cpp PR #NNNNN
   ansible.builtin.git:
-    repo: "{{ llama_common_repo_url }}"
-    dest: "{{ <track>_engine_repo }}"
+    repo: "https://github.com/ggml-org/llama.cpp.git"
+    dest: "{{ _engine_repo }}"
     version: "refs/pull/NNNNN/head"
     force: yes
   become: no
@@ -297,11 +328,13 @@ use the plain image. Verify against the merge commit (or the pinned build's
    `port`/`ctx`/`parallel`, plus any track-specific flags. For multi-model tracks use
    the `active_profile` + profile-dict pattern (see `vllm-rccl-moe.yml`).
 
-2. Create `ansible/<track>.yml` with two plays (bootstrap + render), following the two-play pattern above.
+2. Create `ansible/single-node/<track_stem>-podman.yml` as a **single play**
+   (`hosts: vulkan|rocm`, `become: yes`) that includes the shared
+   `tasks/podman-*.yml` files, following the single-play pattern above.
 
-3. Create templates:
-   - `ansible/templates/<track>-start.sh.j2`
-   - `ansible/templates/opencode-<track>.json.j2`
+3. Create templates under the topology dir:
+   - `ansible/single-node/templates/scripts/<track_stem>-start.sh.j2`
+   - `ansible/single-node/templates/opencode-configs/opencode-<track_stem>-podman.json.j2`
 
 4. Add the host to its capability group (`vulkan` or `rocm`, under `aiservers`) in the
    track's `inventory/hosts`; mirror it in `hosts.example`. A host runs one model at a
@@ -312,4 +345,5 @@ use the plain image. Verify against the merge commit (or the pinned build's
 
 6. Update `README.md` layout tree and quick-start sections.
 
-7. Ensure `tags: [<track-tag>]` on all tasks so `--tags <track-tag>` works.
+7. Put `tags: [<track_stem>-podman]` on the play and `[podman, <phase>]` on the
+   tasks so `--tags <track_stem>-podman` runs the whole track.

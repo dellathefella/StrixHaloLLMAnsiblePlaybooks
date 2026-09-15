@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Qwen3.8-Flash-Next W4B (halogen-flash-server, ROCm, Strix Halo)",
       "options": {
-        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
         "apiKey": "qwen38-flash-halogen-local"
       },
       "models": {
