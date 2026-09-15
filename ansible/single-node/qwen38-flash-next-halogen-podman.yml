@@ -1,0 +1,224 @@
+---
+# =============================================================================
+# qwen38-flash-next-halogen-podman.yml
+# Qwen3.8-Flash-Next (W4B, ~118 GB) — peonist's halogen-flash-server via Podman.
+#
+# halogen-flash-server is a CLOSED-SOURCE, purpose-built ROCm engine (gfx1151,
+# /dev/kfd) — NOT a llama.cpp fork. It ships as a prebuilt registry image, so
+# this track PULLS instead of building (no Containerfile, no compile step).
+#
+#   image           ghcr.io/peonist-ai/halogen-flash-server:0.9.0 (prebuilt)
+#   weights         peonist-ai/halogen-qwen3.8-flash-next on HF, ~118 GiB in
+#                   .hgn format (179.55B params @ 5.53 bpw) — loadable ONLY by
+#                   halogen (not transformers / vLLM / llama.cpp)
+#   API             OpenAI-compatible /v1/* + /health on port 8731
+#   launch script   ~/scripts/qwen38-flash-next-halogen-start.sh
+#
+# Weights live in a DEDICATED dir (~/halogen-models, not the shared ~/models)
+# bind-mounted at /models:ro — the server auto-discovers the checkpoint, the
+# quality overlay beside it, and tokenizer/ from that mount. This track
+# downloads the checkpoint (qwen38-flash-next-w4b.hgn, 115.55 GiB) + quality
+# overlay (qwen38-flash-next-w4b.overlay.hgn, 2.40 GiB) + tokenizer/ only; the
+# speed overlay, vision tower, and MTP sidecar are left on HF (vision off
+# without the HALOGEN_VISION_TOWER env).
+#
+# Run flags follow the upstream quickstart verbatim: /dev/kfd + /dev/dri with
+# keep-groups (no --privileged needed), --ipc=host, --ulimit memlock=-1:-1.
+#
+# The 118 GiB cold weight load into the GPU pool is slow — wait-health uses
+# podman_health_retries: 120 (~10 min) for this track.
+# =============================================================================
+
+- name: "podman — pull + deploy halogen-flash-server container (ROCm)"
+  hosts: rocm
+  gather_facts: yes
+  become: yes
+  tags: [qwen38-flash-next-halogen-podman]
+
+  vars:
+    # =====================================================================
+    # Qwen3.8-Flash-Next halogen track vars — self-contained, no group_vars
+    # =====================================================================
+    track_stem: "qwen38-flash-next-halogen"
+
+    # Prebuilt image — pulled with --pull=newer, never built locally.
+    image_repo: "ghcr.io/peonist-ai/halogen-flash-server"
+    image_tag: "0.9.0"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}"
+
+    # Model settings — halogen serves the whole checkpoint/overlay set; ctx is
+    # the engine default (HALOGEN_CTX), exposed here for the launch script.
+    ctx: 262144
+    port: 8731
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/halogen-models"
+    _docker_ctx_len: "{{ ctx | d('32768') }}"
+
+    # Weight files in peonist-ai/halogen-qwen3.8-flash-next (~118 GiB total
+    # across the full repo; this track pulls checkpoint + quality overlay +
+    # tokenizer only — see the header comment).
+    hf_repo: "peonist-ai/halogen-qwen3.8-flash-next"
+    _checkpoint_file: "qwen38-flash-next-w4b.hgn"
+    _overlay_file: "qwen38-flash-next-w4b.overlay.hgn"
+
+    # Model download settings — read token on controller (repo is public,
+    # so the no-token path is what normally runs)
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt') | trim }}"
+
+    # 118 GiB cold load needs a longer /health wait than the llama.cpp
+    # tracks' default 60 retries (~5 min).
+    podman_health_retries: 120
+
+    # Everything after the run-mode flags (-d --name X / -it), shared between
+    # the real launch and the manual debug hint below — keeps them from
+    # drifting. Follows the upstream quickstart: kfd + dri with keep-groups
+    # (no --privileged), host IPC, unlimited memlock.
+    _podman_common_args: >-
+      --device=/dev/kfd
+      --device=/dev/dri
+      --group-add keep-groups
+      --ipc=host
+      --ulimit memlock=-1:-1
+      -v {{ _models_dir }}:/models:ro
+      -p {{ port }}:{{ port }}
+      {{ docker_image }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Ensure the dedicated halogen models directory exists
+    # -----------------------------------------------------------------------
+    - name: Set up halogen models directory
+      ansible.builtin.include_tasks: tasks/podman-models-dir.yml
+
+    # -----------------------------------------------------------------------
+    # 2. Download checkpoint + quality overlay + tokenizer if not present
+    #    (skip sentinel: the 115.55 GiB checkpoint file)
+    # -----------------------------------------------------------------------
+    - name: "hf-download: stat halogen checkpoint"
+      ansible.builtin.stat:
+        path: "{{ _models_dir }}/{{ _checkpoint_file }}"
+      register: _halogen_checkpoint_stat
+      tags: [podman, model]
+
+    - name: "hf-download: fetch halogen weights (with token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }}
+          --include {{ _checkpoint_file }}
+          --include {{ _overlay_file }}
+          --include tokenizer/*
+          --token "{{ hf_token_lookup }}"
+          --local-dir {{ _models_dir }}
+      when:
+        - not _halogen_checkpoint_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: _halogen_download_token
+      changed_when: "'Downloaded' in _halogen_download_token.stdout or 'Updated' in _halogen_download_token.stdout"
+      tags: [podman, model]
+
+    - name: "hf-download: fetch halogen weights (public, no token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ hf_repo }}
+          --include {{ _checkpoint_file }}
+          --include {{ _overlay_file }}
+          --include tokenizer/*
+          --local-dir {{ _models_dir }}
+      when:
+        - not _halogen_checkpoint_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: _halogen_download_public
+      changed_when: "'Downloaded' in _halogen_download_public.stdout or 'Updated' in _halogen_download_public.stdout"
+      tags: [podman, model]
+
+    - name: Stat downloaded halogen weights
+      ansible.builtin.stat:
+        path: "{{ _models_dir }}/{{ item }}"
+      loop:
+        - "{{ _checkpoint_file }}"
+        - "{{ _overlay_file }}"
+      register: _halogen_weights_stat
+      tags: [podman, model]
+
+    - name: Fail if halogen weights are missing
+      ansible.builtin.fail:
+        msg: >-
+          Download failed — {{ item.item }} is not in {{ _models_dir }}.
+          Check `hf download {{ hf_repo }} --include {{ item.item }}
+          --local-dir {{ _models_dir }}` manually.
+      loop: "{{ _halogen_weights_stat.results }}"
+      when: not item.stat.exists
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 3. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+
+    - name: Run halogen-flash-server container (Podman, ROCm)
+      ansible.builtin.command:
+        cmd: "podman run -d --name {{ docker_container_name }} --rm --pull=newer {{ _podman_common_args }}"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }}
+
+          The 118 GiB cold load takes a while — also check the log for weight
+          load progress:
+            podman logs --tail 100 {{ docker_container_name }}
+
+          Check GPU access: ls -la /dev/kfd /dev/dri
+          (halogen needs the kfd group — `--group-add keep-groups` keeps your
+          login groups inside the container)
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+
+    # -----------------------------------------------------------------------
+    # 4. Write launch script + opencode config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + opencode config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== halogen-flash-server (Podman, ROCm) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }} (prebuilt — pulled with --pull=newer, never built)
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1
+          Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/health
+          Model: {{ _models_dir }}/{{ _checkpoint_file }} (+ {{ _overlay_file }} overlay, {{ _models_dir }}/tokenizer)
+          Context: {{ _docker_ctx_len }} (HALOGEN_CTX default)
+          Sampling: greedy by default — the card's thinking-mode settings (temp 1.0,
+          top_p 0.95, top_k 20) are a commented env block in the launch script
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Smoke test ===
+          curl -s http://localhost:{{ port }}/v1/models
+          curl -s http://localhost:{{ port }}/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"halogen-qwen3.8-flash-next","messages":[{"role":"user","content":"ping"}]}'
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]

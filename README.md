@@ -10,7 +10,8 @@ topology** (single-node vs multi-node) with separate bootstrap orchestrators:
 
 ### Single-Node Tracks (`ansible/single-node/`)
 
-All llama.cpp tracks run locally on a single machine:
+All single-node tracks run locally on a single machine (llama.cpp Vulkan or
+halogen ROCm):
 
 - **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL,
   ~38.5 GB) via Podman Vulkan container
@@ -58,8 +59,23 @@ All llama.cpp tracks run locally on a single machine:
   `draft-mtp` flags. Caution: the previously-removed unsloth-quant IQ4_XS
   track hit a quantized-KV assert on this same architecture — vars are
   exposed to drop to f16 if this quant's claimed fix doesn't hold up. Port
-  8080. A second, larger-context quant (116 GB, ctx ≥ 128k, SSD-streaming
-  `--tensor-read-lazy`) is documented but not wired up as a profile.
+   8080. A second, larger-context quant (116 GB, ctx ≥ 128k, SSD-streaming
+   `--tensor-read-lazy`) is documented but not wired up as a profile.
+
+- **Qwen38-Flash-Next (halogen)** — Qwen3.8-Flash-Next W4B (~118 GB, 179.55B
+   params @ 5.53 bpw) via peonist's **halogen-flash-server** — a closed-source,
+   purpose-built **ROCm** engine (not a llama.cpp fork) shipped as the prebuilt
+   image `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` (PULLED, never built).
+   Weights are the repo's native `.hgn` format (loadable only by halogen): the
+   track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
+   `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) + `tokenizer/` into a
+   dedicated `~/halogen-models` dir bind-mounted at `/models:ro`, where the
+   engine auto-discovers them. OpenAI-compatible `/v1` + `/health` on port
+   **8731** (the only track not on 8080 — it targets the `rocm` group).
+   Greedy sampling by default; the card's thinking-mode settings (temp 1.0 /
+   top-p 0.95 / top-k 20) are a commented `HALOGEN_*` env block in the launch
+   script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
+   `/health`. Vision sidecar stays on HF (text-only without `HALOGEN_VISION_TOWER`).
 
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
@@ -128,6 +144,7 @@ ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/boot
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen36-35b-ud-q8-k-xl-mtp-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-27b-laurentz-vulkan-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-haloq38-podman.yml
+ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/qwen38-flash-next-halogen-podman.yml
 ansible-playbook -i ansible/single-node/inventory/hosts ansible/single-node/gemma-4-26b-a4b-ud-q8-k-xl-podman.yml
 
 # Skip base (already provisioned):
@@ -174,6 +191,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 │   │   ├── qwen38-flash-next-haloq38-podman.yml  Qwen3.8-Flash-Next (haloq38flash, built from source)
+│   │   ├── qwen38-flash-next-halogen-podman.yml  Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── containerfiles/        Containerfiles for the two built-from-source tracks
 │   │   │   ├── qwen38-27b-laurentz-vulkan.Containerfile
@@ -195,12 +213,14 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
-│   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
+│   │   │   │   ├── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
+│   │   │   │   └── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
 │   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
 │   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
 │   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
 │   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   └── opencode-qwen38-flash-next-haloq38-podman.json.j2
+│   │   │   │   ├── opencode-qwen38-flash-next-haloq38-podman.json.j2
+│   │   │   │   └── opencode-qwen38-flash-next-halogen-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── opencode-configs/  Rendered opencode configs
@@ -342,6 +362,33 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   --tensor-read-lazy on`) — override `-e model=... -e ctx=262144` and add the
   flag by hand if you want to try it
 
+### Qwen38-Flash-Next (halogen) — Podman ROCm, prebuilt halogen-flash-server
+
+- **Image**: `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` — **pulled** with
+  `--pull=newer`, never built (closed-source, purpose-built ROCm engine;
+  `--device=/dev/kfd --device=/dev/dri --group-add keep-groups --ipc=host
+  --ulimit memlock=-1:-1` per the upstream quickstart, no `--privileged`).
+- **Weights**: `peonist-ai/halogen-qwen3.8-flash-next` (HF, ~118 GiB, `.hgn`
+  format — loadable only by halogen, not transformers/vLLM/llama.cpp). The track
+  downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint, skip sentinel),
+  `qwen38-flash-next-w4b.overlay.hgn` (2.40 GiB quality sidecar, auto-loaded
+  beside the checkpoint), and `tokenizer/` into a dedicated `~/halogen-models`
+  dir bind-mounted at `/models:ro`. Left on HF: the speed overlay (2.31 GiB),
+  vision tower (0.84 GiB — text-only without `HALOGEN_VISION_TOWER`), and the
+  MTP draft head (BYO-GGUF path only).
+- **Context**: 262144 (HALOGEN_CTX default)
+- **Port**: 8731 (`/v1/*` + `/v1/responses` + `/health`) — the only single-node
+  track off 8080; it targets the `rocm` inventory group
+- **Backend**: ROCm gfx1151 (native kfd access, keep-groups)
+- **Sampling**: greedy by default; the model card's thinking-mode settings are
+  `HALOGEN_TEMPERATURE=1.0 HALOGEN_TOP_P=0.95 HALOGEN_TOP_K=20` (commented env
+  block in the launch script)
+- **Wait**: the ~118 GiB cold load into the GPU pool is slow — the playbook
+  polls `/health` for up to ~10 min (`podman_health_retries: 120`), and the
+  launch script for up to ~20 min.
+- **Claimed** (upstream README, not independently verified here): ~4x faster
+  end-to-end than EngramHalo.cpp / ROCmFP4 / CIRU at 5.53 bpw
+
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
@@ -428,6 +475,16 @@ hf download agentionai/Qwen3.8-Flash-Next-AP-GGUF AP-Q5_K_XL/Qwen3.8-Flash-Next-
 hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
   --local-dir ~/models/unsloth/Qwen3.8-Flash-Next-GGUF
                              # lands under the repo name: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
+
+# Qwen3.8-Flash-Next halogen weights (W4B .hgn — ~118 GiB repo; this track
+# pulls the checkpoint + quality overlay + tokenizer only)
+hf download peonist-ai/halogen-qwen3.8-flash-next \
+  --include qwen38-flash-next-w4b.hgn \
+  --include qwen38-flash-next-w4b.overlay.hgn \
+  --include 'tokenizer/*' \
+  --local-dir ~/halogen-models
+                             # the halogen engine auto-discovers them at /models
+                             # (bind mount of ~/halogen-models, read-only)
 ```
 
 ## Launch Scripts
@@ -447,6 +504,9 @@ target host. The bootstrap also drops OpenCode configs into
 
 # Qwen3.8-Flash-Next (haloq38flash, built from source)
 ~/scripts/qwen38-flash-next-haloq38-start.sh
+
+# Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
+~/scripts/qwen38-flash-next-halogen-start.sh
 
 # Gemma 4 26B A4B (Podman Vulkan, image input)
 ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
@@ -485,6 +545,7 @@ The bootstrap drops opencode configs into `ansible/opencode-configs/`
   - `opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
   - `opencode-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
   - `opencode-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen38-flash-next-halogen-podman.json` — provider `qwen38-flash-next-halogen` → `http://<node_ip>:8731/v1`
   - `opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
 - `opencode-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
@@ -518,6 +579,7 @@ re-run it to change them.
 - `qwen38-27b-laurentz-vulkan-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/SPEC_DRAFT_NGL/BATCH/UBATCH/FLASH_ATTN/SPEC_TYPE/SPEC_DRAFT_N_MIN/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `qwen38-flash-next-haloq38-start.sh` (CONTAINER/PORT/MODEL/DRAFT/IMAGE/CTX/GPU_LAYERS/UBATCH/THREADS/FLASH_ATTN/CACHE_TYPE_K/CACHE_TYPE_V/SPEC_TYPE/SPEC_DRAFT_N_MAX — checks `podman image exists` first, since the image is built not pulled)
 - `gemma-4-26b-a4b-ud-q8-k-xl-start.sh` (CONTAINER/PORT/MODEL/MMPROJ/IMAGE/CTX/BATCH/GPU_LAYERS)
+- `qwen38-flash-next-halogen-start.sh` (CONTAINER/PORT/CHECKPOINT/OVERLAY/IMAGE/CTX — pulls the prebuilt image if missing; ROCm flags per the upstream quickstart, ~20 min health wait)
 - `VLLM_RCCL_MOE_ROLE` (head|worker) — multi-node only, still env-set
 
 ## Strix Halo Optimization Notes

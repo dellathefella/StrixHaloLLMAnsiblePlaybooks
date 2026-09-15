@@ -11,8 +11,9 @@
 #   +-- vulkan                    <- hosts that run the Podman Vulkan tracks
 #   |                                 (Qwen3.6-35B, Qwen3.8-27B, Qwen3.8-Flash-Next
 #   |                                  x2, Gemma 4 26B)
-#   +-- rocm                      <- hosts that run the Podman ROCmFPX track
-#                                     (Qwen3.8-27B ROCmFP4_FAST)
+#   +-- rocm                      <- hosts that run the Podman ROCm tracks
+#                                     (Qwen3.8-Flash-Next halogen —
+#                                      halogen-flash-server, prebuilt image)
 #
 # A host can sit in BOTH vulkan and rocm (one machine running either backend's
 # model, one at a time). For a multi-machine setup, put each machine in the
@@ -34,8 +35,9 @@
 halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
 
 # --- ROCm backend -------------------------------------------------------------
-# Podman ROCmFPX track. Same box as vulkan for a single-machine setup; point
-# this at a dedicated host (e.g. halo0) if you run ROCm on a separate machine.
+# Podman ROCm track (Qwen3.8-Flash-Next halogen). Same box as vulkan for a
+# single-machine setup; point this at a dedicated host if you run ROCm on a
+# separate machine.
 [rocm]
 halo1 ansible_host=192.168.1.212 ansible_connection=ssh ansible_user=jdella
 #halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella

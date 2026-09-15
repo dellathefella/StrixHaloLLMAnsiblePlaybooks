@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "qwen38-flash-next-halogen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.8-Flash-Next W4B (halogen-flash-server, ROCm, Strix Halo)",
+      "options": {
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ port }}/v1",
+        "apiKey": "qwen38-flash-halogen-local"
+      },
+      "models": {
+        "halogen-qwen3.8-flash-next": {
+          "name": "Qwen3.8-Flash-Next W4B (~118 GB .hgn, 179.55B params @ 5.53 bpw)",
+          "limit": {
+            "context": {{ ctx }},
+            "output": 16384
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}

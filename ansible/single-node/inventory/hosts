@@ -6,7 +6,7 @@
 # The 2-node TB4 RCCL cluster (halo0 head + halo1 worker) lives in the sibling
 # file: ../multi-node/inventory/hosts
 #
-# halo1 runs ONE model at a time. It is both a Vulkan and a ROCm host, so it is
+# halo0 runs ONE model at a time. It is both a Vulkan and a ROCm host, so it is
 # listed in both capability groups below; the model you launch is chosen by
 # which track playbook you run (one at a time), not by group membership.
 #
@@ -31,14 +31,13 @@
 #halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 
-# ROCm backend — no single-node track currently targets this group (the
-# ROCmFPX qwen38-27b-rocmfp4 track was retired for reliability). Kept for a
-# future ROCm track and so `aiservers` still covers this host for base setup.
+# ROCm backend — Podman ROCm track:
+#   qwen38-flash-next-halogen (halogen-flash-server, prebuilt image)
 # (Same box as vulkan for a single-machine setup; use a dedicated host if you
 # run ROCm on a separate machine.)
 [rocm]
-halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
-#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
 
 [aiservers:children]
 vulkan
