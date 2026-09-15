@@ -19,7 +19,7 @@
 # quality overlay beside it, and tokenizer/ from that mount. This track
 # downloads the checkpoint (qwen38-flash-next-w4b.hgn, 115.55 GiB) + quality
 # overlay (qwen38-flash-next-w4b.overlay.hgn, 2.40 GiB) + vision tower
-# (qwen38-flash-next-w4b.vision.hgn, 0.84 GiB) + tokenizer/; the speed overlay
+# (qwen38-flash-next-vision.hgn, 0.84 GiB) + tokenizer/; the speed overlay
 # and MTP sidecar are left on HF. Vision (image input) is enabled by pointing
 # HALOGEN_VISION_TOWER at the vision tower inside the /models mount.
 #
@@ -64,7 +64,7 @@
     hf_repo: "peonist-ai/halogen-qwen3.8-flash-next"
     _checkpoint_file: "qwen38-flash-next-w4b.hgn"
     _overlay_file: "qwen38-flash-next-w4b.overlay.hgn"
-    _vision_file: "qwen38-flash-next-w4b.vision.hgn"
+    _vision_file: "qwen38-flash-next-vision.hgn"
 
     # Model download settings — read token on controller (repo is public,
     # so the no-token path is what normally runs)

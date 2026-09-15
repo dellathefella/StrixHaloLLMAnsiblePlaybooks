@@ -56,7 +56,7 @@ halogen ROCm):
    Weights are the repo's native `.hgn` format (loadable only by halogen): the
     track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
     `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) +
-    `qwen38-flash-next-w4b.vision.hgn` (vision tower) + `tokenizer/` into a
+    `qwen38-flash-next-vision.hgn` (vision tower) + `tokenizer/` into a
     dedicated `~/halogen-models` dir bind-mounted at `/models:ro`, where the
     engine auto-discovers them. OpenAI-compatible `/v1` + `/health` on port
     **8731** (the only track not on 8080 — it targets the `rocm` group).
@@ -332,8 +332,8 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
   format — loadable only by halogen, not transformers/vLLM/llama.cpp). The track
   downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint, skip sentinel),
   `qwen38-flash-next-w4b.overlay.hgn` (2.40 GiB quality sidecar, auto-loaded
-  beside the checkpoint), `qwen38-flash-next-w4b.vision.hgn` (0.84 GiB vision
-  tower, enabled via `HALOGEN_VISION_TOWER=/models/qwen38-flash-next-w4b.vision.hgn`
+  beside the checkpoint), `qwen38-flash-next-vision.hgn` (0.84 GiB vision
+  tower, enabled via `HALOGEN_VISION_TOWER=/models/qwen38-flash-next-vision.hgn`
   for image input), and `tokenizer/` into a dedicated `~/halogen-models`
   dir bind-mounted at `/models:ro`. Left on HF: the speed overlay (2.31 GiB)
   and the MTP draft head (BYO-GGUF path only).
@@ -475,7 +475,7 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
 hf download peonist-ai/halogen-qwen3.8-flash-next \
   --include qwen38-flash-next-w4b.hgn \
   --include qwen38-flash-next-w4b.overlay.hgn \
-  --include qwen38-flash-next-w4b.vision.hgn \
+  --include qwen38-flash-next-vision.hgn \
   --include 'tokenizer/*' \
   --local-dir ~/halogen-models
                              # the halogen engine auto-discovers them at /models
