@@ -11,6 +11,7 @@
 #   qwen36-35b-ud-q8-k-xl-mtp-podman.yml      Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)   [qwen36-35b-ud-q8-k-xl-mtp-podman]
 #   qwen38-27b-laurentz-vulkan-podman.yml     Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, BUILT FROM SOURCE) [qwen38-27b-laurentz-vulkan-podman]
 #   qwen38-flash-next-halogen-podman.yml     Qwen3.8-Flash-Next (halogen-flash-server, ROCm, PULLED)     [qwen38-flash-next-halogen-podman]
+#   ornith15-ciru-halo-agent-vllm-podman.yml Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, BUILT HERE) [ornith15-ciru-halo-agent-vllm-podman]
 #   gemma-4-26b-a4b-ud-q8-k-xl-podman.yml    Gemma 4 26B A4B (Podman Vulkan, image input)                [gemma-4-26b-a4b-ud-q8-k-xl-podman]
 #   summary.yml                                final per-host completion summary                         [summary]
 #
@@ -63,6 +64,10 @@
 - name: Track — Qwen3.8-Flash-Next (halogen)
   import_playbook: qwen38-flash-next-halogen-podman.yml
   tags: [qwen38-flash-next-halogen-podman]
+
+- name: Track — Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2)
+  import_playbook: ornith15-ciru-halo-agent-vllm-podman.yml
+  tags: [ornith15-ciru-halo-agent-vllm-podman]
 
 - name: Track — Gemma 4 26B A4B
   import_playbook: gemma-4-26b-a4b-ud-q8-k-xl-podman.yml

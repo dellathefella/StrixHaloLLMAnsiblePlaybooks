@@ -177,9 +177,11 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-laurentz-vulkan-podman.yml  Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, built from source)
 │   │   ├── qwen38-flash-next-halogen-podman.yml  Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
+│   │   ├── ornith15-ciru-halo-agent-vllm-podman.yml  Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, image built here)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── containerfiles/        Containerfile for the built-from-source track
 │   │   │   ├── qwen38-27b-laurentz-vulkan.Containerfile
+│   │   │   ├── ornith15-ciru-halo-agent-vllm.Containerfile
 │   │   ├── tasks/                 Shared task files included by the tracks above
 │   │   │   ├── podman-models-dir.yml            models dir + ownership
 │   │   │   ├── hf-download-files.yml            HF download loop (skip if present, optional rename)
@@ -197,12 +199,14 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-start.sh.j2   Qwen3.6-35B Vulkan launch (MTP built into GGUF)
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
-│   │   │   │   └── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
-│   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
-│   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
-│   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
-│   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   └── opencode-qwen38-flash-next-halogen-podman.json.j2
+│   │   │   │   ├── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
+│   │   │   │   └── ornith15-ciru-halo-agent-vllm-start.sh.j2   Ciru Halo Agent launch (built vLLM/ROCm image)
+│   │   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
+│   │   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
+│   │   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
+│   │   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   │   ├── opencode-qwen38-flash-next-halogen-podman.json.j2
+│   │   │   │   │   └── opencode-ornith15-ciru-halo-agent-vllm-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
 │   │       └── opencode-configs/  Rendered opencode configs
@@ -343,6 +347,39 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Claimed** (upstream README, not independently verified here): ~4x faster
   end-to-end than EngramHalo.cpp / ROCmFP4 / CIRU at 5.53 bpw
 
+### Ornith1.5 Ciru Halo Agent (vLLM/ROCm + DFlash2) — Podman + image input
+
+- **Image**: `localhost/ornith15-ciru-halo-agent-vllm:1.0.2` — **built here**
+  (Ciru publishes no container image). The Containerfile wraps the repo's
+  bundled runtime installer: Ubuntu 24.04 + apt prereqs + uv +
+  `runtime/INSTALL-ORNITH-RUNTIME.sh` → `/opt/ciru/installed-runtime`
+  (pinned vLLM `0.1.0rc2.dev9+rocm100`, AITER, PyTorch 2.13 rocm10.0.0,
+  ROCm SDK 10.0.0, Python 3.14). Stock `pip install vllm` cannot serve
+  these weights.
+- **Weights**: `jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo` (HF,
+  ~24.3 GB assets) downloaded to `~/ciru-halo-agent`; the `bundle/` dir
+  (packed IU4 checkpoint + DFlash2 drafter + native BF16 vision tensors +
+  serve scripts) is bind-mounted at `/bundle` **read-write** (the server
+  needs `bundle/cache` writable). `ORNITH_RUNTIME_ROOT` points the launcher
+  at the baked runtime.
+- **Serve**: `bundle/serve-vision.sh` (vision ON by default — one image per
+  request, 1,048,576-pixel budget, ≤8 active requests; no `mmproj` needed,
+  the projector ships inside the checkpoint) or `bundle/serve.sh`
+  (`vision_enabled: false`, text-only).
+- **Context**: 262,144 tokens/request | 8 active sequences | 44 GiB shared
+  KV/state pool | prefix caching with recurrent-state reuse (subsequent
+  agents sharing a history load faster).
+- **Speculation**: adaptive DFlash2 (15/7/off under 32K computed tokens;
+  7-token drafting at C2–8).
+- **Port**: 8741 (`/v1/*` + `/health`), model id `ciru-halo-agent`;
+  targets the `rocm` inventory group.
+- **Memory**: ~100 GB budget loaded (recorded whole-host peak 95.35 GB on
+  128 GB Strix Halo) — one server at a time.
+- **Claimed** (model card, AMD-sponsored build): ~178 tok/s C1 coding
+  decode, ~295 tok/s aggregate at C8, ~1,287 tok/s cold prefill at 64K /
+  ~668 tok/s near 256K (~5 min to fill 256K), ~123 tok/s cached C1 decode
+  at 63K history.
+
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 
 - **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
@@ -431,14 +468,22 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
                              # lands under the repo name: ~/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-F16.gguf
 
 # Qwen3.8-Flash-Next halogen weights (W4B .hgn — ~118 GiB repo; this track
-# pulls the checkpoint + quality overlay + tokenizer only)
+# pulls the checkpoint + quality overlay + vision tower + tokenizer)
 hf download peonist-ai/halogen-qwen3.8-flash-next \
   --include qwen38-flash-next-w4b.hgn \
   --include qwen38-flash-next-w4b.overlay.hgn \
+  --include qwen38-flash-next-w4b.vision.hgn \
   --include 'tokenizer/*' \
   --local-dir ~/halogen-models
                              # the halogen engine auto-discovers them at /models
                              # (bind mount of ~/halogen-models, read-only)
+
+# Ornith1.5 Ciru Halo Agent (full repo: bundle/ weights + runtime/ installer,
+# ~24.3 GB assets) — the whole repo is needed, not individual files
+hf download jcbtc/Ornith1.5-Ciru-Halo-Agent-vllm-strix-halo \
+  --local-dir ~/ciru-halo-agent
+                             # bundle/ is bind-mounted at /bundle (RW) in the
+                             # container built by this track
 ```
 
 ## Launch Scripts
@@ -460,6 +505,9 @@ target host. The rendered OpenCode configs land on the **controller** under
 
 # Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
 ~/scripts/qwen38-flash-next-halogen-start.sh
+
+# Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, built image)
+~/scripts/ornith15-ciru-halo-agent-vllm-start.sh
 
 # Gemma 4 26B A4B (Podman Vulkan, image input)
 ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
@@ -508,6 +556,21 @@ Each file is a standalone opencode config fragment (schema at
 `https://opencode.ai/config.json`) declaring one provider on the
 `@ai-sdk/openai-compatible` adapter. Merge the `provider` block(s) into
 `~/.config/opencode/opencode.json`, or point `OPENCODE_CONFIG` at the file.
+
+### Combining multiple providers (several models in one config)
+
+The per-track configs each ship a single `provider`. To point the CLI at more
+than one model at once, nest their `provider` blocks under one top-level
+`provider:` map — each block is an independent provider keyed by its own name
+(`qwen36-35b-...`, `ornith15-ciru-halo-agent-vllm`, `gemma-4-...`, etc.). See
+the worked example at [`opencode-multi-provider.example.json`](ansible/opencode-configs/opencode-multi-provider.example.json). Key rules:
+
+- one `provider` block per model track; the **key** is the provider name, the
+  nested **models** entry is the model id you pass to the API.
+- every provider needs its own `baseURL` (node IP + the track's port: `8080`
+  for llama.cpp, `8731` for halogen, `8741` for this Ciru track) and `apiKey`.
+- two tracks can share a port but still be distinct providers as long as their
+  `baseURL`/`models` differ (they just can't run at the same time).
 
 ## Config Variables (inventory / env)
 

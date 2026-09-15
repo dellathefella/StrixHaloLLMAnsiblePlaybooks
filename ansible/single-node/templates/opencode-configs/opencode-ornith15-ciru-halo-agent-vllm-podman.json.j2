@@ -1,0 +1,26 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ornith15-ciru-halo-agent-vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ornith1.5 Ciru Halo Agent (IU4 + DFlash2, vLLM/ROCm, Strix Halo)",
+      "options": {
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
+        "apiKey": "ciru-halo-agent-local"
+      },
+      "models": {
+        "{{ model_id }}": {
+          "name": "Ornith1.5 Ciru Halo Agent (35B-A3B IU4, DFlash2, agentic concurrency{% if vision_enabled %}, vision{% endif %})",
+{% if vision_enabled %}
+          "modalities": { "input": ["text", "image"] },
+{% endif %}
+          "limit": {
+            "context": {{ ctx }},
+            "output": 32768
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ornith15-ciru-halo-agent-vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ornith1.5 Ciru Halo Agent (IU4 + DFlash2, agentic concurrency)",
+      "options": {
+        "baseURL": "http://<node_ip>:8741/v1",
+        "apiKey": "ciru-halo-agent-local"
+      },
+      "models": {
+        "ciru-halo-agent": {
+          "name": "Ornith1.5 Ciru Halo Agent (35B-A3B IU4)",
+          "modalities": { "input": ["text", "image"] },
+          "limit": { "context": 262144, "output": 32768 },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    },
+    "qwen36-35b-ud-q8-k-xl-mtp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.6-35B-A3B MTP (UD-Q8_K_XL, KyaniteLabs)",
+      "options": {
+        "baseURL": "http://<node_ip>:8080/v1",
+        "apiKey": "qwen36-35b-mtp-local"
+      },
+      "models": {
+        "qwen3.6-35b-ud-q8-k-xl-mtp": {
+          "name": "Qwen3.6-35B-A3B MTP (UD-Q8_K_XL, ~38.5 GB)",
+          "limit": { "context": 32768, "output": 65536 },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    },
+    "qwen38-27b-laurentz-vulkan": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.8-27B LaurentZuijdwijk DFlash2",
+      "options": {
+        "baseURL": "http://<node_ip>:8080/v1",
+        "apiKey": "qwen38-laurentz-local"
+      },
+      "models": {
+        "qwen3.8-27b-rocmmpp4-fast": {
+          "name": "Qwen3.8-27B-ROCmFP4-FAST (DFlash2)",
+          "limit": { "context": 65536, "output": 65536 },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    },
+    "gemma-4-26b-a4b-ud-q8-k-xl": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Gemma 4 26B A4B (UD-Q8_K_XL, +vision)",
+      "options": {
+        "baseURL": "http://<node_ip>:8080/v1",
+        "apiKey": "gemma-4-26b-a4b-local"
+      },
+      "models": {
+        "gemma-4-26b-a4b-it": {
+          "name": "Gemma 4 26B A4B (vision)",
+          "modalities": { "input": ["text", "image"] },
+          "limit": { "context": 65536, "output": 65536 },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    },
+    "qwen38-flash-next-halogen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.8-Flash-Next W4B (halogen, +vision)",
+      "options": {
+        "baseURL": "http://<node_ip>:8731/v1",
+        "apiKey": "qwen38-flash-halogen-local"
+      },
+      "models": {
+        "halogen-qwen3.8-flash-next": {
+          "name": "Qwen3.8-Flash-Next W4B (halogen, 118 GB .hgn)",
+          "modalities": { "input": ["text", "image"] },
+          "limit": { "context": 262144, "output": 32768 },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}
