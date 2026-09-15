@@ -92,7 +92,7 @@
       {{ ((hostvars[ds4_worker_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_worker_host]['ansible_host'])
          | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true))
          if ds4_worker_host else '' }}
-    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    # LAN IP of the head — used for opencode config baseUrl
     ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 
   tasks:
@@ -295,9 +295,9 @@
           Docs: https://github.com/kyuz0/strix-halo-ds4-toolbox
       tags: [info]
 # -----------------------------------------------------------------------------
-# Launch render — drop local ds4 launch script + pi config
+# Launch render — drop local ds4 launch script + opencode config
 # -----------------------------------------------------------------------------
-- name: "ds4-deepseek-v4-flash-mtp — drop local launch script + pi config"
+- name: "ds4-deepseek-v4-flash-mtp — drop local launch script + opencode config"
   hosts: rocm
   gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
   become: no
@@ -342,7 +342,7 @@
       {{ ((hostvars[ds4_worker_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_worker_host]['ansible_host'])
          | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true))
          if ds4_worker_host else '' }}
-    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    # LAN IP of the head — used for opencode config baseUrl
     ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
 
   tasks:
@@ -356,9 +356,9 @@
       become: yes
       tags: [launch]
 
-    - name: Ensure pi-configs output directory exists on controller
+    - name: Ensure opencode-configs output directory exists on controller
       ansible.builtin.file:
-        path: "{{ playbook_dir }}/../pi-configs"
+        path: "{{ playbook_dir }}/../opencode-configs"
         state: directory
         mode: "0755"
       delegate_to: localhost
@@ -372,17 +372,17 @@
       become: no
       tags: [launch]
 
-    - name: Render pi agent config (pi-ds4-deepseek-v4-flash-mtp.json) into pi-configs/
+    - name: Render opencode config (opencode-ds4-deepseek-v4-flash-mtp.json) into opencode-configs/
       ansible.builtin.template:
-        src: templates/pi-ds4-deepseek-v4-flash-mtp.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-ds4-deepseek-v4-flash-mtp.json"
+        src: templates/opencode-ds4-deepseek-v4-flash-mtp.json.j2
+        dest: "{{ playbook_dir }}/../opencode-configs/opencode-ds4-deepseek-v4-flash-mtp.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch]
 
-    - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
+    - name: Warn if head/worker IPs not supplied (worker join + opencode config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ds4] ds4_head_ip / ds4_worker_ip not resolved — the worker cannot join the coordinator at <HEAD_IP>:{{ ds4_pp_port }} and the opencode config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([ds4-deepseek-v4-flash-mtp] hosts with ds4_role=head|worker) or pass -e ds4_head_ip=... -e ds4_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (ds4_head_ip | length == 0) or (ds4_worker_ip | length == 0)
       tags: [info, ds4-deepseek-v4-flash-mtp]

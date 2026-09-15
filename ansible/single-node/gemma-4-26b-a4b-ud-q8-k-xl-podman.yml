@@ -170,9 +170,9 @@
       ansible.builtin.include_tasks: tasks/podman-wait-health.yml
 
     # -----------------------------------------------------------------------
-    # 4. Write launch script + pi config
+    # 4. Write launch script + opencode config
     # -----------------------------------------------------------------------
-    - name: Render launch script + pi config
+    - name: Render launch script + opencode config
       ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
 
     - name: Print deployment summary

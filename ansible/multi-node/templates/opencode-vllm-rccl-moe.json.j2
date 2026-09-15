@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vllm-rccl-moe": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "{{ vllm_moe_profiles[active_profile].display }} (vLLM + RCCL cluster, profile {{ active_profile }})",
+      "options": {
+        "baseURL": "http://{{ vllm_moe_head_ansible_host }}:{{ vllm_moe_port }}/v1",
+        "apiKey": "vllm-rccl-moe-local"
+      },
+      "models": {
+        "{{ vllm_moe_profiles[active_profile].hf_repo }}": {
+          "name": "{{ vllm_moe_profiles[active_profile].display }} (cluster)",
+          "reasoning": true,
+          "limit": {
+            "context": {{ vllm_moe_profiles[active_profile].max_model_len }},
+            "output": {{ vllm_moe_profiles[active_profile].max_tokens }}
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,12 +1,12 @@
 # =============================================================================
 # podman-render-launch-artifacts.yml
 # Renders the manual launch script (~/scripts/<track_stem>-start.sh) and the
-# pi agent config (rendered/pi-configs/pi-<track_stem>-podman.json).
+# opencode config (rendered/opencode-configs/opencode-<track_stem>-podman.json).
 #
 # Include with:
 #   track_stem   stem shared by the templates and rendered filenames —
 #                templates/scripts/{{ track_stem }}-start.sh.j2
-#                templates/pi-configs/pi-{{ track_stem }}-podman.json.j2
+#                templates/opencode-configs/opencode-{{ track_stem }}-podman.json.j2
 #   _user_home   remote user's home dir
 # =============================================================================
 ---
@@ -31,19 +31,19 @@
     group: "{{ ansible_user }}"
   tags: [podman, launch]
 
-- name: Ensure pi-configs output directory exists on controller
+- name: Ensure opencode-configs output directory exists on controller
   ansible.builtin.file:
-    path: "{{ playbook_dir }}/rendered/pi-configs"
+    path: "{{ playbook_dir }}/rendered/opencode-configs"
     state: directory
     mode: "0755"
   delegate_to: localhost
   become: no
   tags: [podman, launch]
 
-- name: "Render pi agent config (pi-{{ track_stem }}-podman.json) into ansible/rendered/pi-configs/"
+- name: "Render opencode config (opencode-{{ track_stem }}-podman.json) into ansible/rendered/opencode-configs/"
   ansible.builtin.template:
-    src: "templates/pi-configs/pi-{{ track_stem }}-podman.json.j2"
-    dest: "{{ playbook_dir }}/rendered/pi-configs/pi-{{ track_stem }}-podman.json"
+    src: "templates/opencode-configs/opencode-{{ track_stem }}-podman.json.j2"
+    dest: "{{ playbook_dir }}/rendered/opencode-configs/opencode-{{ track_stem }}-podman.json"
     mode: "0644"
   delegate_to: localhost
   become: no

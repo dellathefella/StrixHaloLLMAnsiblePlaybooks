@@ -5,7 +5,7 @@
 #
 # Multi-model: `active_profile` picks the model; every model-specific knob
 # lives in the profile dict.
-# Switch with -e active_profile=<name> — the rendered script + pi config
+# Switch with -e active_profile=<name> — the rendered script + opencode config
 # follow the active profile.
 #
 #   minimax-m2.7-awq-4bit  cyankiwi/MiniMax-M2.7-AWQ-4bit         AWQ-4bit
@@ -59,14 +59,14 @@
     vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
     vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
-    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    # LAN IP of the head — used for opencode config baseUrl
     vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     # ------------------------------------------------------------------
     # Model profiles — add a new MoE model by adding an entry here.
     #   hf_repo           HF repo served by `vllm serve`
-    #   display           human name (summary + pi config)
+    #   display           human name (summary + opencode config)
     #   max_model_len     --max-model-len (KV cache scales cross-node)
-    #   max_tokens        pi config maxTokens
+    #   max_tokens        opencode config max output tokens
     #   dtype             --dtype
     #   thinking_format   pi thinkingFormat (omit key when the model has none)
     #   extra_serve_args  appended verbatim to the vllm serve command
@@ -216,9 +216,9 @@
       tags: [info]
 
 # -----------------------------------------------------------------------------
-# Launch render — drop local vllm-rccl-moe launch script + pi config
+# Launch render — drop local vllm-rccl-moe launch script + opencode config
 # -----------------------------------------------------------------------------
-- name: "vllm-rccl-moe — drop local launch script + pi config"
+- name: "vllm-rccl-moe — drop local launch script + opencode config"
   hosts: rocm
   gather_facts: yes   # local/controller render; facts supply ansible_date_time for templates
   become: no
@@ -243,7 +243,7 @@
     vllm_moe_worker_host: "{{ (vllm_moe_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(vllm_moe_group_hosts[1:2] | first | default(''), true) }}"
     vllm_moe_head_ip: "{{ hostvars[vllm_moe_head_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_head_host]['ansible_host'], true) | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_worker_ip: "{{ hostvars[vllm_moe_worker_host]['vllm_moe_ip'] | default(hostvars[vllm_moe_worker_host]['ansible_host'], true) | default(vllm_moe_worker_host, true) if vllm_moe_worker_host else '' }}"
-    # LAN IP of the head — used for Pi config baseUrl (routable from Pi)
+    # LAN IP of the head — used for opencode config baseUrl
     vllm_moe_head_ansible_host: "{{ hostvars[vllm_moe_head_host]['ansible_host'] | default(vllm_moe_head_host, true) if vllm_moe_head_host else '' }}"
     vllm_moe_profiles:
       minimax-m2.7-awq-4bit:
@@ -273,9 +273,9 @@
       become: yes
       tags: [launch]
 
-    - name: Ensure pi-configs output directory exists on controller
+    - name: Ensure opencode-configs output directory exists on controller
       ansible.builtin.file:
-        path: "{{ playbook_dir }}/../pi-configs"
+        path: "{{ playbook_dir }}/../opencode-configs"
         state: directory
         mode: "0755"
       delegate_to: localhost
@@ -289,17 +289,17 @@
       become: no
       tags: [launch]
 
-    - name: Render pi agent config (pi-vllm-rccl-moe.json) into pi-configs/
+    - name: Render opencode config (opencode-vllm-rccl-moe.json) into opencode-configs/
       ansible.builtin.template:
-        src: templates/pi-vllm-rccl-moe.json.j2
-        dest: "{{ playbook_dir }}/../pi-configs/pi-vllm-rccl-moe.json"
+        src: templates/opencode-vllm-rccl-moe.json.j2
+        dest: "{{ playbook_dir }}/../opencode-configs/opencode-vllm-rccl-moe.json"
         mode: "0644"
       delegate_to: localhost
       tags: [launch]
 
-    - name: Warn if head/worker IPs not supplied (worker join + pi config need them)
+    - name: Warn if head/worker IPs not supplied (worker join + opencode config need them)
       ansible.builtin.debug:
-        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the pi config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
+        msg: "WARNING [ray] vllm_moe_head_ip / vllm_moe_worker_ip not resolved — the worker cannot join the head at <HEAD_IP>:6379 and the opencode config baseUrl is wrong. Declare the nodes in ansible/multi-node/inventory/hosts ([vllm-rccl-moe] hosts with vllm_moe_role=head|worker) or pass -e vllm_moe_head_ip=... -e vllm_moe_worker_ip=... (TB static IPs 172.20.0.1/.2 when the TB link is up)."
       delegate_to: localhost
       when: (vllm_moe_head_ip | length == 0) or (vllm_moe_worker_ip | length == 0)
       tags: [info]

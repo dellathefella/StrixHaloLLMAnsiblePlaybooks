@@ -185,7 +185,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   ├── podman-remove-container.yml      podman rm -f before (re)launch
 │   │   │   ├── podman-check-running.yml         start result + running check
 │   │   │   ├── podman-wait-health.yml           sleep + poll /health
-│   │   │   └── podman-render-launch-artifacts.yml  launch script + pi config render
+│   │   │   └── podman-render-launch-artifacts.yml  launch script + opencode config render
 │   │   ├── inventory/
 │   │   │   ├── hosts              single-node inventory (vulkan/rocm → aiservers)
 │   │   │   ├── hosts.example      sample multi-machine inventory
@@ -196,14 +196,14 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen38-27b-laurentz-vulkan-start.sh.j2   Qwen3.8-27B DFlash2 launch (built image)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   └── qwen38-flash-next-haloq38-start.sh.j2   Flash-Next haloq38flash launch (built image)
-│   │   │   ├── pi-configs/        PI agent JSON config templates
-│   │   │   │   ├── pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
-│   │   │   │   ├── pi-qwen38-27b-laurentz-vulkan-podman.json.j2
-│   │   │   │   ├── pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
-│   │   │   │   └── pi-qwen38-flash-next-haloq38-podman.json.j2
+│   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
+│   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
+│   │   │   │   ├── opencode-qwen38-27b-laurentz-vulkan-podman.json.j2
+│   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
+│   │   │   │   └── opencode-qwen38-flash-next-haloq38-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
-│   │       └── pi-configs/        Rendered pi agent configs
+│   │       └── opencode-configs/  Rendered opencode configs
 │   │
 │   ├── multi-node/                Multi-node cluster tracks
 │   │   ├── bootstrap.yml          ORCHESTRATOR: shared/ setup + multi-node playbooks
@@ -216,13 +216,13 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
 │   │   ├── templates/             Jinja templates
 │   │   │   ├── vllm-rccl-moe-start.sh.j2          vLLM MoE cluster launch (head/worker)
-│   │   │   ├── pi-vllm-rccl-moe.json.j2           pi agent config (active profile)
+│   │   │   ├── opencode-vllm-rccl-moe.json.j2    opencode config (active profile)
 │   │   │   ├── ds4-deepseek-v4-flash-mtp-start.sh.j2  ds4 cluster launch (DS4_ROLE=head|worker)
-│   │   │   ├── pi-ds4-deepseek-v4-flash-mtp.json.j2   pi agent config (deepseek thinking format)
+│   │   │   ├── opencode-ds4-deepseek-v4-flash-mtp.json.j2   opencode config
 │   │   │   └── tb-net-diag.sh.j2                   TB4 link diagnostics (iperf3 server/client/ping)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
-│   │       └── pi-configs/        Rendered pi agent configs
+│   │       └── opencode-configs/  Rendered opencode configs
 │   │
 │   └── secrets/                   Secret files (gitignored)
 │       └── hf_token.txt           HuggingFace token for gated model downloads
@@ -433,8 +433,8 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf \
 ## Launch Scripts
 
 After the bootstrap, the rendered launch scripts are in `~/scripts/` on the
-target host. The bootstrap also drops PI agent configs into
-`ansible/pi-configs/` (rendered on the controller).
+target host. The bootstrap also drops OpenCode configs into
+`ansible/opencode-configs/` (rendered on the controller).
 
 ### Single-Node Launch Example
 
@@ -476,21 +476,24 @@ DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 # files are present.
 ```
 
-## Pi Agent Config
+## OpenCode Agent Config
 
-The bootstrap drops pi agent configs into `ansible/pi-configs/`:
+The bootstrap drops opencode configs into `ansible/opencode-configs/`
+(single-node renders also land in `ansible/single-node/rendered/opencode-configs/`):
 
 - **Podman tracks:**
-  - `pi-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
-  - `pi-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
-  - `pi-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json` — provider `qwen36-35b-ud-q8-k-xl-mtp` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen38-27b-laurentz-vulkan-podman.json` — provider `qwen38-27b-laurentz-vulkan` → `http://<node_ip>:8080/v1`
+  - `opencode-qwen38-flash-next-haloq38-podman.json` — provider `qwen38-flash-next-haloq38` → `http://<node_ip>:8080/v1`
+  - `opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json` — provider `gemma-4-26b-a4b-ud-q8-k-xl` → `http://<node_ip>:8080/v1`
 
-- `pi-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
-- `pi-ds4-deepseek-v4-flash-mtp.json` — `ds4-deepseek-v4-flash-mtp` provider (deepseek thinking format) → `http://<head_ip>:8000/v1`
+- `opencode-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
+- `opencode-ds4-deepseek-v4-flash-mtp.json` — `ds4-deepseek-v4-flash-mtp` provider → `http://<head_ip>:8000/v1`
 
-Merge the provider block(s) into `~/.pi/agent/models.json` (pi reloads it when
-you open `/model`; no restart needed).
+Each file is a standalone opencode config fragment (schema at
+`https://opencode.ai/config.json`) declaring one provider on the
+`@ai-sdk/openai-compatible` adapter. Merge the `provider` block(s) into
+`~/.config/opencode/opencode.json`, or point `OPENCODE_CONFIG` at the file.
 
 ## Config Variables (inventory / env)
 

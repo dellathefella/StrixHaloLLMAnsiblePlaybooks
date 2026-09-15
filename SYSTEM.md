@@ -22,14 +22,14 @@ ansible/
     vulkan-build-deps.yml      shared Vulkan/RADV + dev packages
   templates/
     <track>-start.sh.j2        launch script — rendered to scripts/
-    pi-<track>.json.j2         pi agent config — rendered to pi-configs/
+    opencode-<track>.json.j2   opencode config — rendered to opencode-configs/
   single-node/ + multi-node/   per-track playbooks, bootstrap, inventory, templates
     inventory/hosts            real inventory — capability groups (vulkan / rocm → aiservers;
                                multi-node inventory adds `multinode` for the TB link)
     inventory/hosts.example    sample multi-machine inventory (single-node only)
     inventory/group_vars/all   placeholder (empty) — tracks define their vars inline
 scripts/                       rendered launch scripts + local installers
-pi-configs/                    rendered pi provider configs
+  opencode-configs/              rendered opencode provider configs
 ```
 
 ## Track naming convention
@@ -55,7 +55,7 @@ model is chosen by which track playbook you run, not by group membership.
 ### Template naming
 
 - Launch script: `templates/<playbook-name>-start.sh.j2` → renders to `scripts/<playbook-name>-start.sh`
-- Pi config: `templates/pi-<playbook-name>.json.j2` → renders to `pi-configs/pi-<playbook-name>.json`
+- OpenCode config: `templates/opencode-<playbook-name>.json.j2` → renders to `opencode-configs/opencode-<playbook-name>.json`
 
 ### Variable conventions
 
@@ -98,7 +98,7 @@ Every track playbook follows a two-play structure:
 
 2. **Render play** (`become: no`, `run_once: yes`, `delegate_to: localhost`):
    - Renders `*-start.sh.j2` → `scripts/<track>-start.sh` (mode `0755`)
-   - Renders `pi-<track>.json.j2` → `pi-configs/pi-<track>.json` (mode `0644`)
+   - Renders `opencode-<track>.json.j2` → `opencode-configs/opencode-<track>.json` (mode `0644`)
    - Checks binary presence on localhost, warns if missing
 
 ### Tags
@@ -203,33 +203,43 @@ Every launch script must validate before `exec`:
 [ -f "$MODEL_PATH" ] || { echo "model not found: $MODEL_PATH" >&2; exit 1; }
 ```
 
-### Pi config JSON format
+### OpenCode config JSON format
+
+All config templates follow the same structure (opencode config schema at
+`https://opencode.ai/config.json`):
 
 ```json
 {
-  "providers": {
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
     "<track-tag>": {
+      "npm": "@ai-sdk/openai-compatible",
       "name": "<Model Name> (<Quant>, <Profile>)",
-      "baseUrl": "http://{{ <var>_host }}:{{ <var>_port }}/v1",
-      "api": "openai-completions",
-      "apiKey": "<track-tag>-local",
-      "models": [{
-        "id": "<model-id>",
-        "name": "<Model Name> (<Quant>, ~<size> GB)",
-        "input": ["text"],
-        "contextWindow": {{ <var>_ctx }},
-        "maxTokens": 65536,
-        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-      }]
+      "options": {
+        "baseURL": "http://{{ <var>_host }}:{{ <var>_port }}/v1",
+        "apiKey": "<track-tag>-local"
+      },
+      "models": {
+        "<model-id>": {
+          "name": "<Model Name> (<Quant>, ~<size> GB)",
+          "reasoning": true,
+          "limit": {
+            "context": {{ <var>_ctx }},
+            "output": 65536
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
     }
   }
 }
 ```
 
-### Pi config for vision tracks
+### OpenCode config for vision tracks
 
-Multimodal tracks (image input) declare `"input": ["text", "image"]` instead of
-`["text"]`, and must ship the llama.cpp vision projector next to the quant
+Multimodal tracks (image input) declare
+`"modalities": { "input": ["text", "image"] }` on the model (text-only tracks
+omit it), and must ship the llama.cpp vision projector next to the quant
 (`--mmproj`) or the server answers text only — see
 `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` + its launch script, which fetches
 `mmproj-F16.gguf` and renames it to `gemma-4-26B-A4B-it-mmproj-F16.gguf`.
@@ -290,7 +300,7 @@ use the plain image. Verify against the merge commit (or the pinned build's
 
 3. Create templates:
    - `ansible/templates/<track>-start.sh.j2`
-   - `ansible/templates/pi-<track>.json.j2`
+   - `ansible/templates/opencode-<track>.json.j2`
 
 4. Add the host to its capability group (`vulkan` or `rocm`, under `aiservers`) in the
    track's `inventory/hosts`; mirror it in `hosts.example`. A host runs one model at a
