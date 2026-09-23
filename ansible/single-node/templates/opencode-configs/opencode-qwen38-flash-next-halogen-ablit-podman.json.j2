@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "qwen38-flash-next-halogen-ablit": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.8-Flash-Next W4B (halogen, abliterated)",
+      "options": {
+        "baseURL": "http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1",
+        "apiKey": "qwen38-flash-halogen-ablit-local"
+      },
+      "models": {
+        "halogen-qwen3.8-flash-next-ablit": {
+          "name": "Qwen3.8-Flash-Next W4B (halogen, abliterated, ~118 GB .hgn)",
+          "limit": {
+            "context": {{ ctx }},
+            "output": 65536
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}

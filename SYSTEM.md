@@ -73,6 +73,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `qwen36-35b-ud-q8-k-xl-mtp-podman.yml` | `vulkan` | `qwen36-35b-ud-q8-k-xl-mtp-podman` |
 | `qwen38-27b-q38rocm-podman.yml` (prebuilt q38rocm image, MTP speed profile, port 8080) | `vulkan` | `qwen38-27b-q38rocm-podman` |
 | `qwen38-flash-next-halogen-podman.yml` (prebuilt halogen-flash-server ROCm image, port 8731) | `rocm` | `qwen38-flash-next-halogen-podman` |
+| `qwen38-flash-next-halogen-ablit-podman.yml` (halogen + Ae55667 abliteration patch kit, gated, port 8731) | `rocm` | `qwen38-flash-next-halogen-ablit-podman` |
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |

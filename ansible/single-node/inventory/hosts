@@ -33,6 +33,7 @@ halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella
 
 # ROCm backend — Podman ROCm tracks:
 #   qwen38-flash-next-halogen (halogen-flash-server, prebuilt image)
+#   qwen38-flash-next-halogen-ablit (halogen + Ae55667 abliteration patch kit, gated)
 #   ornith15-ciru-halo-agent-vllm (Ciru vLLM/ROCm + DFlash2, image built here)
 # (Same box as vulkan for a single-machine setup; use a dedicated host if you
 # run ROCm on a separate machine.)

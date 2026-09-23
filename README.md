@@ -63,9 +63,22 @@ halogen ROCm):
     **8731** (the only track not on 8080 — it targets the `rocm` group).
     Greedy sampling by default; the card's thinking-mode settings (temp 1.0 /
     top-p 0.95 / top-k 20) are a commented `HALOGEN_*` env block in the launch
-    script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
-    `/health`. **Image input is enabled**: the vision tower is mounted and
-    `HALOGEN_VISION_TOWER` points the engine at it.
+     script. The ~118 GiB cold load is slow — the track waits up to ~10 min for
+     `/health`. **Image input is enabled**: the vision tower is mounted and
+     `HALOGEN_VISION_TOWER` points the engine at it.
+
+- **Qwen38-Flash-Next ABLITERATED (halogen)** — the same halogen engine serving a
+   **refusal-direction abliteration** of the vendor checkpoint, delivered as the
+   gated `Ae55667/halogen-qwen3.8-flash-next-abliterated` **patch kit** (Apache-2.0).
+   The track downloads the vendor checkpoint at the **pinned revision**
+   `942daecd…`, downloads the gated patch kit, runs `apply_expert_patch.py` to
+   rewrite the 49 MoE expert `down_proj` tensors **in place** (sha256-verified,
+   with backup), then starts the engine with `HALOGEN_CK_OVERLAY` pointed at the
+   abliterated quality overlay. Engine `0.13.4` (latest peonist). Lives in a
+   **separate** `~/halogen-ablit/` tree so it never clobbers the stock halogen
+   track (mutually exclusive at runtime, ~88 GiB resident). Port **8731**, ROCm.
+   **Gated**: request access on the HuggingFace model page + `hf auth login`
+   before running. Vision off by default (`-e enable_vision=true` to add).
 
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision
@@ -180,6 +193,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── qwen36-35b-ud-q8-k-xl-mtp-podman.yml  Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)
 │   │   ├── qwen38-27b-q38rocm-podman.yml  Qwen3.8-27B (julianmb q38rocm image, MTP speed profile)
 │   │   ├── qwen38-flash-next-halogen-podman.yml  Qwen3.8-Flash-Next (halogen-flash-server, ROCm, prebuilt image)
+│   │   ├── qwen38-flash-next-halogen-ablit-podman.yml  Qwen3.8-Flash-Next ABLITERATED (halogen + Ae55667 patch kit, gated)
 │   │   ├── ornith15-ciru-halo-agent-vllm-podman.yml  Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, image built here)
 │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-podman.yml  Gemma 4 26B A4B (Podman Vulkan + vision)
 │   │   ├── containerfiles/        Containerfiles for built-from-source tracks
@@ -202,12 +216,14 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   │   ├── qwen38-27b-q38rocm-start.sh.j2   Qwen3.8-27B q38rocm launch (prebuilt image, speed profile)
 │   │   │   │   ├── gemma-4-26b-a4b-ud-q8-k-xl-start.sh.j2   Gemma 4 Vulkan launch (model + mmproj)
 │   │   │   │   ├── qwen38-flash-next-halogen-start.sh.j2   Flash-Next halogen launch (prebuilt ROCm image)
+│   │   │   │   ├── qwen38-flash-next-halogen-ablit-start.sh.j2   Flash-Next halogen ABLITERATED launch (patched base + overlay)
 │   │   │   │   └── ornith15-ciru-halo-agent-vllm-start.sh.j2   Ciru Halo Agent launch (built vLLM/ROCm image)
 │   │   │   │   ├── opencode-configs/  OpenCode agent JSON config templates
 │   │   │   │   │   ├── opencode-qwen36-35b-ud-q8-k-xl-mtp-podman.json.j2
 │   │   │   │   │   ├── opencode-qwen38-27b-q38rocm-podman.json.j2
 │   │   │   │   │   ├── opencode-gemma-4-26b-a4b-ud-q8-k-xl-podman.json.j2
 │   │   │   │   │   ├── opencode-qwen38-flash-next-halogen-podman.json.j2
+│   │   │   │   │   ├── opencode-qwen38-flash-next-halogen-ablit-podman.json.j2
 │   │   │   │   │   └── opencode-ornith15-ciru-halo-agent-vllm-podman.json.j2
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts

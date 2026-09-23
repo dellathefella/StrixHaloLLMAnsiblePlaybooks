@@ -1,0 +1,331 @@
+---
+# =============================================================================
+# qwen38-flash-next-halogen-ablit-podman.yml
+# Qwen3.8-Flash-Next ABLITERATED (W4B) — peonist's halogen-flash-server via
+# Podman, with the Ae55667 refusal-direction patch kit applied on top of the
+# vendor checkpoint.
+#
+# This is NOT a standalone model — it is a PATCH KIT on the vendor halogen
+# checkpoint (peonist-ai/halogen-qwen3.8-flash-next). The base repo is NOT
+# redistributed: this track downloads the vendor checkpoint at the pinned
+# revision, downloads the gated abliteration repo, patches the 49 MoE expert
+# down_proj tensors IN PLACE (with backup + sha256 verification), then starts
+# the engine pointed at the abliterated quality overlay via HALOGEN_CK_OVERLAY.
+#
+#   image           ghcr.io/peonist-ai/halogen-flash-server:0.13.4 (prebuilt,
+#                   latest — same engine as the stock halogen track; the card's
+#                   own measurements were taken on 0.5.9)
+#   base weights    peonist-ai/halogen-qwen3.8-flash-next @ rev
+#                   942daecd6013d640bc329e13a409ad3ea7a76439 (~118 GiB .hgn)
+#   patch kit       Ae55667/halogen-qwen3.8-flash-next-abliterated (GATED —
+#                   request access on the model page, then `hf auth login`)
+#   API             OpenAI-compatible /v1/* + /health on port 8731
+#   launch script   ~/scripts/qwen38-flash-next-halogen-ablit-start.sh
+#
+# DIRECTORY LAYOUT (kept separate from the stock halogen track's ~/halogen-models
+# so the two never clobber each other — they are mutually exclusive at runtime
+# anyway, ~88 GiB resident each):
+#   ~/halogen-ablit/halogen-qwen3.8-flash-next   vendor base (patched in place)
+#   ~/halogen-ablit/flash-next-ablit             patch kit (overlay + scripts)
+# Mounted read-only at /models (base) and /ablit (patch kit).
+#
+# ORDER MATTERS: the engine must NOT have the base file mapped while patching
+# ("never patch a file the engine has mapped"), so this track removes any
+# running container BEFORE the patch step. The patch is guarded by a marker
+# file so re-running the playbook does not try to re-patch an already-patched
+# base (the apply script verifies the ORIGINAL sha256 per range and would
+# refuse on a second run).
+#
+# Roll back: run restore_expert_patch.py from the patch kit, then use the
+# stock halogen track. Removing only the overlay leaves a hybrid — don't.
+# =============================================================================
+
+- name: "Podman — pull + deploy halogen-flash-server (ABLITERATED, ROCm)"
+  hosts: rocm
+  gather_facts: true
+  become: true
+  tags: [qwen38-flash-next-halogen-ablit-podman]
+  vars:
+    # =====================================================================
+    # Qwen3.8-Flash-Next halogen ABLITERATED track vars — self-contained
+    # =====================================================================
+    track_stem: "qwen38-flash-next-halogen-ablit"
+
+    # Prebuilt engine image — latest peonist release (matches the stock track).
+    image_repo: "ghcr.io/peonist-ai/halogen-flash-server"
+    image_tag: "0.13.4"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "{{ track_stem }}"
+
+    # Vendor base checkpoint (pinned — the patch's sha256 ranges are tied to it)
+    vendor_repo: "peonist-ai/halogen-qwen3.8-flash-next"
+    vendor_rev: "942daecd6013d640bc329e13a409ad3ea7a76439"
+    _checkpoint_file: "qwen38-flash-next-w4b.hgn"
+
+    # Abliteration patch kit (gated)
+    ablit_repo: "Ae55667/halogen-qwen3.8-flash-next-abliterated"
+    _ablit_overlay_file: "qwen38-flash-next-w4b.overlay.hgn"
+    _ablit_apply_script: "apply_expert_patch.py"
+
+    # Model settings — engine default ctx, exposed for the launch script.
+    ctx: 262144
+    host_port: 8731
+
+    # Vision (image input) — OFF by default, matching the card's default run.
+    # Set -e enable_vision=true to add HALOGEN_VISION_TOWER=1.
+    enable_vision: false
+
+    # Directories — separate from the stock halogen track's ~/halogen-models.
+    _user_home: "/home/{{ ansible_user }}"
+    _ablit_root: "{{ _user_home }}/halogen-ablit"
+    _base_dir: "{{ _ablit_root }}/halogen-qwen3.8-flash-next"
+    _ablit_dir: "{{ _ablit_root }}/flash-next-ablit"
+    _patch_marker: "{{ _base_dir }}/.ablit-patched"
+    _docker_ctx_len: "{{ ctx | d('262144') }}"
+
+    # Token — required for the GATED ablit repo (and optional for vendor).
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
+
+    # 118 GiB cold load needs a longer /health wait (~10 min).
+    podman_health_retries: 120
+
+    # Vision env fragment (empty when disabled).
+    _vision_env: "{{ '-e HALOGEN_VISION_TOWER=1' if enable_vision | bool else '' }}"
+
+    # Everything after the run-mode flags, shared between the real launch and
+    # the manual debug hint. Per the card: kfd + dri with keep-groups, host
+    # IPC, unlimited memlock, seccomp/label relaxed, base at /models:ro, patch
+    # kit at /ablit:ro, HALOGEN_CK_OVERLAY pointed at the abliterated overlay.
+    _podman_common_args: >-
+      --device=/dev/kfd
+      --device=/dev/dri
+      --group-add keep-groups
+      --security-opt seccomp=unconfined
+      --security-opt label=disable
+      --ipc=host
+      --ulimit memlock=-1:-1
+      -v {{ _base_dir }}:/models:ro
+      -v {{ _ablit_dir }}:/ablit:ro
+      -e HALOGEN_CK_OVERLAY=/ablit/{{ _ablit_overlay_file }}
+      {{ _vision_env }}
+      -p {{ host_port }}:{{ host_port }}
+      {{ docker_image }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Directories
+    # -----------------------------------------------------------------------
+    - name: Create halogen-ablit base + patch-kit directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - "{{ _base_dir }}"
+        - "{{ _ablit_dir }}"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 2. Vendor base checkpoint + tokenizer at the PINNED revision
+    # -----------------------------------------------------------------------
+    - name: "Hf-download: stat vendor checkpoint"
+      ansible.builtin.stat:
+        path: "{{ _base_dir }}/{{ _checkpoint_file }}"
+      register: _vendor_ckpt_stat
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch vendor checkpoint + tokenizer (with token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ vendor_repo }}
+          --revision {{ vendor_rev }}
+          --include {{ _checkpoint_file }}
+          --include tokenizer/*
+          --token "{{ hf_token_lookup }}"
+          --local-dir {{ _base_dir }}
+      when:
+        - not _vendor_ckpt_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: _vendor_dl_token
+      changed_when: "'Downloaded' in _vendor_dl_token.stdout or 'Updated' in _vendor_dl_token.stdout"
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch vendor checkpoint + tokenizer (public, no token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ vendor_repo }}
+          --revision {{ vendor_rev }}
+          --include {{ _checkpoint_file }}
+          --include tokenizer/*
+          --local-dir {{ _base_dir }}
+      when:
+        - not _vendor_ckpt_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: _vendor_dl_public
+      changed_when: "'Downloaded' in _vendor_dl_public.stdout or 'Updated' in _vendor_dl_public.stdout"
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 3. Abliteration patch kit (GATED — needs access + token)
+    # -----------------------------------------------------------------------
+    - name: "Hf-download: stat patch-kit apply script"
+      ansible.builtin.stat:
+        path: "{{ _ablit_dir }}/{{ _ablit_apply_script }}"
+      register: _ablit_script_stat
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch abliteration patch kit"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ ablit_repo }}
+          --token "{{ hf_token_lookup }}"
+          --local-dir {{ _ablit_dir }}
+      when: not _ablit_script_stat.stat.exists
+      register: _ablit_dl
+      changed_when: "'Downloaded' in _ablit_dl.stdout or 'Updated' in _ablit_dl.stdout"
+      failed_when:
+        - _ablit_dl.rc != 0
+      tags: [podman, model]
+
+    - name: Fail if the gated patch kit did not download (access/token)
+      ansible.builtin.fail:
+        msg: >-
+          Patch kit missing: {{ _ablit_dir }}/{{ _ablit_apply_script }} not present.
+          {{ ablit_repo }} is GATED — request access on the HuggingFace model page,
+          then `hf auth login` (or set ansible/secrets/hf_token.txt) and re-run.
+      when: not (_ablit_script_stat.stat.exists or (_ablit_dl is changed))
+      tags: [podman, model]
+
+    - name: Verify vendor checkpoint present
+      ansible.builtin.stat:
+        path: "{{ _base_dir }}/{{ _checkpoint_file }}"
+      register: _vendor_ckpt_verify
+      tags: [podman, model]
+
+    - name: Fail if vendor checkpoint is missing
+      ansible.builtin.fail:
+        msg: >-
+          Vendor checkpoint {{ _checkpoint_file }} not in {{ _base_dir }}.
+          Check: hf download {{ vendor_repo }} --revision {{ vendor_rev }}
+          --include {{ _checkpoint_file }} --local-dir {{ _base_dir }}
+      when: not _vendor_ckpt_verify.stat.exists
+      tags: [podman, model]
+
+    # -----------------------------------------------------------------------
+    # 4. Stop any running engine BEFORE patching (never patch a mapped file)
+    # -----------------------------------------------------------------------
+    - name: Remove any running halogen container before patching
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 5. Apply the expert patch (idempotent via marker)
+    # -----------------------------------------------------------------------
+    - name: "Patch: stat marker"
+      ansible.builtin.stat:
+        path: "{{ _patch_marker }}"
+      register: _patch_marker_stat
+      tags: [podman, deploy]
+
+    - name: "Patch: apply expert patch to vendor checkpoint"
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ _ablit_dir }}/{{ _ablit_apply_script }}
+          {{ _base_dir }}/{{ _checkpoint_file }}
+      when: not _patch_marker_stat.stat.exists
+      register: _patch_result
+      changed_when: "'PATCH APPLIED AND VERIFIED' in _patch_result.stdout"
+      failed_when: "'PATCH APPLIED AND VERIFIED' not in _patch_result.stdout"
+      tags: [podman, deploy]
+
+    - name: "Patch: write marker"
+      ansible.builtin.file:
+        path: "{{ _patch_marker }}"
+        state: touch
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      when: not _patch_marker_stat.stat.exists
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 6. Free contiguous memory before the engine reserves its KV pool
+    # -----------------------------------------------------------------------
+    - name: Drop caches / compact memory (engine needs large contiguous blocks)
+      ansible.builtin.sysctl:
+        name: "{{ item }}"
+        value: "1"
+        state: present
+        sysctl_set: true
+        reload: false
+      loop:
+        - vm.drop_caches
+        - vm.compact_memory
+      changed_when: false
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 7. Run the engine with the abliterated overlay
+    # -----------------------------------------------------------------------
+    - name: Run halogen-flash-server container (ABLITERATED, Podman, ROCm)
+      ansible.builtin.command:
+        cmd: "podman run -d --name {{ docker_container_name }} --rm --pull=newer {{ _podman_common_args }}"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+      tags: [podman, deploy]
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }}
+
+          If startup sits at "reserving the KV pool" for minutes then exits,
+          memory is fragmented: stop other large processes, re-run the
+          `sysctl -w vm.drop_caches=1 vm.compact_memory=1` line, start again.
+
+          The startup log should report 727 overlay tensors / 99 upgraded to
+          q8g64 — if not, HALOGEN_CK_OVERLAY is not being picked up:
+            podman logs --tail 100 {{ docker_container_name }}
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 8. Write launch script + opencode config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + opencode config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+      tags: [podman, deploy]
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== halogen-flash-server ABLITERATED (Podman, ROCm) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }} (prebuilt, card-verified engine)
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
+          Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health
+          Base: {{ _base_dir }}/{{ _checkpoint_file }} (vendor @ {{ vendor_rev[:12] }}, experts patched in place)
+          Overlay: /ablit/{{ _ablit_overlay_file }} (HALOGEN_CK_OVERLAY)
+          Vision: {{ 'ON (HALOGEN_VISION_TOWER=1)' if enable_vision | bool else 'OFF' }}
+          Context: {{ _docker_ctx_len }}
+          Roll back: python3 {{ _ablit_dir }}/restore_expert_patch.py {{ _base_dir }}/{{ _checkpoint_file }}
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Smoke test ===
+          curl -s http://localhost:{{ host_port }}/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"messages":[{"role":"user","content":"Say hello."}],"max_tokens":64}'
+      tags: [podman, deploy]
