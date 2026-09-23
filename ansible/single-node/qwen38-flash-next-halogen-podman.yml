@@ -7,7 +7,7 @@
 # /dev/kfd) — NOT a llama.cpp fork. It ships as a prebuilt registry image, so
 # this track PULLS instead of building (no Containerfile, no compile step).
 #
-#   image           ghcr.io/peonist-ai/halogen-flash-server:0.9.0 (prebuilt)
+#   image           ghcr.io/peonist-ai/halogen-flash-server:0.13.4 (prebuilt)
 #   weights         peonist-ai/halogen-qwen3.8-flash-next on HF, ~118 GiB in
 #                   .hgn format (179.55B params @ 5.53 bpw) — loadable ONLY by
 #                   halogen (not transformers / vLLM / llama.cpp)
@@ -43,7 +43,7 @@
 
     # Prebuilt image — pulled with --pull=newer, never built locally.
     image_repo: "ghcr.io/peonist-ai/halogen-flash-server"
-    image_tag: "0.9.0"
+    image_tag: "0.13.4"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

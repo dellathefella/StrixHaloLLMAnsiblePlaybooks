@@ -7,7 +7,7 @@
 # single launch script is rendered:
 #   ~/scripts/gemma-4-26b-a4b-ud-q8-k-xl-start.sh
 #
-# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
+# Uses: ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1
 #
 # Same shape as the other single-node Podman tracks (port 8080, ctx 262144,
 # batch 256, n-gpu-layers 999) with one addition: the vision projector
@@ -35,7 +35,7 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "gemma-4-26b-a4b-ud-q8-k-xl"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan"
+    image_tag: "vulkan-v0.7.6.1"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

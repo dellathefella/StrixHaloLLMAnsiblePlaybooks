@@ -15,7 +15,7 @@ halogen ROCm):
 
 - **Qwen36-35B-A3B MTP (UD-Q8_K_XL)** — Qwen3.6-35B-A3B (8-bit UD-Q8_K_XL,
   ~38.5 GB) via Podman Vulkan container
-  (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`), but from the
+  (`ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`), but from the
   `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` repo, which bakes MTP speculative
   decoding **into the GGUF itself** (no separate drafter file).
   Follows the model card's own quickstart: `-ngl 99` (not 999), `-fa on`,
@@ -52,7 +52,7 @@ halogen ROCm):
 - **Qwen38-Flash-Next (halogen)** — Qwen3.8-Flash-Next W4B (~118 GB, 179.55B
    params @ 5.53 bpw) via peonist's **halogen-flash-server** — a closed-source,
    purpose-built **ROCm** engine (not a llama.cpp fork) shipped as the prebuilt
-   image `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` (PULLED, never built).
+   image `ghcr.io/peonist-ai/halogen-flash-server:0.13.4` (PULLED, never built).
    Weights are the repo's native `.hgn` format (loadable only by halogen): the
     track downloads `qwen38-flash-next-w4b.hgn` (115.55 GiB checkpoint) +
     `qwen38-flash-next-w4b.overlay.hgn` (quality sidecar) +
@@ -240,7 +240,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Qwen36-35B-A3B (UD-Q8_K_XL) — Podman Vulkan
 
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 - **Model**: Qwen3.6-35B-A3B UD-Q8_K_XL (~38.5 GB)
 - **Context**: 262k (native ceiling)
 - **Port**: 8080
@@ -248,7 +248,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Qwen36-35B-A3B MTP (UD-Q8_K_XL) — Podman Vulkan + MTP
 
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 - **Model**: `Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf` from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`
   (same file name/quant, different repo)
 - **MTP**: **built into the model** — `--spec-type draft-mtp --spec-draft-n-max 2`,
@@ -262,7 +262,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Qwen38-27B (UD-Q4_K_XL) — Podman Vulkan + MTP
 
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 - **Model**: Qwen3.8-27B UD-Q4_K_XL (`Qwen3.8-27B-UD-Q4_K_XL.gguf`)
 - **Drafter**: `MTP/mtp-Qwen3.8-27B-Q4_0.gguf`, passed as `--model-draft`
   (`draft-mtp` is only auto-discovered with `-hf`, never from a local `--model`)
@@ -301,7 +301,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Qwen38-Flash-Next AP (Q5_K_XL) — Podman Vulkan + image input
 
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 - **Model**: Qwen3.8-Flash-Next-AP 125B-A6B Q5_K_XL (~112 GiB), single GGUF from
   `agentionai/Qwen3.8-Flash-Next-AP-GGUF`, kept under the repo name on disk
   (`~/models/agentionai/Qwen3.8-Flash-Next-AP-GGUF/AP-Q5_K_XL/...`)
@@ -324,7 +324,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Qwen38-Flash-Next (halogen) — Podman ROCm + image input, prebuilt halogen-flash-server
 
-- **Image**: `ghcr.io/peonist-ai/halogen-flash-server:0.9.0` — **pulled** with
+- **Image**: `ghcr.io/peonist-ai/halogen-flash-server:0.13.4` — **pulled** with
   `--pull=newer`, never built (closed-source, purpose-built ROCm engine;
   `--device=/dev/kfd --device=/dev/dri --group-add keep-groups --ipc=host
   --ulimit memlock=-1:-1` per the upstream quickstart, no `--privileged`).
@@ -385,7 +385,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 
 ### Gemma 4 26B A4B (UD-Q8_K_XL) — Podman Vulkan + image input
 
-- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+- **Container**: `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 - **Model**: Gemma 4 26B A4B it UD-Q8_K_XL (~27.6 GB), single GGUF at the repo root
 - **Vision projector**: `mmproj-F16.gguf` (~1.19 GB) → stored as
   `gemma-4-26B-A4B-it-mmproj-F16.gguf`, passed as `--mmproj` (llama.cpp
@@ -636,7 +636,7 @@ needed for the multi-node vllm-rccl-moe / ds4-deepseek-v4-flash-mtp tracks.
 
 **Podman tracks:** The new `*-podman.yml` playbooks are **self-contained** — all
 vars are defined inline (no dependency on `group_vars/all.yml`), they skip the
-local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan`
+local llama.cpp build step, and use the official `ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1`
 Vulkan container instead. MTP speculation args are baked into both the container
 `run` command and the rendered launch script.
 

@@ -16,7 +16,7 @@
 # GGUF WITHOUT --spec-type draft-mtp fails outright: the MTP tensors need
 # the flag to load at all.
 #
-#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan
+#   image           ghcr.io/nathanw1014/strix-halo-llamacpp:vulkan-v0.7.6.1
 #   launch script   ~/scripts/qwen36-35b-ud-q8-k-xl-mtp-start.sh
 # =============================================================================
 
@@ -35,7 +35,7 @@
     #   track_stem       → stem used for container name, script names
     track_stem: "qwen36-35b-ud-q8-k-xl-mtp"
     image_repo: "ghcr.io/nathanw1014/strix-halo-llamacpp"
-    image_tag: "vulkan"
+    image_tag: "vulkan-v0.7.6.1"
     docker_image: "{{ image_repo }}:{{ image_tag }}"
     docker_container_name: "{{ track_stem }}"
 

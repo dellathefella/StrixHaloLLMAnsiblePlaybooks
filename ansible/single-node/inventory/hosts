@@ -28,8 +28,8 @@
 #   qwen38-27b-laurentz-vulkan (built from source),
 #   gemma-4-26b-a4b-ud-q8-k-xl
 [vulkan]
-#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
+#halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella
+halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella
 
 # ROCm backend — Podman ROCm tracks:
 #   qwen38-flash-next-halogen (halogen-flash-server, prebuilt image)
@@ -37,8 +37,8 @@ halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
 # (Same box as vulkan for a single-machine setup; use a dedicated host if you
 # run ROCm on a separate machine.)
 [rocm]
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella
-#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella
+#halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella
+halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella
 
 [aiservers:children]
 vulkan
