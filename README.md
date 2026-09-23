@@ -70,6 +70,9 @@ halogen ROCm):
 - **Qwen38-Flash-Next ABLITERATED (halogen)** — the same halogen engine serving a
    **refusal-direction abliteration** of the vendor checkpoint, delivered as the
    gated `Ae55667/halogen-qwen3.8-flash-next-abliterated` **patch kit** (Apache-2.0).
+   **EXPERIMENTAL**: abliteration is a heuristic weight edit — it can degrade
+   reasoning, factuality, or instruction-following in ways that are hard to
+   predict. Use where fewer refusals matter more than guaranteed quality.
    The track downloads the vendor checkpoint at the **pinned revision**
    `942daecd…`, downloads the gated patch kit, runs `apply_expert_patch.py` to
    rewrite the 49 MoE expert `down_proj` tensors **in place** (sha256-verified,
@@ -78,7 +81,10 @@ halogen ROCm):
    **separate** `~/halogen-ablit/` tree so it never clobbers the stock halogen
    track (mutually exclusive at runtime, ~88 GiB resident). Port **8731**, ROCm.
    **Gated**: request access on the HuggingFace model page + `hf auth login`
-   before running. Vision off by default (`-e enable_vision=true` to add).
+   before running. **Image input is enabled by default**: the vendor vision
+   tower `qwen38-flash-next-vision.hgn` is fetched at the pinned revision
+   and passed as `HALOGEN_VISION_TOWER=/models/qwen38-flash-next-vision.hgn`
+   (`-e enable_vision=false` for text-only).
 
 - **Gemma 4 26B A4B (UD-Q8_K_XL)** — Gemma 4 26B A4B it (UD-Q8_K_XL, ~27.6 GB) via
   Podman Vulkan container, with **image recognition**: the `mmproj-F16.gguf` vision

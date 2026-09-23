@@ -5,12 +5,20 @@
 # Podman, with the Ae55667 refusal-direction patch kit applied on top of the
 # vendor checkpoint.
 #
+# EXPERIMENTAL: abliteration is a heuristic weight edit — it can degrade
+# reasoning, factuality, or instruction-following in ways that are hard to
+# predict. The stock halogen track is the safe default; use this one where
+# fewer refusals matter more than guaranteed quality.
+#
 # This is NOT a standalone model — it is a PATCH KIT on the vendor halogen
 # checkpoint (peonist-ai/halogen-qwen3.8-flash-next). The base repo is NOT
 # redistributed: this track downloads the vendor checkpoint at the pinned
 # revision, downloads the gated abliteration repo, patches the 49 MoE expert
 # down_proj tensors IN PLACE (with backup + sha256 verification), then starts
 # the engine pointed at the abliterated quality overlay via HALOGEN_CK_OVERLAY.
+# Vision (image input) is ON by default: the vendor vision tower
+# (qwen38-flash-next-vision.hgn) is fetched at the same pinned revision and
+# passed via HALOGEN_VISION_TOWER=/models/qwen38-flash-next-vision.hgn.
 #
 #   image           ghcr.io/peonist-ai/halogen-flash-server:0.13.4 (prebuilt,
 #                   latest — same engine as the stock halogen track; the card's
@@ -71,9 +79,13 @@
     ctx: 262144
     host_port: 8731
 
-    # Vision (image input) — OFF by default, matching the card's default run.
-    # Set -e enable_vision=true to add HALOGEN_VISION_TOWER=1.
-    enable_vision: false
+    # Vision (image input) — ON by default, matching the stock halogen track.
+    # The vendor vision tower (qwen38-flash-next-vision.hgn, 0.84 GiB) is
+    # fetched from the pinned vendor revision and passed to the engine as
+    # HALOGEN_VISION_TOWER=/models/<file> (a PATH, not a boolean). Set
+    # -e enable_vision=false for text-only.
+    enable_vision: true
+    _vision_file: "qwen38-flash-next-vision.hgn"
 
     # Directories — separate from the stock halogen track's ~/halogen-models.
     _user_home: "/home/{{ ansible_user }}"
@@ -89,8 +101,8 @@
     # 118 GiB cold load needs a longer /health wait (~10 min).
     podman_health_retries: 120
 
-    # Vision env fragment (empty when disabled).
-    _vision_env: "{{ '-e HALOGEN_VISION_TOWER=1' if enable_vision | bool else '' }}"
+    # Vision env fragment (empty when disabled) — engine expects the tower PATH.
+    _vision_env: "{{ '-e HALOGEN_VISION_TOWER=/models/' ~ _vision_file if enable_vision | bool else '' }}"
 
     # Everything after the run-mode flags, shared between the real launch and
     # the manual debug hint. Per the card: kfd + dri with keep-groups, host
@@ -136,12 +148,13 @@
       register: _vendor_ckpt_stat
       tags: [podman, model]
 
-    - name: "Hf-download: fetch vendor checkpoint + tokenizer (with token)"
+    - name: "Hf-download: fetch vendor checkpoint + vision tower + tokenizer (with token)"
       ansible.builtin.command:
         cmd: >-
           hf download {{ vendor_repo }}
           --revision {{ vendor_rev }}
           --include {{ _checkpoint_file }}
+          --include {{ _vision_file }}
           --include tokenizer/*
           --token "{{ hf_token_lookup }}"
           --local-dir {{ _base_dir }}
@@ -152,12 +165,13 @@
       changed_when: "'Downloaded' in _vendor_dl_token.stdout or 'Updated' in _vendor_dl_token.stdout"
       tags: [podman, model]
 
-    - name: "Hf-download: fetch vendor checkpoint + tokenizer (public, no token)"
+    - name: "Hf-download: fetch vendor checkpoint + vision tower + tokenizer (public, no token)"
       ansible.builtin.command:
         cmd: >-
           hf download {{ vendor_repo }}
           --revision {{ vendor_rev }}
           --include {{ _checkpoint_file }}
+          --include {{ _vision_file }}
           --include tokenizer/*
           --local-dir {{ _base_dir }}
       when:
@@ -165,6 +179,45 @@
         - hf_token_lookup | length == 0
       register: _vendor_dl_public
       changed_when: "'Downloaded' in _vendor_dl_public.stdout or 'Updated' in _vendor_dl_public.stdout"
+      tags: [podman, model]
+
+    # Catch-up: installs that predate vision support have the checkpoint but no
+    # vision tower — fetch just the tower when vision is enabled and it's absent.
+    - name: "Hf-download: stat vision tower"
+      ansible.builtin.stat:
+        path: "{{ _base_dir }}/{{ _vision_file }}"
+      register: _vision_stat
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch vision tower (with token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ vendor_repo }}
+          --revision {{ vendor_rev }}
+          --include {{ _vision_file }}
+          --token "{{ hf_token_lookup }}"
+          --local-dir {{ _base_dir }}
+      when:
+        - enable_vision | bool
+        - not _vision_stat.stat.exists
+        - hf_token_lookup | length > 0
+      register: _vision_dl_token
+      changed_when: "'Downloaded' in _vision_dl_token.stdout or 'Updated' in _vision_dl_token.stdout"
+      tags: [podman, model]
+
+    - name: "Hf-download: fetch vision tower (public, no token)"
+      ansible.builtin.command:
+        cmd: >-
+          hf download {{ vendor_repo }}
+          --revision {{ vendor_rev }}
+          --include {{ _vision_file }}
+          --local-dir {{ _base_dir }}
+      when:
+        - enable_vision | bool
+        - not _vision_stat.stat.exists
+        - hf_token_lookup | length == 0
+      register: _vision_dl_public
+      changed_when: "'Downloaded' in _vision_dl_public.stdout or 'Updated' in _vision_dl_public.stdout"
       tags: [podman, model]
 
     # -----------------------------------------------------------------------
@@ -211,6 +264,20 @@
           Check: hf download {{ vendor_repo }} --revision {{ vendor_rev }}
           --include {{ _checkpoint_file }} --local-dir {{ _base_dir }}
       when: not _vendor_ckpt_verify.stat.exists
+      tags: [podman, model]
+
+    - name: Fail if vision tower is missing (vision enabled)
+      ansible.builtin.fail:
+        msg: >-
+          Vision tower {{ _vision_file }} not in {{ _base_dir }} but vision is
+          enabled. Check: hf download {{ vendor_repo }} --revision {{ vendor_rev }}
+          --include {{ _vision_file }} --local-dir {{ _base_dir }}
+          (or re-run with -e enable_vision=false for text-only).
+      when:
+        - enable_vision | bool
+        - not _vision_stat.stat.exists
+        - _vision_dl_token is not changed
+        - _vision_dl_public is not changed
       tags: [podman, model]
 
     # -----------------------------------------------------------------------
@@ -313,13 +380,14 @@
       ansible.builtin.debug:
         msg: |
           ==== halogen-flash-server ABLITERATED (Podman, ROCm) deployed on {{ inventory_hostname }} ====
+          NOTE: abliteration is EXPERIMENTAL — quality may degrade vs the stock halogen track.
           Image: {{ docker_image }} (prebuilt, card-verified engine)
           Container: {{ docker_container_name }}
           API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
           Health: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/health
           Base: {{ _base_dir }}/{{ _checkpoint_file }} (vendor @ {{ vendor_rev[:12] }}, experts patched in place)
           Overlay: /ablit/{{ _ablit_overlay_file }} (HALOGEN_CK_OVERLAY)
-          Vision: {{ 'ON (HALOGEN_VISION_TOWER=1)' if enable_vision | bool else 'OFF' }}
+          Vision: {{ 'ON (HALOGEN_VISION_TOWER=/models/' ~ _vision_file ~ ')' if enable_vision | bool else 'OFF' }}
           Context: {{ _docker_ctx_len }}
           Roll back: python3 {{ _ablit_dir }}/restore_expert_patch.py {{ _base_dir }}/{{ _checkpoint_file }}
           Launch script: ~/scripts/{{ track_stem }}-start.sh

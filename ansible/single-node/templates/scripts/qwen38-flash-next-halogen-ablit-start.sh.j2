@@ -12,6 +12,7 @@
 # Port:      {{ host_port }} (OpenAI-compatible /v1 + /health)
 # Base:      {{ _base_dir }}/{{ _checkpoint_file }}  (vendor @ {{ vendor_rev[:12] }}, experts patched)
 # Overlay:   {{ _ablit_dir }}/{{ _ablit_overlay_file }}  (HALOGEN_CK_OVERLAY)
+# Vision:    {{ _base_dir }}/{{ _vision_file }}  (HALOGEN_VISION_TOWER, {{ 'ON' if enable_vision | bool else 'OFF' }})
 # Tokenizer: {{ _base_dir }}/tokenizer/
 #
 # Roll back: python3 {{ _ablit_dir }}/restore_expert_patch.py {{ _base_dir }}/{{ _checkpoint_file }}
@@ -25,6 +26,7 @@ BASE_DIR="{{ _base_dir }}"
 ABLIT_DIR="{{ _ablit_dir }}"
 CHECKPOINT="${BASE_DIR}/{{ _checkpoint_file }}"
 OVERLAY="${ABLIT_DIR}/{{ _ablit_overlay_file }}"
+VISION_FILE="${BASE_DIR}/{{ _vision_file }}"
 MARKER="${BASE_DIR}/.ablit-patched"
 IMAGE="{{ docker_image }}"
 VISION_ENABLED="{{ '1' if enable_vision | bool else '0' }}"
@@ -39,7 +41,7 @@ start_container() {
     echo "WARN: could not drop caches (needs sudo); may fail if memory fragmented" >&2
   local vision_arg=()
   if [ "$VISION_ENABLED" = "1" ]; then
-    vision_arg=(-e HALOGEN_VISION_TOWER=1)
+    vision_arg=(-e "HALOGEN_VISION_TOWER=/models/{{ _vision_file }}")
   fi
   podman run -d --name $CONTAINER \
     --rm --pull=newer \
@@ -82,6 +84,12 @@ fi
 if [ ! -f "$OVERLAY" ]; then
   echo "ERROR: abliterated overlay not found: $OVERLAY" >&2
   echo "       the patch kit must be downloaded by the playbook." >&2
+  exit 1
+fi
+if [ "$VISION_ENABLED" = "1" ] && [ ! -f "$VISION_FILE" ]; then
+  echo "ERROR: vision tower not found: $VISION_FILE" >&2
+  echo "       re-run the {{ track_stem }}-podman playbook (downloads the vendor" >&2
+  echo "       vision tower), or start with VISION_ENABLED=0 for text-only." >&2
   exit 1
 fi
 if [ ! -f "$MARKER" ]; then
