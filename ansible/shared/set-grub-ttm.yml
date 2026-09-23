@@ -6,9 +6,9 @@
 #
 # Args:
 #   amd_iommu=off                   — disable IOMMU (required for ROCm on Ryzen)
-#   amdgpu.gttsize=126976           — AMDGPU GTT size in MB
-#   ttm.pages_limit=32505856        — TTM page limit
-#   ttm.page_pool_size=32505856     — TTM page pool size
+#   amdgpu.gttsize=129024           — AMDGPU GTT size in MB (126 GiB)
+#   ttm.pages_limit=33030144        — TTM page limit (126 GiB)
+#   ttm.page_pool_size=33030144     — TTM page pool size (126 GiB)
 #   amdgpu.lockup_timeout=60000,…   — OPT-IN (-e lockup_timeout_enabled=true):
 #                                     raise the GPU ring watchdog past the
 #                                     default so long Vulkan submits
@@ -33,8 +33,11 @@
   become: true
   tags: [grub, ttm]
   vars:
-    # Fixed TTM values for Strix Halo
-    ttm_pages: 32505856
+    # Fixed TTM values for Strix Halo — 126 GiB. Measured on halo1: at the
+    # previous 124 GiB a 45k-token Vulkan prefill tripped
+    # "Fence fallback timer expired on ring comp_1.0.1" (the precursor to
+    # vk::DeviceLostError); 126 GiB ran the same prefill with a clean dmesg.
+    ttm_pages: 33030144
     # GPU ring watchdog — OPT-IN, default off. Start with a container-side
     # GGML_VK_MAX_NODES_PER_SUBMIT=1 pin on the affected Vulkan track;
     # enable with -e lockup_timeout_enabled=true only if long prompts still
@@ -46,7 +49,7 @@
     lockup_timeout_enabled: false
     lockup_timeout: "60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000"
     lockup_arg: "{{ (' amdgpu.lockup_timeout=' ~ lockup_timeout) if lockup_timeout_enabled | bool else '' }}"
-    grub_args: "amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}{{ lockup_arg }}"
+    grub_args: "amd_iommu=off amdgpu.gttsize=129024 ttm.pages_limit={{ ttm_pages }} ttm.page_pool_size={{ ttm_pages }}{{ lockup_arg }}"
 
   tasks:
     # -----------------------------------------------------------------------

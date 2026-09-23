@@ -1,0 +1,171 @@
+---
+# =============================================================================
+# qwen38-27b-q38rocm-podman.yml
+# Qwen3.8-27B (ROCmFP4-FAST) — llama.cpp via Podman, using julianmb's
+# q38rocm image (https://github.com/julianmb/q38rocm).
+#
+# This track was formerly a from-source build of LaurentZuijdwijk's DFlash2
+# fork (qwen38-27b-laurentz-vulkan). That fork published no runnable image
+# and its drafter flag was never verified, so the track was renamed to match
+# the image it actually uses: the model author's own prebuilt,
+# Strix-Halo-tuned q38rocm stack.
+#
+# The q38rocm image ships a profile-driven run_server.sh that auto-detects
+# Vulkan0 (Mesa RADV Wave64 + KHR_coopmat) vs ROCm0 and wires up MTP
+# speculative decoding + asymmetric TurboQuant KV + RAM prompt-caching.
+# We use the `speed` profile with DRAFT_N=3 (measured on halo1: n=3 beat
+# n=4/n=2 — ~24.8 t/s decode, ~50% MTP acceptance on prose).
+#
+#   image           ghcr.io/julianmb/q38rocm:1.5.3 (PULLED, never built)
+#   model           Qwen3.8-27B-ROCmFP4-FAST.gguf (julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF)
+#   profile         speed (ctx 131072, MTP on, KV q8_0/turbo4, prompt cache)
+#   API             OpenAI-compatible /v1/* + /health on port 8080
+#   launch script   ~/scripts/qwen38-27b-q38rocm-start.sh
+#
+# STABILITY: long-context Vulkan prefill on Strix Halo can trip
+# "Fence fallback timer expired on ring comp_1.0.1" -> vk::DeviceLostError.
+# The fix is a 126 GiB TTM limit (ttm.pages_limit=33030144), set persistently
+# via the shared set-grub-ttm.yml / set-limine-ttm.yml playbooks. At the old
+# 124 GiB a 45k-token prefill tripped the fence warning; 126 GiB ran clean.
+# =============================================================================
+
+- name: "Podman — pull + deploy llama.cpp container (julianmb q38rocm, speed profile)"
+  hosts: vulkan
+  gather_facts: true
+  become: true
+  tags: [qwen38-27b-q38rocm-podman]
+  vars:
+    # =====================================================================
+    # Qwen3.8-27B q38rocm track vars — self-contained, no group_vars
+    # =====================================================================
+    track_stem: "qwen38-27b-q38rocm"
+
+    # Prebuilt image — pulled, never built.
+    image_repo: "ghcr.io/julianmb/q38rocm"
+    image_tag: "1.5.3"
+    docker_image: "{{ image_repo }}:{{ image_tag }}"
+    docker_container_name: "qwen38-27b-rocmfp4"
+
+    # Serving profile — the image's run_server.sh reads these as env vars.
+    # speed: ctx 131072, MTP on, KV K=q8_0 / V=turbo4, prompt caching on.
+    # DRAFT_N=3 measured best on halo1 (see header).
+    profile: "speed"
+    draft_n: 3
+    ctx: 131072
+    host_port: 8080
+
+    # Model — single GGUF, MTP draft heads are built into the model
+    # (the engine creates the draft context from the same file; no separate
+    # drafter GGUF is needed, unlike the old DFlash2 track).
+    model: "Qwen3.8-27B-ROCmFP4-FAST.gguf"
+    hf_repo: "julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF"
+
+    # Directories — when become: yes is set, ansible_env.HOME becomes /root.
+    # Use ansible_user (original login user) to compute the correct home dir.
+    _user_home: "/home/{{ ansible_user }}"
+    _models_dir: "{{ _user_home }}/models"
+    _container_models_dir: "/models"
+
+    # Model download settings — read token on controller
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
+
+    hf_download_items:
+      - { repo: "{{ hf_repo }}", file: "{{ model }}", dest_dir: "{{ _models_dir }}" }
+
+    # Everything after the run-mode flags, shared between the real launch and
+    # the manual debug hint — keeps them from drifting. The image's default
+    # entrypoint is run_server.sh; we pass the model path as the command arg
+    # (overrides the image CMD) and configure everything else via -e env vars.
+    _podman_common_args: >-
+      --device=/dev/kfd
+      --device=/dev/dri
+      --group-add keep-groups
+      --security-opt seccomp=unconfined
+      --ulimit memlock=-1:-1
+      -v {{ _models_dir }}:{{ _container_models_dir }}:ro
+      -e PROFILE={{ profile }}
+      -e DRAFT_N={{ draft_n }}
+      -e HOST=0.0.0.0
+      -e PORT={{ host_port }}
+      -p {{ host_port }}:{{ host_port }}
+      {{ docker_image }}
+      {{ _container_models_dir }}/{{ model }}
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Pull the prebuilt image (skipped if already present)
+    # -----------------------------------------------------------------------
+    - name: Pull q38rocm image
+      ansible.builtin.command:
+        cmd: "podman pull {{ docker_image }}"
+      register: q38rocm_pull
+      changed_when: "'Downloaded' in q38rocm_pull.stdout or 'newer' in q38rocm_pull.stdout"
+      tags: [podman, deploy]
+
+    # -----------------------------------------------------------------------
+    # 2. Ensure models directory exists
+    # -----------------------------------------------------------------------
+    - name: Set up models directory
+      ansible.builtin.include_tasks: tasks/podman-models-dir.yml
+
+    # -----------------------------------------------------------------------
+    # 3. Download the ROCmFP4-FAST model if not present
+    # -----------------------------------------------------------------------
+    - name: Download ROCmFP4-FAST model
+      ansible.builtin.include_tasks: tasks/hf-download-files.yml
+
+    # -----------------------------------------------------------------------
+    # 4. Create and run the Podman container
+    # -----------------------------------------------------------------------
+    - name: Remove any existing container
+      ansible.builtin.include_tasks: tasks/podman-remove-container.yml
+
+    - name: Run llama.cpp container (Podman, q38rocm speed profile)
+      ansible.builtin.command:
+        cmd: "podman run -d --name {{ docker_container_name }} --rm {{ _podman_common_args }}"
+      register: podman_run_result
+      changed_when: "'Started' in podman_run_result.stdout or podman_run_result.rc == 0"
+      tags: [podman, deploy]
+
+    - name: Check container status
+      ansible.builtin.include_tasks: tasks/podman-check-running.yml
+
+    - name: Print container failure info
+      ansible.builtin.debug:
+        msg: |
+          Container {{ docker_container_name }} is NOT running or was removed (has --rm flag).
+
+          To debug, run manually:
+            podman run -it --rm {{ _podman_common_args }}
+
+          Check GPU access: ls -la /dev/dri/ /dev/kfd
+          Check TTM limit (needs 126 GiB for long context): cat /sys/module/ttm/parameters/pages_limit
+      when: container_check.stdout | default('') | length == 0
+      tags: [podman, deploy]
+
+    - name: Wait for the server to come up
+      ansible.builtin.include_tasks: tasks/podman-wait-health.yml
+
+    # -----------------------------------------------------------------------
+    # 5. Write launch script + opencode config
+    # -----------------------------------------------------------------------
+    - name: Render launch script + opencode config
+      ansible.builtin.include_tasks: tasks/podman-render-launch-artifacts.yml
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ==== llama.cpp (Podman, julianmb q38rocm) deployed on {{ inventory_hostname }} ====
+          Image: {{ docker_image }} (pulled)
+          Container: {{ docker_container_name }}
+          API endpoint: http://{{ ansible_host | default(inventory_hostname) }}:{{ host_port }}/v1
+          Model: {{ _models_dir }}/{{ model }}
+          Profile: {{ profile }} (ctx {{ ctx }}, MTP on, KV q8_0/turbo4, prompt cache)
+          Speculation: MTP draft_n={{ draft_n }} (measured best on halo1)
+          Launch script: ~/scripts/{{ track_stem }}-start.sh
+
+          === Container log commands ===
+          View logs:  podman logs -f {{ docker_container_name }}
+          Tail last 100 lines:  podman logs --tail 100 {{ docker_container_name }}
+          View since startup:  podman logs --since 24h {{ docker_container_name }}
+      tags: [podman, deploy]

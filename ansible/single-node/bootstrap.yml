@@ -9,7 +9,7 @@
 #   ../shared/set-grub-ttm.yml                 GRUB kernel args: TTM, IOMMU, GTT size                     [grub-ttm]
 #   ../shared/set-limine-ttm.yml               Limine kernel args: TTM, IOMMU, GTT size                   [limine-ttm]
 #   qwen36-35b-ud-q8-k-xl-mtp-podman.yml      Qwen3.6-35B-A3B MTP (Podman Vulkan, MTP built into GGUF)   [qwen36-35b-ud-q8-k-xl-mtp-podman]
-#   qwen38-27b-laurentz-vulkan-podman.yml     Qwen3.8-27B (LaurentZuijdwijk fork, DFlash2, BUILT FROM SOURCE) [qwen38-27b-laurentz-vulkan-podman]
+#   qwen38-27b-q38rocm-podman.yml            Qwen3.8-27B (julianmb q38rocm image, MTP speed profile) [qwen38-27b-q38rocm-podman]
 #   qwen38-flash-next-halogen-podman.yml     Qwen3.8-Flash-Next (halogen-flash-server, ROCm, image input) [qwen38-flash-next-halogen-podman]
 #   ornith15-ciru-halo-agent-vllm-podman.yml Ornith1.5 Ciru Halo Agent (Ciru vLLM/ROCm + DFlash2, BUILT HERE) [ornith15-ciru-halo-agent-vllm-podman]
 #   gemma-4-26b-a4b-ud-q8-k-xl-podman.yml    Gemma 4 26B A4B (Podman Vulkan, image input)                [gemma-4-26b-a4b-ud-q8-k-xl-podman]
@@ -56,9 +56,9 @@
   import_playbook: qwen36-35b-ud-q8-k-xl-mtp-podman.yml
   tags: [qwen36-35b-ud-q8-k-xl-mtp-podman]
 
-- name: Track — Qwen3.8-27B (LaurentZuijdwijk DFlash2)
-  import_playbook: qwen38-27b-laurentz-vulkan-podman.yml
-  tags: [qwen38-27b-laurentz-vulkan-podman]
+- name: Track — Qwen3.8-27B (julianmb q38rocm, MTP speed profile)
+  import_playbook: qwen38-27b-q38rocm-podman.yml
+  tags: [qwen38-27b-q38rocm-podman]
 
 
 - name: Track — Qwen3.8-Flash-Next (halogen)

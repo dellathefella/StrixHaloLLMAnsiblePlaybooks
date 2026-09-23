@@ -32,17 +32,17 @@
         }
       }
     },
-    "qwen38-27b-laurentz-vulkan": {
+    "qwen38-27b-q38rocm": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Qwen3.8-27B LaurentZuijdwijk DFlash2",
+      "name": "Qwen3.8-27B ROCmFP4-FAST (q38rocm, MTP speed profile)",
       "options": {
         "baseURL": "http://<node_ip>:8080/v1",
-        "apiKey": "qwen38-laurentz-local"
+        "apiKey": "qwen38-27b-q38rocm-local"
       },
       "models": {
-        "qwen3.8-27b-rocmmpp4-fast": {
-          "name": "Qwen3.8-27B-ROCmFP4-FAST (DFlash2)",
-          "limit": { "context": 65536, "output": 65536 },
+        "qwen3.8-27b-q38rocm": {
+          "name": "Qwen3.8-27B-ROCmFP4-FAST + MTP (speed profile)",
+          "limit": { "context": 131072, "output": 65536 },
           "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
         }
       }

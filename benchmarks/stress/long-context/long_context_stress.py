@@ -33,7 +33,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_URL = "http://192.168.1.212:8080"          # host port for qwen38-27b-rocmfp4
-DEFAULT_CONTAINER = "qwen38-27b-laurentz-vulkan"  # docker_container_name in the playbook
+DEFAULT_CONTAINER = "qwen38-27b-rocmfp4"  # docker_container_name in the q38rocm playbook
 DEFAULT_CTX = 262144                           # server --ctx (speed profile)
 DEFAULT_TARGET_TOKENS = 260_000                # ~107k real tokens; headroom under 128K ctx
 CHARS_PER_TOKEN_EST = 4.0                      # sizing estimate (Qwen BPE, tech prose)

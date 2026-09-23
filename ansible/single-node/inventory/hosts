@@ -25,7 +25,7 @@
 
 # Vulkan backend — Podman Vulkan (llama.cpp) tracks:
 #   qwen36-35b-ud-q8-k-xl-mtp,
-#   qwen38-27b-laurentz-vulkan (built from source),
+#   qwen38-27b-q38rocm (prebuilt image, MTP speed profile),
 #   gemma-4-26b-a4b-ud-q8-k-xl
 [vulkan]
 #halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella
