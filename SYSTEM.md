@@ -50,6 +50,7 @@ ansible/
     setup-thunderbolt-net.yml    TB4 node-to-node link (multinode group only)
     vllm-rccl-moe.yml            vLLM + Ray + RCCL MoE track
     ds4-deepseek-v4-flash-mtp.yml  2-node ds4 pipeline parallel + MTP track
+    ds4-deepseek-v41-flash-tp.yml  2-node ds4 V4.1 Flash resident tensor-parallel track
     inventory/                   hosts (halo0 head + halo1 worker; + multinode for TB)
     templates/                   *.sh.j2, opencode-*.json.j2, tb-net-diag.sh.j2
     rendered/                    rendered output (gitignored)
@@ -77,6 +78,7 @@ model is chosen by which track playbook you run, not by group membership.
 | `gemma-4-26b-a4b-ud-q8-k-xl-podman.yml` | `vulkan` | `gemma-4-26b-a4b-ud-q8-k-xl-podman` |
 | `vllm-rccl-moe.yml` (multi-node) | `rocm` | `vllm-rccl-moe` |
 | `ds4-deepseek-v4-flash-mtp.yml` (multi-node) | `rocm` | `ds4-deepseek-v4-flash-mtp` |
+| `ds4-deepseek-v41-flash-tp.yml` (multi-node, V4.1 Q2 resident TP) | `ds4-deepseek-v41-flash-tp` | `ds4-deepseek-v41-flash-tp` |
 | `setup-thunderbolt-net.yml` (multi-node) | `multinode` | `thunderbolt` | TB4 node-to-node cluster link |
 
 ### Template naming

@@ -1,0 +1,520 @@
+---
+# =============================================================================
+# ds4-deepseek-v41-flash-tp.yml
+# 2-node ds4 (DwarfStar) track for DeepSeek V4.1 Flash: resident network
+# TENSOR parallelism (50/50 expert split) over the TB4 link on the 2x HP Z2
+# G1a pair.
+#
+#   image           docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0
+#                   (kyuz0/ds4 main-gfx1151 — the ROCm V4.1 port; upstream
+#                   antirez/ds4 main still refuses V4.1 on ROCm)
+#   cluster         --tensor-parallel --transport tcp — worker (halo1, `ds4`
+#                   CLI) dials the coordinator (halo0, `ds4-server`, which
+#                   refuses --role worker); no --layers
+#   model           DeepSeek-V4.1-Flash-Q2.gguf (340.6 GiB on disk: ~152 GiB
+#                   main weights + ~189 GiB FP8 Engram tables) from
+#                   antirez/deepseek-v4.1-flash-gguf at ~/ds4.1 on BOTH nodes
+#   memory          each rank keeps ~half the routed experts resident (~76 GiB);
+#                   Engram rows are read from disk on demand — keep ~/ds4.1 on
+#                   the local NVMe
+#   ports           8081 TP channel (coordinator listens, worker dials in);
+#                   8000 OpenAI/Anthropic API on the coordinator
+#   launch script   ~/scripts/ds4-deepseek-v41-flash-tp-start.sh on BOTH nodes
+#                   (DS4_ROLE=worker|head — start the WORKER first)
+#
+# Why TP and not the V4 track's pipeline split: the V4.1 ROCm build only
+# admits V4.1 with distributed role NONE or --tensor-parallel (resident);
+# --layers pipeline slices, MTP/DSpark drafters, SSD-streaming TP, and --power
+# below 100 are all rejected at load. Q2 is the only published quant that fits
+# resident TP across two 128 GB nodes (Q4 is ~294 GiB of main weights).
+#
+# Container name is `ds4_cluster` — shared with ds4-deepseek-v4-flash-mtp on
+# purpose: the two models cannot both be resident, so whichever track runs
+# last --replaces the other.
+#
+# Hands-off, one command from repo root — TB4 link setup, HF download (head),
+# TB4 seed (worker), container, stop other containers, worker -> head launch,
+# /v1/models wait, smoke test:
+#   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v41-flash-tp.yml
+# Stage only (no launch):   ... -e ds4_v41_launch=false
+# sudo: put `ansible_become_password: ...` in the gitignored
+# ansible/multi-node/inventory/group_vars/rocm/become.yml (auto-loaded) — or
+# pass -K. Re-runs are idempotent: finished downloads/seeds are skipped.
+#
+# TB4 is REQUIRED for the TP channel: the play fails unless both nodes have
+# an up tb*/thunderbolt* interface carrying their ds4_ip (172.20.0.x from
+# setup-thunderbolt-net.yml). -e ds4_allow_lan_fallback=true waives that.
+#
+# Head/worker IPs: inventory hostvars (ds4_role + ds4_ip / ansible_host) of
+# the [ds4-deepseek-v41-flash-tp] group, using the TB static IPs only when
+# BOTH nodes have an up tb*/thunderbolt* interface (set up by
+# setup-thunderbolt-net.yml); otherwise both fall back to LAN together.
+# Override with -e ds4_head_ip=... -e ds4_worker_ip=....
+# =============================================================================
+
+# TB4 link first (idempotent: module, 172.20.0.x static IPs, peer ping), so the
+# track needs no manual prep. bootstrap.yml already runs it and sets
+# ds4_skip_tb_setup=true to avoid doing it twice.
+- name: Track prerequisite — Thunderbolt node-to-node link
+  import_playbook: setup-thunderbolt-net.yml
+  when: not (ds4_skip_tb_setup | default(false) | bool)
+
+- name: "Ds4-deepseek-v41-flash-tp — 2-node ds4 V4.1 Flash tensor-parallel track (TB4 required)"
+  hosts: ds4-deepseek-v41-flash-tp
+  gather_facts: true
+  become: true
+  tags: [ds4-deepseek-v41-flash-tp]
+  vars:
+    _user_home: "/home/{{ ansible_user }}"
+    ds4_container: "docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0"
+    ds4_cluster_name: "ds4_cluster"
+    ds4_models_dir: "{{ _user_home }}/ds4.1"
+    ds4_log_dir: "{{ _user_home }}/ds4.1-logs"
+    ds4_hf_repo: "antirez/deepseek-v4.1-flash-gguf"
+    ds4_model_file: "DeepSeek-V4.1-Flash-Q2.gguf"
+    ds4_model_bytes: 365713686528 # exact HF size (340.6 GiB) — preflight + post-download check
+    ds4_ctx: 262144
+    ds4_tp_port: 8081
+    ds4_api_port: 8000
+    ds4_seed_port: 8089 # temporary head -> worker GGUF copy over TB4
+    ds4_seed_timeout: 7200
+    ds4_max_tokens: 65536
+    ds4_launch_script: "{{ _user_home }}/scripts/ds4-deepseek-v41-flash-tp-start.sh"
+    # Launch worker -> coordinator and smoke test at the end of the run, so a
+    # single playbook invocation leaves a serving cluster. false = stage only.
+    ds4_v41_launch: true
+    # The TP channel must ride TB4 (172.20.0.x); true lets it run over LAN.
+    ds4_allow_lan_fallback: false
+    # Resident load of ~76 GiB per rank + Engram open; generous on a cold cache.
+    ds4_health_retries: 120
+    ds4_health_delay: 10
+    hf_token_lookup: "{{ lookup('file', playbook_dir + '/../secrets/hf_token.txt', errors='ignore') | default('', true) | trim }}"
+    # ------------------------------------------------------------------
+    # Head/worker resolution — same scheme as ds4-deepseek-v4-flash-mtp.yml:
+    # -e wins, else inventory ds4_role/ds4_ip (TB only when BOTH ends are
+    # up), else group order. ds4_tb_if is registered by the link task below;
+    # Jinja is lazy, so it's read only after every host has run that task.
+    # ------------------------------------------------------------------
+    ds4_group_hosts: "{{ groups['ds4-deepseek-v41-flash-tp'] | default([]) }}"
+    ds4_role_by_host: "{{ dict(zip(ds4_group_hosts, ds4_group_hosts | map('extract', hostvars, 'ds4_role', default('')) | list)) }}"
+    ds4_head_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'head') | map('key') | list | first) | default(ds4_group_hosts | first | default(''),
+      true) }}"
+    ds4_worker_host: "{{ (ds4_role_by_host | dict2items | selectattr('value', 'equalto', 'worker') | map('key') | list | first) | default(ds4_group_hosts[1:2] | first
+      | default(''), true) }}"
+    ds4_link_up: >-
+      {{ (ds4_head_host | length > 0) and (ds4_worker_host | length > 0)
+         and (hostvars[ds4_head_host]['ds4_tb_if']['stdout'] | default('') | length > 0)
+         and (hostvars[ds4_worker_host]['ds4_tb_if']['stdout'] | default('') | length > 0) }}
+    ds4_head_ip: >-
+      {{ ((hostvars[ds4_head_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_head_host]['ansible_host'])
+         | default(hostvars[ds4_head_host]['ansible_host'], true) | default(ds4_head_host, true))
+         if ds4_head_host else '' }}
+    ds4_worker_ip: >-
+      {{ ((hostvars[ds4_worker_host]['ds4_ip'] if (ds4_link_up | bool) else hostvars[ds4_worker_host]['ansible_host'])
+         | default(hostvars[ds4_worker_host]['ansible_host'], true) | default(ds4_worker_host, true))
+         if ds4_worker_host else '' }}
+    # LAN IP of the head — opencode baseURL + smoke test
+    ds4_head_ansible_host: "{{ hostvars[ds4_head_host]['ansible_host'] | default(ds4_head_host, true) if ds4_head_host else '' }}"
+    _ds4_role: "{{ 'head' if inventory_hostname == ds4_head_host else 'worker' }}"
+
+  tasks:
+    # -----------------------------------------------------------------------
+    # 1. Link selection — Thunderbolt (TB4) required unless waived
+    # -----------------------------------------------------------------------
+    - name: Detect an up Thunderbolt interface (tb* or thunderbolt*, from setup-thunderbolt-net.yml)
+      ansible.builtin.shell:
+        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^(tb[0-9]+|thunderbolt[0-9]+)$/ && $2 == \"UP\" {print $1; exit}'"
+      register: ds4_tb_if
+      changed_when: false
+      failed_when: false
+      tags: [link]
+
+    - name: Detect default-route NIC (2.5Gbe fallback)
+      ansible.builtin.shell:
+        cmd: "ip route get 1.1.1.1 2>/dev/null | grep -oP 'dev \\K\\S+' || true"
+      register: ds4_def_if
+      changed_when: false
+      failed_when: false
+      tags: [link]
+
+    - name: Select the TP channel interface (TB if up, else default NIC)
+      ansible.builtin.set_fact:
+        ds4_tp_if: "{{ ds4_tb_if.stdout if (ds4_tb_if.stdout | length > 0) else (ds4_def_if.stdout | default('eth0', true)) }}"
+      tags: [link]
+
+    # TP exchanges activations on every layer of every token — the TB4 link is
+    # required unless explicitly waived with -e ds4_allow_lan_fallback=true.
+    - name: Require the Thunderbolt link (TB4) for the TP channel
+      ansible.builtin.assert:
+        that: ds4_tb_if.stdout | length > 0
+        fail_msg: >-
+          [link] no up tb*/thunderbolt* interface on {{ inventory_hostname }}.
+          Run ansible/multi-node/setup-thunderbolt-net.yml on both nodes, or pass
+          -e ds4_allow_lan_fallback=true to run the TP channel over the 2.5Gbe LAN (slow).
+        quiet: true
+      when: not (ds4_allow_lan_fallback | bool)
+      tags: [link]
+
+    - name: Read the IPv4 address on the Thunderbolt interface
+      ansible.builtin.command:
+        cmd: "ip -4 -o addr show dev {{ ds4_tb_if.stdout }}"
+      register: ds4_tb_addr
+      changed_when: false
+      failed_when: false
+      when: ds4_tb_if.stdout | length > 0
+      tags: [link]
+
+    - name: Require this node's ds4_ip on the Thunderbolt interface
+      ansible.builtin.assert:
+        that: ds4_ip is defined and (ds4_ip ~ '/') in (ds4_tb_addr.stdout | default(''))
+        fail_msg: >-
+          [link] {{ ds4_tb_if.stdout }} on {{ inventory_hostname }} is up but does not carry
+          ds4_ip={{ ds4_ip | default('(unset)') }} (has: {{ ds4_tb_addr.stdout | default('') | regex_findall('inet \S+') | join(', ') or 'none' }}).
+          Re-run setup-thunderbolt-net.yml.
+        quiet: true
+      when: ds4_tb_if.stdout | length > 0 and not (ds4_allow_lan_fallback | bool)
+      tags: [link]
+
+    - name: Warn when falling back off the Thunderbolt link (LAN fallback allowed)
+      ansible.builtin.debug:
+        msg: |
+          WARNING [link] no up tb*/thunderbolt* interface on {{ inventory_hostname }} —
+          BOTH nodes use the LAN IPs for the TP channel this run (2.5Gbe, slow).
+      when: ds4_tb_if.stdout | length == 0
+      tags: [info]
+
+    - name: Fail early if head/worker cannot be resolved
+      ansible.builtin.assert:
+        that:
+          - ds4_head_host | length > 0
+          - ds4_worker_host | length > 0
+          - ds4_head_host != ds4_worker_host
+        fail_msg: >-
+          [ds4] need exactly one head and one worker in [ds4-deepseek-v41-flash-tp]
+          (ds4_role=head|worker hostvars in ansible/multi-node/inventory/hosts).
+        quiet: true
+
+    # -----------------------------------------------------------------------
+    # 2. Model — BOTH nodes need the whole GGUF (each TP rank maps it and reads
+    #    its own half of the experts + Engram rows). The HEAD pulls it from HF
+    #    once; the WORKER then copies it from the head over the TB4 link
+    #    (seconds-per-GiB instead of a second 340 GiB internet download).
+    # -----------------------------------------------------------------------
+    - name: Create model + log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - "{{ ds4_models_dir }}"
+        - "{{ ds4_log_dir }}"
+        - "{{ _user_home }}/scripts"
+      tags: [download, container]
+
+    - name: Check if the V4.1 Q2 GGUF already exists
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_model_file }}"
+        get_checksum: false
+      register: ds4_model_stat
+      tags: [download]
+
+    - name: Check free space on the model filesystem
+      ansible.builtin.command:
+        cmd: "df --output=avail -B1 {{ ds4_models_dir }}"
+      register: ds4_df
+      changed_when: false
+      when: not ds4_model_stat.stat.exists
+      tags: [download]
+
+    - name: Fail if there is not enough disk for the 340.6 GiB GGUF (+ 5% slack)
+      ansible.builtin.assert:
+        that: (ds4_df.stdout_lines | last | int) > (ds4_model_bytes * 1.05)
+        fail_msg: >-
+          [ds4] {{ ds4_models_dir }} has {{ ((ds4_df.stdout_lines | last | int) / 1073741824) | round(1) }} GiB free;
+          DeepSeek-V4.1-Flash-Q2.gguf needs ~341 GiB (+ slack).
+        quiet: true
+      when: not ds4_model_stat.stat.exists
+      tags: [download]
+
+    # async: a 340 GiB pull outlives any sane SSH session. hf resumes partial
+    # downloads, so a re-run after an interruption picks up where it left off.
+    # The token goes in the environment, not argv (argv is visible in ps).
+    - name: Download DeepSeek-V4.1-Flash-Q2.gguf via hf (HEAD only, ~340 GiB — slow)
+      ansible.builtin.command:
+        argv: ['hf', 'download', "{{ ds4_hf_repo }}", "{{ ds4_model_file }}", '--local-dir', "{{ ds4_models_dir }}"]
+      environment: "{{ {'HF_XET_HIGH_PERFORMANCE': '1'} | combine({'HF_TOKEN': hf_token_lookup} if hf_token_lookup | length > 0 else {}) }}"
+      become: true
+      become_user: "{{ ansible_user }}"
+      async: 86400
+      poll: 60
+      when: _ds4_role == 'head' and not ds4_model_stat.stat.exists
+      register: ds4_download
+      tags: [download]
+
+    - name: Re-check the GGUF on the head after download
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_model_file }}"
+        get_checksum: false
+      register: ds4_head_model
+      failed_when: _ds4_role == 'head' and ((ds4_head_model.stat.size | default(0) | int) != (ds4_model_bytes | int))
+      tags: [download, seed]
+
+    # hf/xet never resumes an .incomplete left by a killed run (each process
+    # writes its own suffix), so once the GGUF is whole they're just dead space.
+    - name: Drop leftover hf partials on the head once the GGUF is complete
+      ansible.builtin.shell:
+        cmd: "rm -f {{ ds4_models_dir }}/.cache/huggingface/download/*.incomplete"
+      when: _ds4_role == 'head'
+      changed_when: false
+      tags: [download]
+
+    # Worker seeding over TB4: a throwaway read-only HTTP server on the head,
+    # bound ONLY to the head's TB IP (not reachable from the LAN), serves the
+    # models dir; the worker curls the file (resumable with -C -) and the
+    # server is torn down right after.
+    - name: Decide whether the worker needs seeding from the head
+      ansible.builtin.set_fact:
+        ds4_seed_needed: >-
+          {{ (hostvars[ds4_worker_host]['ds4_model_stat']['stat']['size'] | default(0) | int) != (ds4_model_bytes | int) }}
+      tags: [download, seed]
+
+    - name: Start temporary TB4 seed server on the head ({{ ds4_head_ip }}:{{ ds4_seed_port }})
+      ansible.builtin.command:
+        argv: ['python3', '-m', 'http.server', "{{ ds4_seed_port }}", '--bind', "{{ ds4_head_ip }}", '--directory', "{{ ds4_models_dir }}"]
+      become: true
+      become_user: "{{ ansible_user }}"
+      async: "{{ ds4_seed_timeout }}"
+      poll: 0
+      when: _ds4_role == 'head' and ds4_seed_needed | bool
+      changed_when: false
+      tags: [download, seed]
+
+    - name: Wait for the seed server to accept connections
+      ansible.builtin.wait_for:
+        host: "{{ ds4_head_ip }}"
+        port: "{{ ds4_seed_port }}"
+        timeout: 30
+      when: _ds4_role == 'worker' and ds4_seed_needed | bool
+      tags: [download, seed]
+
+    - name: Drop the worker's stale hf partials (seeding replaces them)
+      ansible.builtin.shell:
+        cmd: "rm -f {{ ds4_models_dir }}/.cache/huggingface/download/*.incomplete"
+      when: _ds4_role == 'worker' and ds4_seed_needed | bool
+      changed_when: false
+      tags: [download, seed]
+
+    - name: Copy the GGUF head -> worker over TB4 (~340 GiB)
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - -C
+          - "-"
+          - -o
+          - "{{ ds4_models_dir }}/{{ ds4_model_file }}.seed"
+          - "http://{{ ds4_head_ip }}:{{ ds4_seed_port }}/{{ ds4_model_file }}"
+      become: true
+      become_user: "{{ ansible_user }}"
+      async: "{{ ds4_seed_timeout }}"
+      poll: 30
+      when: _ds4_role == 'worker' and ds4_seed_needed | bool
+      register: ds4_seed_copy
+      tags: [download, seed]
+
+    - name: Stop the TB4 seed server on the head
+      ansible.builtin.shell:
+        cmd: "pkill -u {{ ansible_user }} -f '[h]ttp.server {{ ds4_seed_port }} --bind {{ ds4_head_ip }}' || true"
+      when: _ds4_role == 'head' and ds4_seed_needed | bool
+      changed_when: false
+      tags: [download, seed]
+
+    - name: Check the seeded file size on the worker
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_model_file }}.seed"
+        get_checksum: false
+      register: ds4_seed_stat
+      failed_when: (ds4_seed_stat.stat.size | default(0) | int) != (ds4_model_bytes | int)
+      when: _ds4_role == 'worker' and ds4_seed_needed | bool
+      tags: [download, seed]
+
+    - name: Move the seeded GGUF into place on the worker
+      ansible.builtin.command:
+        cmd: "mv -f {{ ds4_models_dir }}/{{ ds4_model_file }}.seed {{ ds4_models_dir }}/{{ ds4_model_file }}"
+      when: _ds4_role == 'worker' and ds4_seed_needed | bool
+      changed_when: true
+      tags: [download, seed]
+
+    - name: Verify the downloaded GGUF size
+      ansible.builtin.stat:
+        path: "{{ ds4_models_dir }}/{{ ds4_model_file }}"
+        get_checksum: false
+      register: ds4_model_stat2
+      failed_when: not ds4_model_stat2.stat.exists or (ds4_model_stat2.stat.size | int) != (ds4_model_bytes | int)
+      tags: [download]
+
+    # -----------------------------------------------------------------------
+    # 3. Container — ds4_cluster (ds4.1f ROCm 10.0 toolbox)
+    # -----------------------------------------------------------------------
+    - name: Launch ds4 cluster container (ds4.1f-rocm10.0)
+      ansible.builtin.command:
+        cmd: >-
+          podman run -dit --name {{ ds4_cluster_name }} --replace --pull newer
+          --userns=host --network=host --ipc=host --device /dev/kfd --device /dev/dri
+          --group-add video --group-add render
+          --security-opt seccomp=unconfined
+          -v {{ ds4_models_dir }}:{{ ds4_models_dir }}:ro
+          -v {{ ds4_log_dir }}:{{ ds4_log_dir }}:rw
+          --entrypoint=/bin/bash {{ ds4_container }}
+      changed_when: true
+      tags: [container]
+
+    - name: Verify the container build has the V4.1 ROCm path
+      ansible.builtin.command:
+        cmd: "podman exec {{ ds4_cluster_name }} grep -c 'V4.1 ROCm supports resident network TP' /usr/local/bin/ds4-server"
+      register: ds4_v41_probe
+      changed_when: false
+      failed_when: ds4_v41_probe.rc != 0
+      tags: [container]
+
+    # -----------------------------------------------------------------------
+    # 4. Launch script (every node) + opencode config (controller)
+    # -----------------------------------------------------------------------
+    - name: Render ds4-deepseek-v41-flash-tp-start.sh into ~/scripts/ (BOTH nodes)
+      ansible.builtin.template:
+        src: templates/ds4-deepseek-v41-flash-tp-start.sh.j2
+        dest: "{{ ds4_launch_script }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      tags: [launch]
+
+    - name: Render opencode config into ../opencode-configs/
+      ansible.builtin.template:
+        src: templates/opencode-ds4-deepseek-v41-flash-tp.json.j2
+        dest: "{{ playbook_dir }}/../opencode-configs/opencode-ds4-deepseek-v41-flash-tp.json"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      tags: [launch]
+
+    # -----------------------------------------------------------------------
+    # 5. Optional bring-up (-e ds4_v41_launch=true): worker first, then head.
+    #    Linear strategy runs each task across both hosts before the next,
+    #    so the worker is up and dialing before the coordinator starts.
+    # -----------------------------------------------------------------------
+    # Unified memory: every other model server (and the page cache left by the
+    # 340 GiB download/seed) competes with the ~76 GiB resident TP shard.
+    # Stop all other running containers — root and rootless — on both nodes.
+    - name: Stop all other running root containers (free RAM for the engine)
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          podman ps --format '{{ '{{.Names}}' }}' | grep -vx '{{ ds4_cluster_name }}' |
+          xargs -r -n1 podman stop -t 10
+        executable: /bin/bash
+      register: ds4_stop_root
+      changed_when: ds4_stop_root.stdout | length > 0
+      failed_when: false
+      when: ds4_v41_launch | bool
+      tags: [launch]
+
+    - name: Stop all running rootless containers of {{ ansible_user }}
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          export XDG_RUNTIME_DIR=/run/user/$(id -u);
+          podman ps --format '{{ '{{.Names}}' }}' | xargs -r -n1 podman stop -t 10
+        executable: /bin/bash
+      become_user: "{{ ansible_user }}"
+      register: ds4_stop_user
+      changed_when: ds4_stop_user.stdout | length > 0
+      failed_when: false
+      when: ds4_v41_launch | bool
+      tags: [launch]
+
+    - name: Report stopped containers
+      ansible.builtin.debug:
+        msg: "stopped: {{ (ds4_stop_root.stdout_lines | default([])) + (ds4_stop_user.stdout_lines | default([])) or 'nothing was running' }}"
+      when: ds4_v41_launch | bool
+      tags: [launch]
+
+    - name: Drop the page cache before the resident load
+      ansible.builtin.shell:
+        cmd: "sync && echo 3 > /proc/sys/vm/drop_caches"
+      changed_when: false
+      when: ds4_v41_launch | bool
+      tags: [launch]
+
+    - name: Start the TP worker
+      ansible.builtin.command:
+        cmd: "{{ ds4_launch_script }}"
+      environment:
+        DS4_ROLE: worker
+      when: ds4_v41_launch | bool and _ds4_role == 'worker'
+      changed_when: true
+      tags: [launch]
+
+    - name: Start the TP coordinator (OpenAI API on port {{ ds4_api_port }})
+      ansible.builtin.command:
+        cmd: "{{ ds4_launch_script }}"
+      environment:
+        DS4_ROLE: head
+      when: ds4_v41_launch | bool and _ds4_role == 'head'
+      changed_when: true
+      tags: [launch]
+
+    - name: Wait for the coordinator API (/v1/models)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ds4_api_port }}/v1/models"
+        status_code: 200
+      register: ds4_health
+      until: ds4_health.status == 200
+      retries: "{{ ds4_health_retries }}"
+      delay: "{{ ds4_health_delay }}"
+      when: ds4_v41_launch | bool and _ds4_role == 'head'
+      tags: [launch]
+
+    - name: Smoke test — one short chat completion
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ds4_api_port }}/v1/chat/completions"
+        method: POST
+        body_format: json
+        body:
+          model: deepseek-v4-flash
+          messages: [{ role: user, content: "Reply with exactly: two nodes online" }]
+          max_tokens: 64
+          stream: false
+        timeout: 600
+      register: ds4_smoke
+      when: ds4_v41_launch | bool and _ds4_role == 'head'
+      tags: [launch]
+
+    - name: Show smoke test result
+      ansible.builtin.debug:
+        msg:
+          reply: "{{ ds4_smoke.json.choices[0].message.content | default('') }}"
+          reasoning_chars: "{{ ds4_smoke.json.choices[0].message.reasoning_content | default('') | length }}"
+          usage: "{{ ds4_smoke.json.usage | default({}) }}"
+          elapsed_s: "{{ ds4_smoke.elapsed | default('?') }}"
+      when: ds4_v41_launch | bool and _ds4_role == 'head'
+      tags: [launch]
+
+    - name: Print ds4-deepseek-v41-flash-tp track summary
+      ansible.builtin.debug:
+        msg: |
+          ==== ds4-deepseek-v41-flash-tp on {{ inventory_hostname }} ({{ _ds4_role }}) ====
+          model:   {{ ds4_hf_repo }} / {{ ds4_model_file }} (340.6 GiB, BOTH nodes)
+          image:   {{ ds4_container }}
+          link:    {{ ds4_tp_if }} — {{ 'Thunderbolt' if (ds4_link_up | bool) else 'LAN fallback' }}
+          TP:      coordinator {{ ds4_head_ip }}:{{ ds4_tp_port }} <- worker {{ ds4_worker_ip }} (tcp)
+          API:     http://{{ ds4_head_ansible_host }}:{{ ds4_api_port }}/v1  (ctx {{ ds4_ctx }})
+          logs:    {{ ds4_log_dir }}/ds4-{{ _ds4_role }}.log
+          start:   DS4_ROLE=worker {{ ds4_launch_script }}   (halo1, first)
+                   DS4_ROLE=head   {{ ds4_launch_script }}   (halo0, second)
+      tags: [info]

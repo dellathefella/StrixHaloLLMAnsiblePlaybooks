@@ -123,6 +123,27 @@ Cluster-based inference across multiple machines:
   `-e ds4_head_ip=... -e ds4_worker_ip=...`. Start the head first, then the
   worker (`DS4_ROLE=head|worker`).
 
+- **ds4-deepseek-v41-flash-tp** — DeepSeek **V4.1** Flash (Q2, 340.6 GiB incl.
+  ~189 GiB of disk-resident FP8 Engram tables) from
+  `antirez/deepseek-v4.1-flash-gguf`, 2-node **resident tensor parallel**
+  (`--tensor-parallel --transport tcp`, 50/50 expert split, ~76 GiB per rank)
+  on `docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0` — the kyuz0
+  gfx1151 ROCm port; upstream ds4 still refuses V4.1 on ROCm. V4.1 on ROCm
+  accepts **only** resident TP here: no `--layers` pipeline, no MTP/DSpark, no
+  SSD-streaming TP. Q4 doesn't fit resident across two 128 GB nodes. The GGUF
+  lands in `~/ds4.1` on both nodes (keep it on NVMe — Engram rows are read on
+  demand): the **head** pulls it from HF once, the **worker** copies it from
+  the head over TB4. Shares the `ds4_cluster` container name with the V4 track
+  (only one fits in memory). TP channel on 8081 **over TB4 (required** — the
+  play fails if `thunderbolt0`/`tb*` isn't up with its 172.20.0.x IP;
+  `-e ds4_allow_lan_fallback=true` to waive), API on 8000.
+  **Hands-off by default**: one run sets up the TB4 link, downloads + seeds,
+  stops every other running container on both nodes (root + rootless, to free
+  unified memory), drops the page cache, starts worker → head, waits for
+  `/v1/models`, and runs a smoke test (`-e ds4_v41_launch=false` to only
+  stage). No `-K` needed when `inventory/group_vars/rocm/become.yml` exists
+  (see *Unattended sudo* below).
+
 - **Thunderbolt networking** — `setup-thunderbolt-net.yml` sets up the
   direct TB4 cable between the two Z2 G1a nodes: loads + persists
   `thunderbolt-net`, assigns `172.20.0.<n>/24` (first inventory host = `.1`,
@@ -175,6 +196,10 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/vllm-r
 # ds4 DeepSeek V4 Flash track (both nodes) — pipeline parallel + MTP;
 # launch per-node later with DS4_ROLE=head|worker:
 ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v4-flash-mtp.yml
+
+# ds4 DeepSeek V4.1 Flash track (both nodes) — resident tensor parallel;
+# one command: TB4 link, download + TB4 seed, stop other containers, launch, smoke test:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v41-flash-tp.yml
 ```
 
 ## Layout
@@ -241,6 +266,7 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   ├── setup-thunderbolt-net.yml  TB4 node-to-node cluster link (multi-node only) + tb-net-diag
 │   │   ├── vllm-rccl-moe.yml          Multi-model vLLM + RCCL MoE track, TB link preferred
 │   │   ├── ds4-deepseek-v4-flash-mtp.yml  2-node ds4 DeepSeek V4 Flash (pipeline parallel + MTP), TB link preferred
+│   │   ├── ds4-deepseek-v41-flash-tp.yml  2-node ds4 DeepSeek V4.1 Flash Q2 (resident tensor parallel), TB4 required
 │   │   ├── inventory/
 │   │   │   ├── hosts              multi-node inventory (halo0 head + halo1 worker, SSH; rocm → aiservers, multinode for TB)
 │   │   │   └── group_vars/all.yml placeholder — empty; tracks define vars inline
@@ -249,6 +275,8 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 │   │   │   ├── opencode-vllm-rccl-moe.json.j2    opencode config (active profile)
 │   │   │   ├── ds4-deepseek-v4-flash-mtp-start.sh.j2  ds4 cluster launch (DS4_ROLE=head|worker)
 │   │   │   ├── opencode-ds4-deepseek-v4-flash-mtp.json.j2   opencode config
+│   │   │   ├── ds4-deepseek-v41-flash-tp-start.sh.j2  ds4 V4.1 TP launch (DS4_ROLE=worker first, then head)
+│   │   │   ├── opencode-ds4-deepseek-v41-flash-tp.json.j2   opencode config
 │   │   │   └── tb-net-diag.sh.j2                   TB4 link diagnostics (iperf3 server/client/ping)
 │   │   └── rendered/              Rendered output (gitignored)
 │   │       ├── scripts/           Rendered launch scripts
@@ -443,6 +471,31 @@ ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-de
 - **Backend**: ROCm 7.2.4 (the multi-node binary ships only in the
   `multi-node-rocm-7.2.4` toolbox image tag)
 
+### ds4-deepseek-v41-flash-tp (Multi-Node)
+
+- **Engine**: `ds4` in the toolbox container `ds4_cluster` —
+  `docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0` (kyuz0/ds4
+  `main-gfx1151`, ROCm 10.0). The play asserts the binary carries the V4.1
+  ROCm TP path before going further.
+- **Model**: `DeepSeek-V4.1-Flash-Q2.gguf` (365,713,686,528 bytes; IQ2_XXS
+  gate/up + Q2_K down routed experts, ~152 GiB main weights + ~189 GiB FP8
+  Engram tables) at `~/ds4.1` on both nodes. The download runs async on both
+  nodes in parallel and is size-verified afterwards.
+- **Parallelism**: resident 2-rank tensor parallel —
+  `--tensor-parallel --transport tcp`; worker `--role worker --coordinator
+  <head_ip> 8081`, head `--role coordinator --listen <head_ip> 8081`. No
+  `--layers`, MTP, DSpark, `--power` < 100, or `--ssd-streaming` (all rejected
+  for V4.1 TP on ROCm).
+- **Context**: 262144 (`-e ds4_ctx=...`; V4.1 accepts up to 1048576)
+- **Ports**: 8081 (TP channel) + 8000 (OpenAI/Anthropic API on the head)
+- **Launch order**: worker first, then head. Logs go to
+  `~/ds4.1-logs/ds4-<role>.log` on each node. The worker runs the `ds4` CLI
+  (`ds4-server` refuses `--role worker`); the head runs `ds4-server`.
+- **Measured (halo0 + halo1, TB4)**: 80.56 GiB resident per rank (85 GiB
+  GTT incl. KV/buffers at ctx 262144); ~1 min from launch to `/v1/models`;
+  ~12.5–15 t/s decode; ~1.5 GiB of TB4 traffic per 400 generated tokens.
+  Worker seeding over TB4 ran at ~1.15 GB/s (vs ~115 MB/s from HF).
+
 ## Model Downloads (hf CLI)
 
 The bootstrap downloads GGUF weights via **hf** (the Hugging Face CLI), which
@@ -555,6 +608,20 @@ DS4_ROLE=worker ./ansible/scripts/ds4-deepseek-v4-flash-mtp-start.sh
 # files are present.
 ```
 
+### Multi-Node Launch Example (ds4-deepseek-v41-flash-tp)
+
+```bash
+# Easiest — let ansible start worker -> head, wait, and smoke test:
+ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/ds4-deepseek-v41-flash-tp.yml
+
+# Or by hand, with the script the playbook rendered on each node:
+# halo1 (worker, FIRST):
+DS4_ROLE=worker ~/scripts/ds4-deepseek-v41-flash-tp-start.sh
+# halo0 (coordinator + API):
+DS4_ROLE=head   ~/scripts/ds4-deepseek-v41-flash-tp-start.sh
+# Logs: ~/ds4.1-logs/ds4-{worker,head}.log   API: http://<head_ip>:8000/v1
+```
+
 ## OpenCode Agent Config
 
 Each track renders its OpenCode config to the controller's
@@ -569,6 +636,7 @@ Each track renders its OpenCode config to the controller's
 
 - `opencode-vllm-rccl-moe.json` — `vllm-rccl-moe` provider (active profile) → `http://<head_ip>:8081/v1`
 - `opencode-ds4-deepseek-v4-flash-mtp.json` — `ds4-deepseek-v4-flash-mtp` provider → `http://<head_ip>:8000/v1`
+- `opencode-ds4-deepseek-v41-flash-tp.json` — `ds4-deepseek-v41-flash-tp` provider → `http://<head_ip>:8000/v1`
 
 Each file is a standalone opencode config fragment (schema at
 `https://opencode.ai/config.json`) declaring one provider on the
@@ -600,6 +668,7 @@ All single-node playbooks are self-contained with inline vars — no group_vars 
 
 - vllm-rccl-moe: `active_profile` (minimax-m2.7-awq-4bit | qwen3.5-122b-awq-4bit), `vllm_moe_head_ip` / `vllm_moe_worker_ip` (derived from `vllm_moe_role` hostvars; override via -e), `vllm_moe_port` (8081), `vllm_moe_tp_size` (2), `vllm_moe_gpu_util` (0.9)
 - ds4-deepseek-v4-flash-mtp: `ds4_head_ip` / `ds4_worker_ip` (derived from `ds4_role` hostvars — TB static IP when the live TB link check says both ends are up, else LAN `ansible_host` on both; override via -e), `ds4_ctx` (262144), `ds4_mtp_draft` (1), `ds4_layers_head` (0:21), `ds4_layers_worker` (22:output), `ds4_pp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536)
+- ds4-deepseek-v41-flash-tp: `ds4_head_ip` / `ds4_worker_ip` (same derivation), `ds4_ctx` (262144), `ds4_tp_port` (8081), `ds4_api_port` (8000), `ds4_max_tokens` (65536), `ds4_allow_lan_fallback` (false — the TP channel must ride TB4 172.20.0.x), `ds4_v41_launch` (true — stops ALL other running containers, root + rootless, drops the page cache, then starts worker → head + smoke test; false = stage only; bootstrap.yml passes false), `ds4_skip_tb_setup` (false — skip the imported setup-thunderbolt-net.yml), `ds4_seed_port` (8089, temporary head→worker copy over TB4), `ds4_health_retries` / `ds4_health_delay` (120 × 10s)
 - setup-thunderbolt-net (multi-node): `tb_net_enabled` (true), `tb_net_cidr` (172.20.0.0/24), `tb_net_ip` / `tb_net_peer_ip` (per-host override), `tb_net_install_iperf` (true), `tb_net_iperf_test` (true), `tb_net_iperf_port` (5201), `tb_net_iperf_parallel` (4), `tb_net_iperf_time` (10)
 
 ### Scripts
@@ -658,6 +727,22 @@ Vulkan container instead. MTP speculation args are baked into both the container
 **Architecture:** the ansible playbook is **bootstrap-only**. It installs
 packages, sets GRUB, creates containers/toolboxes, builds llama.cpp, and
 downloads model weights. It NEVER launches servers.
+
+## Unattended sudo (multi-node)
+
+To run the multi-node playbooks without `-K`, drop the nodes' sudo password
+into a **gitignored** group_vars file that Ansible loads automatically:
+
+```bash
+mkdir -p ansible/multi-node/inventory/group_vars/rocm
+printf 'ansible_become_password: "%s"\n' '<sudo password>' \
+  > ansible/multi-node/inventory/group_vars/rocm/become.yml
+chmod 600 ansible/multi-node/inventory/group_vars/rocm/become.yml
+```
+
+`.gitignore` covers `ansible/*/inventory/group_vars/*/become.yml` (and
+`ansible/secrets/*`). For encryption at rest, `ansible-vault encrypt` the file
+and run with `--vault-password-file`. Without the file, `-K` works as before.
 
 ## Troubleshooting
 
