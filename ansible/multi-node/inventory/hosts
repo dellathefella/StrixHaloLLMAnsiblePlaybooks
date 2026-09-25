@@ -4,8 +4,8 @@
 # Both cluster nodes are real hosts, reached over SSH from the ansible control
 # machine (a third box — nothing in this file is a local connection):
 #
-#   halo0  192.168.7.145  cluster head   (TB link IP 172.20.0.1)
-#   halo1  192.168.7.179  cluster worker (TB link IP 172.20.0.2)
+#   halo0  10.0.1.74  cluster head   (TB link IP 172.20.0.1)
+#   halo1  10.0.1.67  cluster worker (TB link IP 172.20.0.2)
 #
 # Run the multi-node bootstrap with this file:
 #   ansible-playbook -i ansible/multi-node/inventory/hosts ansible/multi-node/bootstrap.yml
@@ -26,8 +26,8 @@
 # (vllm_moe_ip, else ansible_host); -e still overrides (LAN IPs when the
 # TB link is down). Prefers the Thunderbolt link (tb*) from
 # ../setup-thunderbolt-net.yml.
-#halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=head vllm_moe_ip=172.20.0.1
-#halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=worker vllm_moe_ip=172.20.0.2
+#halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=head vllm_moe_ip=172.20.0.1
+#halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella ansible_become_exe=/usr/bin/sudo.ws vllm_moe_role=worker vllm_moe_ip=172.20.0.2
 
 [ds4-deepseek-v4-flash-mtp]
 # 2-node ds4 (DeepSeek V4 Flash) track — pipeline parallel + MTP speculative
@@ -38,16 +38,16 @@
 # ansible_host); -e still overrides (LAN IPs when the TB link is down).
 # The pipeline channel (port 8081) prefers the Thunderbolt link (tb*) from
 # ../setup-thunderbolt-net.yml.
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
-halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
+halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
+halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
 
 [ds4-deepseek-v41-flash-tp]
 # 2-node ds4 DeepSeek V4.1 Flash (Q2) track — resident tensor parallelism
 # over TCP (container `ds4_cluster`, image
 # docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0). Same ds4_role /
 # ds4_ip scheme as above; the worker must be started before the head.
-halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
-halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
+halo0 ansible_host=10.0.1.74 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
+halo1 ansible_host=10.0.1.67 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
 
 # Capability groups — group hosts by GPU backend. The vllm-rccl-moe track is a
 # vLLM/ROCm (RCCL) deployment, so it sits under `rocm`; `aiservers` is the union
