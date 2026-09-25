@@ -9,3 +9,8 @@ hf_token.txt
 # Stress benchmark generated artifacts
 benchmarks/stress/long-context/prompts/
 benchmarks/stress/long-context/results.jsonl
+
+# Local secrets (never commit)
+ansible/secrets/*
+!ansible/secrets/PUT_HF_TOKEN_HERE
+ansible/*/inventory/group_vars/*/become.yml

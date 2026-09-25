@@ -102,7 +102,7 @@
     # -----------------------------------------------------------------------
     - name: Detect an up Thunderbolt interface (from setup-thunderbolt-net.yml)
       ansible.builtin.shell:
-        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^tb[0-9]+$/ && $2 == \"UP\" {print $1; exit}'"
+        cmd: "ip -br link show 2>/dev/null | awk '$1 ~ /^(tb[0-9]+|thunderbolt[0-9]+)$/ && $2 == \"UP\" {print $1; exit}'"
       register: ds4_tb_if
       changed_when: false
       failed_when: false

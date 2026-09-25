@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ds4-deepseek-v41-flash-tp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek V4.1 Flash (ds4, 2-node tensor parallel)",
+      "options": {
+        "baseURL": "http://{{ ds4_head_ansible_host }}:{{ ds4_api_port }}/v1",
+        "apiKey": "dsv4-local"
+      },
+      "models": {
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4.1 Flash Q2 (ds4 2-node TP)",
+          "reasoning": true,
+          "limit": {
+            "context": {{ ds4_ctx }},
+            "output": {{ ds4_max_tokens }}
+          },
+          "cost": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+        }
+      }
+    }
+  }
+}

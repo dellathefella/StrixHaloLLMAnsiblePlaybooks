@@ -41,6 +41,14 @@
 halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
 halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
 
+[ds4-deepseek-v41-flash-tp]
+# 2-node ds4 DeepSeek V4.1 Flash (Q2) track — resident tensor parallelism
+# over TCP (container `ds4_cluster`, image
+# docker.io/kyuz0/strix-halo-ds4-toolbox:ds4.1f-rocm10.0). Same ds4_role /
+# ds4_ip scheme as above; the worker must be started before the head.
+halo0 ansible_host=192.168.7.145 ansible_connection=ssh ansible_user=jdella ds4_role=head ds4_ip=172.20.0.1
+halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_role=worker ds4_ip=172.20.0.2
+
 # Capability groups — group hosts by GPU backend. The vllm-rccl-moe track is a
 # vLLM/ROCm (RCCL) deployment, so it sits under `rocm`; `aiservers` is the union
 # of all inference hosts and is what the shared host-level plays target.
@@ -50,6 +58,7 @@ halo1 ansible_host=192.168.7.179 ansible_connection=ssh ansible_user=jdella ds4_
 [rocm:children]
 vllm-rccl-moe
 ds4-deepseek-v4-flash-mtp
+ds4-deepseek-v41-flash-tp
 
 [aiservers:children]
 rocm
